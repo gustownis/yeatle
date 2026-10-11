@@ -1,0 +1,49 @@
+name: Desktop builds
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+            arch: x64
+          - os: macos-latest
+            target: mac
+            arch: arm64
+          - os: macos-latest
+            target: mac
+            arch: x64
+          - os: ubuntu-latest
+            target: linux
+            arch: x64
+          - os: ubuntu-latest
+            target: linux
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-fund --no-audit
+      - run: npm test
+      - run: npx electron-builder --${{ matrix.target }} --${{ matrix.arch }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: yeatle-${{ matrix.target }}-${{ matrix.arch }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: error
+          retention-days: 14
