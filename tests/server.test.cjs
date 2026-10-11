@@ -89,6 +89,26 @@ test("saved song list is available when the tracker cannot provide rows", async 
   assert.equal(list.updated, 123);
 });
 
+test("admin accepts garlic, hashes the password, and rejects anonymous edits", async t => {
+  const folder = dataFolder(t);
+  config(folder);
+  fs.writeFileSync(path.join(folder, "admin.json"), JSON.stringify({ password: "garlic" }));
+  const { url } = await launch(t, folder);
+  const admin = await fetch(`${url}/admin`);
+  assert.equal(admin.status, 200);
+  assert.match(await admin.text(), /Password/);
+  assert.equal((await fetch(`${url}/api/admin/songs`)).status, 401);
+  const wrong = await fetch(`${url}/api/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "wrong" }) });
+  assert.equal(wrong.status, 401);
+  const login = await fetch(`${url}/api/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "garlic" }) });
+  assert.equal(login.status, 200);
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  assert.equal((await fetch(`${url}/api/admin/songs`, { headers: { Cookie: cookie } })).status, 200);
+  const saved = JSON.parse(fs.readFileSync(path.join(folder, "admin.json"), "utf8"));
+  assert.equal(saved.password, undefined);
+  assert.ok(saved.salt && saved.hash);
+});
+
 test("invalid configuration exits with useful instructions", async t => {
   const folder = dataFolder(t);
   fs.writeFileSync(path.join(folder, "config.json"), "{broken JSON}");

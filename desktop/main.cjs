@@ -2,12 +2,17 @@ const { app, BrowserWindow, Menu, dialog, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { menuTemplate } = require("./menu.cjs");
+const { createUpdateController } = require("./updates.cjs");
 app.setName("Yeatle");
 
 const PROJECT_DIR = path.join(__dirname, "..");
 const STEMS_URL = "https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g";
 let serverProcess;
 let gameWindow;
+let adminWindow;
+let updates;
+let checkedOnLaunch = false;
 let serverUrl;
 let quitting = false;
 let starting = false;
@@ -54,6 +59,9 @@ async function startGame() {
     }
     const configFile = path.join(dataDir, "config.json");
     if (!fs.existsSync(configFile)) fs.copyFileSync(path.join(PROJECT_DIR, "config.example.json"), configFile);
+    // Make the local login available without replacing an existing password.
+    const adminFile = path.join(dataDir, "admin.json");
+    if (!fs.existsSync(adminFile)) fs.writeFileSync(adminFile, JSON.stringify({ password: "garlic" }), { mode: 0o600 });
     // A stable origin preserves the game's browser storage between launches.
     const settings = JSON.parse(fs.readFileSync(configFile, "utf8"));
     const desktopPort = settings.desktopPort ?? 3094;
@@ -97,6 +105,7 @@ async function startGame() {
       });
     });
     serverUrl = `http://127.0.0.1:${port}`;
+    updates ||= createUpdateController({ app, dialog, shell, getWindow: () => gameWindow, onStatus: refreshMenu });
     createWindow();
   } finally { starting = false; }
 }
@@ -119,22 +128,46 @@ function createWindow() {
   window.webContents.on("did-fail-load", (_event, code, description, _url, isMainFrame) => {
     if (isMainFrame && code !== -3 && !quitting) failStartup(new Error(`The game window could not load: ${description}`));
   });
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    ...(process.platform === "darwin" ? [{ role: "appMenu" }] : []),
-    { label: "Game", submenu: [
-      { label: "Open in Browser", click: () => shell.openExternal(serverUrl).catch(failStartup) },
-      { label: "Open Songs Folder", click: () => shell.openPath(path.join(app.getPath("userData"), "Songs")) },
-      { label: "Open Settings and Logs Folder", click: () => shell.openPath(app.getPath("userData")) },
-      { type: "separator" },
-      { role: "quit" }
-    ] },
-    { role: "viewMenu" },
-    { label: "Help", submenu: [
-      { label: "Setup Guide", click: () => openExternal("https://github.com/gustownis/yeatle#readme") },
-      { label: "Optional HQ Stems", click: () => openExternal(STEMS_URL) }
-    ] }
-  ]));
+  refreshMenu();
+  window.webContents.once("did-finish-load", () => {
+    if (checkedOnLaunch) return;
+    checkedOnLaunch = true;
+    const timer = setTimeout(() => { if (!quitting) updates.check(false).catch(console.warn); }, 10000);
+    timer.unref();
+  });
   window.loadURL(serverUrl).catch(failStartup);
+}
+
+function refreshMenu() {
+  if (!serverUrl || !updates) return;
+  Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
+    platform: process.platform,
+    openBrowser: () => shell.openExternal(serverUrl).catch(failStartup),
+    openSongs: () => shell.openPath(path.join(app.getPath("userData"), "Songs")),
+    openSettings: () => shell.openPath(app.getPath("userData")),
+    openAdmin,
+    openGuide: () => openExternal("https://github.com/gustownis/yeatle#readme"),
+    openStems: () => openExternal(STEMS_URL),
+    checkUpdates: () => updates.check(true).catch(console.warn),
+    updateStatus: updates.status,
+    updating: updates.busy
+  })));
+}
+
+function openAdmin() {
+  if (adminWindow && !adminWindow.isDestroyed()) { adminWindow.show(); adminWindow.focus(); return; }
+  const window = new BrowserWindow({
+    title: "Yeatle Admin", width: 1100, height: 800, backgroundColor: "#000000",
+    icon: path.join(PROJECT_DIR, "build", "favicon.png"),
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true }
+  });
+  adminWindow = window;
+  window.on("closed", () => { if (adminWindow === window) adminWindow = null; });
+  window.webContents.on("will-navigate", (event, url) => {
+    if (new URL(url).origin !== serverUrl) { event.preventDefault(); openExternal(url); }
+  });
+  window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
+  window.loadURL(`${serverUrl}/admin`).catch(error => dialog.showErrorBox("Admin panel could not open", error.message));
 }
 
 function openExternal(url) {

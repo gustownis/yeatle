@@ -18,6 +18,10 @@ Both versions run on your computer. The browser version opens a local page;
 it is not a public hosted website. The desktop app runs the same game inside
 its own window and includes an **Open in Browser** menu option.
 
+**New in 1.9.1:** the desktop app checks for updates on launch. Use **Help →
+Check for Updates** to check again, or **Developer → Open Admin Panel** to
+manage songs. Developer tools now live in the **Developer** menu.
+
 ## Downloads
 
 - **Desktop app:** choose your computer in the table below. Everything needed
@@ -35,14 +39,14 @@ download automatically on first launch.
 
 | Computer | Downloads |
 | --- | --- |
-| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle.Setup.1.9.0.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle.1.9.0.exe) |
-| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0-arm64-mac.zip) |
-| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0-mac.zip) |
-| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.0/yeatle-desktop_1.9.0_amd64.deb) |
-| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.0/yeatle-desktop_1.9.0_arm64.deb) |
+| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-Setup-1.9.1-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-windows-x64-portable.exe) |
+| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-mac-arm64.zip) |
+| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-mac-x64.zip) |
+| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-linux-x64.deb) |
+| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-linux-arm64.deb) |
 
-These are initial desktop preview builds. Installation steps for each OS are
-below. [SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.9.0/SHA256SUMS.txt)
+Installation steps for each OS are below.
+[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.9.1/SHA256SUMS.txt)
 are provided with the release.
 
 ## Requirements
@@ -88,14 +92,14 @@ Cloning this public repository does not require authentication.
 
 ### Desktop app
 
-1. Download the Windows **x64 installer** (`Yeatle.Setup.1.9.0.exe`) for a usual
+1. Download the Windows **x64 installer** (`Yeatle-Setup-1.9.1-windows-x64.exe`) for a usual
    Intel/AMD Windows PC, or the matching portable `.exe` if offered.
 2. Run the installer, choose the installation folder if prompted, and open
    **Yeatle** from Start. The portable app runs directly without installation.
 3. On first launch, allow time for the song list and model downloads.
 
 Node.js is bundled with the desktop app. Do not install it just to run the app.
-These initial community builds are unsigned and may show an OS reputation
+These community builds are unsigned and may show an OS reputation
 warning. Verify that the file came from this project's release or build page.
 If your organization blocks unsigned software, use the browser version.
 
@@ -178,10 +182,10 @@ use the matching `.deb` on Debian/Ubuntu or the browser version.
 For a Debian/Ubuntu package, install the exact downloaded filename:
 
 ```sh
-sudo apt install ./yeatle-desktop_1.9.0_amd64.deb
+sudo apt install ./Yeatle-1.9.1-linux-x64.deb
 ```
 
-For ARM64, use the package ending in `_arm64.deb`. Open Yeatle from your desktop
+For ARM64, use the package ending in `-arm64.deb`. Open Yeatle from your desktop
 application menu. Node.js is bundled in both desktop formats.
 
 ### Browser version
@@ -320,6 +324,36 @@ the larger `.onnx` files or rename a ZIP/archive to `.onnx`.
 There is no need to install Python, TensorFlow, a separate Spleeter program,
 or GPU drivers solely for this setup. The supplied game uses ONNX Runtime Web.
 
+## Updating the desktop app
+
+Yeatle 1.9.1 checks this project's GitHub releases about ten seconds after
+launch. It only offers newer regular releases, skipping drafts and prereleases.
+You can also select **Help → Check for Updates** at any time.
+
+1. When a new version is found, choose **Download Update** or **Release Notes**.
+   You can choose **Later** and keep playing.
+2. The app downloads the correct file for your computer and verifies its
+   checksum. A broken download will not be installed.
+3. Finish the update according to your installation:
+
+| Your installation | How the update finishes |
+| --- | --- |
+| Windows installer | Choose **Install and Restart**. Yeatle closes, installs the update in the existing folder, and restarts. |
+| Linux AppImage | Choose **Install and Restart**. Yeatle replaces the AppImage and restarts. Its folder must be writable. |
+| Mac | Choose **Open Installer**, quit Yeatle, and replace the app in Applications. These unsigned builds cannot use macOS's automatic updater. |
+| Windows portable | Choose **Show Download**, close Yeatle, and replace your old portable executable with the new one. |
+| Linux DEB | Choose **Open Installer**, quit Yeatle, and finish installation in your system's package installer. |
+
+The app does not install updates in the background or replace your settings,
+admin password, downloaded models, or stems. Game progress stays in the same
+desktop profile. If GitHub or your connection is unavailable, you can keep
+playing and try again later.
+
+**Upgrading from 1.9.0:** download and install 1.9.1 once using the links above.
+The updater is available from 1.9.1 onward. The browser version has no desktop
+menu or installer updater; download the new browser ZIP or update your Git
+checkout, keeping your local settings and song folders.
+
 ## Settings, saved files, and privacy
 
 For browser play, settings and server caches live beside `server.js`. To
@@ -380,8 +414,12 @@ project analytics service. Third-party services have their own policies.
 The original browser package provides its admin panel at
 **http://localhost:3093/admin**, with the password **`garlic`** (all lowercase).
 
-For this repository and its desktop builds, enable the panel by creating an
-`admin.json` in the relevant data folder and restarting. To use the same password:
+**Desktop 1.9.1:** select **Developer → Open Admin Panel**. A new installation
+uses `garlic`; an existing custom password is preserved. The panel opens in a
+separate window so your game stays open.
+
+**Browser version:** enable the panel by creating an `admin.json` next to
+`server.js` and restarting. To use the same password:
 
 ```json
 { "password": "garlic" }
@@ -393,10 +431,9 @@ The server replaces the plaintext password with a salted hash on startup.
 Never share `admin.json`. The original imported credential file is excluded
 from the repository and desktop packages.
 
-You can choose another password in `admin.json` if you prefer. This repository
-does not bundle the original admin configuration, so the panel is disabled
-until you complete the setup above. It lets you correct song names, eras, and
-other minor metadata issues while waiting for an upstream update.
+You can choose another password in `admin.json` if you prefer. It lets you
+correct song names, eras, and other minor metadata issues while waiting for
+an upstream update.
 
 ## Troubleshooting
 
@@ -457,7 +494,25 @@ automatically. Maintainers can attach reviewed installers to a GitHub Release.
 
 The **Checks** workflow tests the server on Windows, macOS, and Linux.
 Tests cover compiled assets, WebAssembly headers, separate stem storage,
-cached lists, invalid configuration, and interrupted model downloads.
+cached lists, admin login, invalid configuration, interrupted model downloads,
+release selection, update integrity, and the desktop menu.
+
+### Publishing updates
+
+After all five desktop builds finish, download their artifacts into a folder
+and prepare the checksums and updater metadata:
+
+```sh
+npm run prepare:release -- 1.9.1 release/github-builds-1.9.1 release/update-metadata-1.9.1
+```
+
+For a future release, replace `1.9.1` in the version and folder names. The script
+requires all ten installers/archive files and fails if any are missing. Attach
+those ten files plus `SHA256SUMS.txt`, `latest.yml`, `latest-linux.yml`, and
+`latest-linux-arm64.yml` to a draft GitHub Release. Verify all uploads before
+publishing it as a regular **Latest** release. The metadata must match the
+installer bytes; rerun the script if you rebuild anything. Do not rename the
+installer files after generating metadata.
 
 ### Original frontend source is incomplete
 

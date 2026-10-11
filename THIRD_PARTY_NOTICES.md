@@ -15,6 +15,7 @@ The supplied compiled files retain their original license comments.
 | Best-Practice Spleeter 4-stem ONNX conversion | Apache-2.0 | [Model card and attribution](https://huggingface.co/Best-Practice/spleeter-4stems-onnx) |
 | Vite and its React plugin (development tools) | MIT | Their package licenses are installed with their dependencies |
 | Electron desktop runtime | MIT, with separately licensed Chromium components | See `licenses/Electron-MIT.txt` and the runtime's bundled `LICENSES.chromium.html` |
+| electron-updater and its runtime dependencies | MIT, with dependencies retaining their respective package licenses | See `licenses/electron-updater-MIT.txt` and the installed dependency license files |
 
 License texts for redistributed runtime components are in `licenses/`.
 Models are downloaded from the upstream host and are excluded from Git.
