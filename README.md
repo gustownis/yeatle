@@ -8,8 +8,8 @@ or short snippets.
 ![Yeatle running in its desktop window](docs/desktop-preview.png)
 
 **The original Yeatle application was vibecoded in its entirety**: it was
-created through AI-assisted coding by **Garlic** from the
-[Twizz Discord community](https://discord.gg/twizz). This repository
+created through AI-assisted coding by the original creator from the
+[Yeat Hub Discord community](https://discord.gg/twizz). This repository
 preserves that game and adds desktop packaging, setup documentation, and
 maintenance improvements. Third-party libraries and models are credited
 separately below.
@@ -392,9 +392,8 @@ project analytics service. Third-party services have their own policies.
 
 ### Optional admin panel
 
-Garlic's original browser package provides its admin panel at
+The original browser package provides its admin panel at
 **http://localhost:3093/admin**, with the password **`garlic`** (all lowercase).
-Garlic is also the original creator's Discord name.
 
 For this repository and its desktop builds, enable the panel by creating an
 `admin.json` in the relevant data folder and restarting. To use the same password:
@@ -510,11 +509,11 @@ is a preserved local original and is not part of the published repository.
 
 ## Feedback and community
 
-Yeatle originated in the [Twizz Discord community](https://discord.gg/twizz).
+Yeatle originated in the [Yeat Hub Discord community](https://discord.gg/twizz).
 Please report remaining song or playback issues, suggest additions, and share
 ideas for improvements in the server's Yeatle feedback channel.
 
-Garlic describes development as an enjoyable but challenging
+The original creator describes development as an enjoyable but challenging
 process and appreciates everyone who plays the game and shares feedback.
 Your reports help improve future updates.
 
@@ -529,7 +528,7 @@ This does not relicense third-party code, models, music, artwork, or videos.
 Read [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for retained attributions,
 licenses, and the original server's `tracker-player` provenance note.
 
-- Original game: **Garlic** from the [Twizz Discord community](https://discord.gg/twizz), created entirely through vibecoding.
+- Original game: created entirely through vibecoding by the original creator from the [Yeat Hub Discord community](https://discord.gg/twizz).
 - Separation: [Spleeter by Deezer Research](https://github.com/deezer/spleeter).
 - ONNX conversion: [Best-Practice / madewith-bestpractice](https://huggingface.co/Best-Practice/spleeter-4stems-onnx).
 - Browser inference: [ONNX Runtime Web](https://github.com/microsoft/onnxruntime).
