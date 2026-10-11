@@ -1,0 +1,712 @@
+{
+  "hidden": [
+    {
+      "id": "summrsandplaqueboymaxrinohercules",
+      "name": "Summrs & PlaqueBoyMax - Rino Hercules",
+      "era": "A DANGEROUS LYFE [V1]",
+      "key": "summrsandplaqueboymaxrinohercules|adangerouslyfev1"
+    },
+    {
+      "id": "hehe",
+      "name": "hehe (with Lil Uzi Vert)",
+      "era": "2 Alivë",
+      "key": "hehewithliluzivert|2alive"
+    },
+    {
+      "id": "liluziverthehe",
+      "name": "Lil Uzi Vert - Hehe",
+      "era": "2 Alivë",
+      "key": "liluziverthehe|2alive"
+    },
+    {
+      "id": "doubletesla",
+      "name": "Double Tesla",
+      "era": "",
+      "key": "doubletesla|"
+    },
+    {
+      "id": "ionknowyeatremix",
+      "name": "Ion Know (yeat Remix)",
+      "era": "Yeat Archive",
+      "key": "ionknowyeatremix|yeatarchive"
+    },
+    {
+      "id": "punkmonkremix",
+      "name": "Punk Monk (remix)",
+      "era": "Alivë",
+      "key": "punkmonkremix|alive"
+    },
+    {
+      "id": "thatarack",
+      "name": "That A Rack",
+      "era": "",
+      "key": "thatarack|"
+    },
+    {
+      "id": "vibewme",
+      "name": "vibewme",
+      "era": "",
+      "key": "vibewme|"
+    },
+    {
+      "id": "newturbanbachatabnyxremix",
+      "name": "New Turban (Bachata BNYX Remix)",
+      "era": "Up 2 Më [V3]",
+      "key": "newturbanbachatabnyxremix|up2mev3"
+    },
+    {
+      "id": "doublemetalversionbnyx",
+      "name": "DOÜBLE (METAL VERSION BNYX®)",
+      "era": "2 Alivë",
+      "key": "doublemetalversionbnyx|2alive"
+    },
+    {
+      "id": "doublernbversion",
+      "name": "Doublë (RnB Version)",
+      "era": "2 Alivë",
+      "key": "doublernbversion|2alive"
+    },
+    {
+      "id": "moneyndrugs",
+      "name": "Money N Drugs",
+      "era": "",
+      "key": "moneyndrugs|"
+    },
+    {
+      "id": "summrsandplaqueboymaxhercules",
+      "name": "Summrs & PlaqueBoyMax - Hercules",
+      "era": "A DANGEROUS LYFE [V1]",
+      "key": "summrsandplaqueboymaxhercules|adangerouslyfev1"
+    },
+    {
+      "id": "marching",
+      "name": "Marching (feat. French Montana)",
+      "era": "2093",
+      "key": "marchingfeatfrenchmontana|2093"
+    },
+    {
+      "id": "all4nothin",
+      "name": "all 4 nothin",
+      "era": "4L with us",
+      "key": "all4nothin|4lwithus"
+    },
+    {
+      "id": "brnk",
+      "name": "br!nk",
+      "era": "1500",
+      "key": "brnk|1500"
+    },
+    {
+      "id": "drakejuliawolfandyeatdoghouse",
+      "name": "Drake, Julia Wolf & Yeat - DOG HOUSE",
+      "era": "DANGEROUS SUMMER",
+      "key": "drakejuliawolfandyeatdoghouse|dangeroussummer"
+    },
+    {
+      "id": "moveenoughdope@adl",
+      "name": "move enough dope",
+      "era": "ADL [V2]",
+      "key": "moveenoughdope|adlv2"
+    },
+    {
+      "id": "safe",
+      "name": "Safe fake",
+      "era": "Alivë",
+      "key": "safefake|alive"
+    },
+    {
+      "id": "5brazy",
+      "name": "5BRAZY",
+      "era": "LYFESTYLE [V2]",
+      "key": "5brazy|lyfestylev2"
+    },
+    {
+      "id": "issues",
+      "name": "ISSUES",
+      "era": "DANGEROUS SUMMER",
+      "key": "issues|dangeroussummer"
+    },
+    {
+      "id": "missmydawg",
+      "name": "MISS MY DAWG (with Drake)",
+      "era": "COCOON",
+      "key": "missmydawgwithdrake|cocoon"
+    },
+    {
+      "id": "youngstonerlifeandyoungthugeaters",
+      "name": "Young Stoner Life & Young Thug - Eaters (feat. Tezzus, Travis Scott & Future)",
+      "era": "COCOON",
+      "key": "youngstonerlifeandyoungthugeatersfeattezzustravisscottandfuture|cocoon"
+    },
+    {
+      "id": "bnyxbizarrapyeatandpesoplumaalluwant",
+      "name": "BNYX®, Bizarrap, Yeat & Peso Pluma - ALL U WANT",
+      "era": "DANGEROUS SUMMER",
+      "key": "bnyxbizarrapyeatandpesoplumaalluwant|dangeroussummer"
+    },
+    {
+      "id": "bigracks@elegance",
+      "name": "Big Racks",
+      "era": "LYFESTYLE",
+      "key": "bigracks|lyfestyle"
+    },
+    {
+      "id": "bluegatoradewealienfreestyle",
+      "name": "Blue Gatorade (We Alien Freestyle)",
+      "era": "2093",
+      "key": "bluegatoradewealienfreestyle|2093"
+    },
+    {
+      "id": "cayenneoutside@up2me",
+      "name": "Cayenne outsidë",
+      "era": "Up 2 Më [V1]",
+      "key": "cayenneoutside|up2mev1"
+    },
+    {
+      "id": "celine@4lwithus",
+      "name": "Celine",
+      "era": "DANGEROUS SUMMER",
+      "key": "celine|dangeroussummer"
+    },
+    {
+      "id": "crasheddatbitch@afterlyfe",
+      "name": "Crashed dat bitch (feat. Lil Uzi Vert)",
+      "era": "AftërLyfe",
+      "key": "crasheddatbitchfeatliluzivert|afterlyfe"
+    },
+    {
+      "id": "gone4amin@lyfestyle",
+      "name": "gone 4 a min",
+      "era": "LYFESTYLE [V2]",
+      "key": "gone4amin|lyfestylev2"
+    },
+    {
+      "id": "gotrich@alive",
+      "name": "GotRich",
+      "era": "2093",
+      "key": "gotrich|2093"
+    },
+    {
+      "id": "habmaster@edit-dc379abd459b",
+      "name": "H.A.B MASTER",
+      "era": "2093",
+      "key": "habmaster|2093"
+    },
+    {
+      "id": "toldyana@edit-c71d7dc56569",
+      "name": "Told ya (NA)",
+      "era": "Up 2 Më [V3]",
+      "key": "toldyana|up2mev3"
+    },
+    {
+      "id": "krank",
+      "name": "Krank (Chains)",
+      "era": "Lyfë",
+      "key": "krankchains|lyfe"
+    },
+    {
+      "id": "2high@2alive",
+      "name": "2 high",
+      "era": "2 Alivë",
+      "key": "2high|2alive"
+    },
+    {
+      "id": "2kthagoonandyeattolerance",
+      "name": "2kthagoon & Yeat - Tolerance",
+      "era": "Deep Blue $trips",
+      "key": "2kthagoonandyeattolerance|deepbluestrips"
+    },
+    {
+      "id": "cantstopthis",
+      "name": "Cant stop this",
+      "era": "Lyfë",
+      "key": "cantstopthis|lyfe"
+    },
+    {
+      "id": "everytypabaddamage",
+      "name": "EVERY TYPA BAD / DAMAGE",
+      "era": "Lyfë",
+      "key": "everytypabaddamage|lyfe"
+    },
+    {
+      "id": "highasf@split-0642a1657b1a",
+      "name": "high asf (feat. Nerd1k)",
+      "era": "Lyfë",
+      "key": "highasffeatnerd1k|lyfe"
+    },
+    {
+      "id": "fakeluvfreestyle",
+      "name": "Fake Luv Freestyle",
+      "era": "Lyfë",
+      "key": "fakeluvfreestyle|lyfe"
+    },
+    {
+      "id": "kantgetlikedis",
+      "name": "kant gët likë dis",
+      "era": "Lyfë",
+      "key": "kantgetlikedis|lyfe"
+    },
+    {
+      "id": "longmoney",
+      "name": "Long Money (feat. SeptembersRich)",
+      "era": "Lyfë",
+      "key": "longmoneyfeatseptembersrich|lyfe"
+    },
+    {
+      "id": "minionsong",
+      "name": "Minion song",
+      "era": "Lyfë",
+      "key": "minionsong|lyfe"
+    },
+    {
+      "id": "newx",
+      "name": "New X",
+      "era": "Lyfë",
+      "key": "newx|lyfe"
+    },
+    {
+      "id": "nopractice",
+      "name": "no practice",
+      "era": "Lyfë",
+      "key": "nopractice|lyfe"
+    },
+    {
+      "id": "osama",
+      "name": "Osama",
+      "era": "Lyfë",
+      "key": "osama|lyfe"
+    },
+    {
+      "id": "skimasktheslumpgodlookatshe",
+      "name": "Ski Mask the Slump God - Look At She",
+      "era": "Lyfë",
+      "key": "skimasktheslumpgodlookatshe|lyfe"
+    },
+    {
+      "id": "stoodtaller",
+      "name": "Stood Taller",
+      "era": "Lyfë",
+      "key": "stoodtaller|lyfe"
+    },
+    {
+      "id": "summrsandyeatoxystory",
+      "name": "Summrs & Yeat - OXY STORY",
+      "era": "Lyfë",
+      "key": "summrsandyeatoxystory|lyfe"
+    },
+    {
+      "id": "thaend",
+      "name": "tha end",
+      "era": "Lyfë",
+      "key": "thaend|lyfe"
+    },
+    {
+      "id": "tooextra",
+      "name": "Too Extra (feat. GoVanni!)",
+      "era": "Lyfë",
+      "key": "tooextrafeatgovanni|lyfe"
+    },
+    {
+      "id": "wathappen@holdon",
+      "name": "Wat happen",
+      "era": "Lyfë",
+      "key": "wathappen|lyfe"
+    },
+    {
+      "id": "watthadeal",
+      "name": "Wat Tha Deal",
+      "era": "Lyfë",
+      "key": "watthadeal|lyfe"
+    },
+    {
+      "id": "z06",
+      "name": "z06",
+      "era": "Lyfë",
+      "key": "z06|lyfe"
+    },
+    {
+      "id": "everytime",
+      "name": "EveryTime (feat. PercThurdi)",
+      "era": "COCOON",
+      "key": "everytimefeatpercthurdi|cocoon"
+    },
+    {
+      "id": "cantletgo",
+      "name": "cant let go",
+      "era": "Up 2 Më",
+      "key": "cantletgo|up2me"
+    },
+    {
+      "id": "deathnotehosted@edit-3ad7feed8f0d",
+      "name": "Death Note (Hosted)",
+      "era": "Up 2 Më",
+      "key": "deathnotehosted|up2me"
+    },
+    {
+      "id": "hard2miss",
+      "name": "HARD 2 MISS",
+      "era": "Up 2 Më",
+      "key": "hard2miss|up2me"
+    },
+    {
+      "id": "iheard",
+      "name": "I Hëard",
+      "era": "Up 2 Më",
+      "key": "iheard|up2me"
+    },
+    {
+      "id": "inmyhead",
+      "name": "in my head",
+      "era": "Up 2 Më",
+      "key": "inmyhead|up2me"
+    },
+    {
+      "id": "risky",
+      "name": "RIsky (Alive)",
+      "era": "Up 2 Më",
+      "key": "riskyalive|up2me"
+    },
+    {
+      "id": "watchdis@split-87f871a35dbc",
+      "name": "Watch Dis",
+      "era": "Up 2 Më",
+      "key": "watchdis|up2me"
+    },
+    {
+      "id": "notsorry",
+      "name": "Not sorry",
+      "era": "Up 2 Më [V1]",
+      "key": "notsorry|up2mev1"
+    },
+    {
+      "id": "allahhigh",
+      "name": "Allah high (with Lil Uzi Vert)",
+      "era": "Super geëky",
+      "key": "allahhighwithliluzivert|supergeeky"
+    },
+    {
+      "id": "fatefateseeathousand1000drvdrive",
+      "name": "fate (FATË , See a thousand, 1000, drv, drive)",
+      "era": "LYFESTYLE [V2]",
+      "key": "fatefateseeathousand1000drvdrive|lyfestylev2"
+    },
+    {
+      "id": "gon3",
+      "name": "gon3",
+      "era": "LYFESTYLE [V2]",
+      "key": "gon3|lyfestylev2"
+    },
+    {
+      "id": "keeptellinem",
+      "name": "keep tellin em",
+      "era": "LYFESTYLE [V2]",
+      "key": "keeptellinem|lyfestylev2"
+    },
+    {
+      "id": "actinup",
+      "name": "Actin Üp",
+      "era": "AftërLyfe",
+      "key": "actinup|afterlyfe"
+    },
+    {
+      "id": "designerdrugz",
+      "name": "designer drugz",
+      "era": "AftërLyfe",
+      "key": "designerdrugz|afterlyfe"
+    },
+    {
+      "id": "enough",
+      "name": "ENOUGH",
+      "era": "AftërLyfe",
+      "key": "enough|afterlyfe"
+    },
+    {
+      "id": "fearful@split-2bd8669c732a",
+      "name": "Fearful",
+      "era": "AftërLyfe",
+      "key": "fearful|afterlyfe"
+    },
+    {
+      "id": "gettinhi",
+      "name": "Gettin Hi",
+      "era": "AftërLyfe",
+      "key": "gettinhi|afterlyfe"
+    },
+    {
+      "id": "hitmaking",
+      "name": "hit making",
+      "era": "AftërLyfe",
+      "key": "hitmaking|afterlyfe"
+    },
+    {
+      "id": "liveordie@edit-e6b53eb60298",
+      "name": "Live or Die",
+      "era": "4L",
+      "key": "liveordie|4l"
+    },
+    {
+      "id": "passeddat",
+      "name": "Passed dat",
+      "era": "AftërLyfe",
+      "key": "passeddat|afterlyfe"
+    },
+    {
+      "id": "percaholic@split-b96d39d682b9",
+      "name": "PERCAHOLIC (feat. Weiland)",
+      "era": "AftërLyfe",
+      "key": "percaholicfeatweiland|afterlyfe"
+    },
+    {
+      "id": "slammheavymetal@split-1c9bb3092615",
+      "name": "Slamm (HËAVY METAL)",
+      "era": "AftërLyfe",
+      "key": "slammheavymetal|afterlyfe"
+    },
+    {
+      "id": "xmas",
+      "name": "XMAS",
+      "era": "AftërLyfe",
+      "key": "xmas|afterlyfe"
+    },
+    {
+      "id": "lyfestyle@lyfestyle",
+      "name": "Lyfestyle",
+      "era": "LYFESTYLE",
+      "key": "lyfestyle|lyfestyle"
+    },
+    {
+      "id": "imthatype",
+      "name": "im tha type",
+      "era": "2 Alivë (Geëk Pack)",
+      "key": "imthatype|2alivegeekpack"
+    },
+    {
+      "id": "lifes2short@split-6b4b2786f1ed",
+      "name": "Lifës 2 short",
+      "era": "2 Alivë (Geëk Pack)",
+      "key": "lifes2short|2alivegeekpack"
+    },
+    {
+      "id": "neonbean@split-24b93e5ace84",
+      "name": "NEON BËAN",
+      "era": "2 Alivë (Geëk Pack)",
+      "key": "neonbean|2alivegeekpack"
+    },
+    {
+      "id": "srt",
+      "name": "SRT",
+      "era": "2 Alivë (Geëk Pack)",
+      "key": "srt|2alivegeekpack"
+    },
+    {
+      "id": "comeandgo",
+      "name": "COME AND GO",
+      "era": "DANGEROUS SUMMER",
+      "key": "comeandgo|dangeroussummer"
+    },
+    {
+      "id": "nolz",
+      "name": "No Lz",
+      "era": "DANGEROUS SUMMER",
+      "key": "nolz|dangeroussummer"
+    },
+    {
+      "id": "outofmyhands",
+      "name": "out of my hands",
+      "era": "DANGEROUS SUMMER",
+      "key": "outofmyhands|dangeroussummer"
+    },
+    {
+      "id": "ptsog",
+      "name": "PTSOG",
+      "era": "DANGEROUS SUMMER",
+      "key": "ptsog|dangeroussummer"
+    },
+    {
+      "id": "smf",
+      "name": "SMF (with SahBabii)",
+      "era": "DANGEROUS SUMMER",
+      "key": "smfwithsahbabii|dangeroussummer"
+    },
+    {
+      "id": "offtharip",
+      "name": "OFF THA RIP",
+      "era": "ADL",
+      "key": "offtharip|adl"
+    },
+    {
+      "id": "alreadyrich",
+      "name": "Already Rich",
+      "era": "2093",
+      "key": "alreadyrich|2093"
+    },
+    {
+      "id": "ardup",
+      "name": "Ard Up",
+      "era": "2 Alivë",
+      "key": "ardup|2alive"
+    },
+    {
+      "id": "blight@split-804aa54c5363",
+      "name": "B light",
+      "era": "2093",
+      "key": "blight|2093"
+    },
+    {
+      "id": "barbados",
+      "name": "Barbados",
+      "era": "2093",
+      "key": "barbados|2093"
+    },
+    {
+      "id": "betterlyfe@split-dd78477ce045",
+      "name": "Bëtter Lyfe",
+      "era": "2093",
+      "key": "betterlyfe|2093"
+    },
+    {
+      "id": "donewit",
+      "name": "Done wit",
+      "era": "2093",
+      "key": "donewit|2093"
+    },
+    {
+      "id": "ight@split-c2f7e584667f",
+      "name": "Ight",
+      "era": "2093",
+      "key": "ight|2093"
+    },
+    {
+      "id": "move",
+      "name": "Move",
+      "era": "2093",
+      "key": "move|2093"
+    },
+    {
+      "id": "pandemic",
+      "name": "Pandemic",
+      "era": "2093",
+      "key": "pandemic|2093"
+    },
+    {
+      "id": "realtrendsetter@2093",
+      "name": "real trendsetter",
+      "era": "2093",
+      "key": "realtrendsetter|2093"
+    },
+    {
+      "id": "remindya",
+      "name": "remind ya",
+      "era": "2093",
+      "key": "remindya|2093"
+    },
+    {
+      "id": "ripvirgil",
+      "name": "RIP Virgil",
+      "era": "2093",
+      "key": "ripvirgil|2093"
+    },
+    {
+      "id": "slidin",
+      "name": "slidin",
+      "era": "2093",
+      "key": "slidin|2093"
+    },
+    {
+      "id": "tonkafreestyle",
+      "name": "tonka freestyle",
+      "era": "2093",
+      "key": "tonkafreestyle|2093"
+    },
+    {
+      "id": "worthnone",
+      "name": "Worth None",
+      "era": "2093",
+      "key": "worthnone|2093"
+    },
+    {
+      "id": "10bones",
+      "name": "10 Bones",
+      "era": "2 Alivë",
+      "key": "10bones|2alive"
+    },
+    {
+      "id": "2rich",
+      "name": "2 Rich",
+      "era": "2 Alivë",
+      "key": "2rich|2alive"
+    },
+    {
+      "id": "aintus@split-241be4e843a0",
+      "name": "Aint Us",
+      "era": "2 Alivë",
+      "key": "aintus|2alive"
+    },
+    {
+      "id": "comedown@split-94a7a480aada",
+      "name": "Cöme Down",
+      "era": "2 Alivë",
+      "key": "comedown|2alive"
+    },
+    {
+      "id": "futureandatljacobmillionaire",
+      "name": "Future & ATL Jacob - Millionaire",
+      "era": "2 Alivë",
+      "key": "futureandatljacobmillionaire|2alive"
+    },
+    {
+      "id": "kindakrazy",
+      "name": "kinda krazy",
+      "era": "2 Alivë",
+      "key": "kindakrazy|2alive"
+    },
+    {
+      "id": "krazy2me",
+      "name": "Krazy 2 Më",
+      "era": "2 Alivë",
+      "key": "krazy2me|2alive"
+    },
+    {
+      "id": "layupalt@edit-5a32d4d0e8e1",
+      "name": "Layup (Alt)",
+      "era": "Up 2 Më [V1]",
+      "key": "layupalt|up2mev1"
+    },
+    {
+      "id": "layup@split-2656c0a0431c",
+      "name": "layup",
+      "era": "2 Alivë",
+      "key": "layup|2alive"
+    },
+    {
+      "id": "liluzivertpanic",
+      "name": "Lil Uzi Vert - Panic",
+      "era": "2 Alivë",
+      "key": "liluzivertpanic|2alive"
+    },
+    {
+      "id": "realisrare@split-8af99959780a",
+      "name": "Real Is rarë",
+      "era": "2 Alivë",
+      "key": "realisrare|2alive"
+    },
+    {
+      "id": "rp",
+      "name": "RP",
+      "era": "2 Alivë",
+      "key": "rp|2alive"
+    },
+    {
+      "id": "stupidrichshyt",
+      "name": "Stupid Rich Shyt",
+      "era": "2 Alivë",
+      "key": "stupidrichshyt|2alive"
+    },
+    {
+      "id": "tried2saveu",
+      "name": "Tried 2 savë u",
+      "era": "2 Alivë",
+      "key": "tried2saveu|2alive"
+    }
+  ]
+}

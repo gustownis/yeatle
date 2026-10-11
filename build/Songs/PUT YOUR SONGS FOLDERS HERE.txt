@@ -1,0 +1,10 @@
+Put your stems here!
+if you want to add any specific songs that I have not or if you want to add your own custom separations please follow the 1 file I have left in here exactly.
+
+ Name Exactly
+- Bass.mp3
+- Drums.mp3
+- Other.mp3
+- Vocals.mp3
+
+160 kbps is what I recommend as most files will be that bitrate and it saves the most space anything below that can start to sound LQ anything above that is useless file space as this can take up a significant amount of space when you start adding entire eras.

@@ -1,0 +1,13 @@
+{
+  "port": 3093,
+  "desktopPort": 3094,
+  "openBrowser": true,
+  "refreshMinutes": 30,
+  "artist": "Yeat",
+  "sheetId": "1FUzAZyTCgFTVxQ--qbCAS2bUk4dsAw6ASxwjURPHbyI",
+  "tabs": [
+    { "name": "Released", "gid": "1617341558" },
+    { "name": "Unreleased", "gid": "1241081326" }
+  ],
+  "googleApiKey": ""
+}

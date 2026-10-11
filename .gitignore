@@ -1,0 +1,28 @@
+# The imported original is preserved locally, outside the published project.
+/Yeatle 1.9 + Mac/
+
+# Personal settings, credentials, and generated caches.
+/config.json
+/admin.json
+**/admin.json
+/.env
+/.env.*
+*.log
+/songs-cache.json
+/preview-cache.json
+/joke-photos.json
+
+# Models download automatically. Songs are distributed separately.
+/models/
+/build/Songs/*
+!/build/Songs/PUT YOUR SONGS FOLDERS HERE.txt
+
+# Dependencies and generated development/packaging files.
+node_modules/
+/source/dist/
+/source/public/ort/
+/release/
+/.tools/
+/.tmp/
+.DS_Store
+Thumbs.db
