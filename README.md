@@ -5,6 +5,8 @@ versions. Test your knowledge of released and unreleased tracks, choose the
 eras you want to play, and guess songs from isolated stems, filtered audio,
 or short snippets.
 
+![Yeatle running in its desktop window](docs/desktop-preview.png)
+
 **The original Yeatle application was vibecoded in its entirety**: it was
 created through AI-assisted coding by the original creator. This repository
 preserves that game and adds desktop packaging, setup documentation, and
