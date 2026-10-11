@@ -26,8 +26,8 @@ Both versions run on your computer. The browser version opens a local page;
 it is not a public hosted website. The desktop app runs the same game inside
 its own window and includes an **Open in Browser** menu option.
 
-The repository is currently **private**. You need to be signed in to a GitHub
-account with access to download its code, releases, or build artifacts.
+The repository is **public**. Anyone can download its code and desktop releases
+without a GitHub account. GitHub may require sign-in for Actions build artifacts.
 
 ## Downloads
 
@@ -80,7 +80,7 @@ to play in a browser.** Desktop development/building requires npm packages.
 
 ## Download the browser version
 
-1. Open the [repository](https://github.com/gustownis/yeatle) while signed in.
+1. Open the [repository](https://github.com/gustownis/yeatle).
 2. Click **Code → Download ZIP**.
 3. Extract the entire ZIP into a writable folder, such as Downloads or Documents.
 4. Open the extracted folder containing `server.js`, `build/`, and this README.
@@ -96,8 +96,7 @@ git clone https://github.com/gustownis/yeatle.git
 cd yeatle
 ```
 
-Because this repository is private, Git will require an account with access.
-Do not put your password or access token into the clone URL.
+Cloning this public repository does not require authentication.
 
 ## Windows
 
