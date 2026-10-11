@@ -31,7 +31,7 @@ account with access to download its code, releases, or build artifacts.
 ## Downloads
 
 - [Yeatle repository](https://github.com/gustownis/yeatle)
-- [Desktop releases](https://github.com/gustownis/yeatle/releases), when published
+- [Desktop release 1.9.0](https://github.com/gustownis/yeatle/releases/tag/v1.9.0)
 - [Desktop build artifacts](https://github.com/gustownis/yeatle/actions/workflows/desktop-builds.yml), after a build completes
 - [Node.js LTS — official download page](https://nodejs.org/en/download)
 - [Git — optional, for cloning and contributing](https://git-scm.com/downloads)
@@ -43,8 +43,20 @@ change; the optional stem pack is not included in this repository. You can play
 without it. The four separation models download automatically on the first
 launch, so most players do not need to download them manually.
 
-If no desktop release is listed yet, use the browser version below, download
-a completed desktop build artifact, or build the desktop app yourself.
+### Desktop app files
+
+| Computer | Downloads |
+| --- | --- |
+| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle%20Setup%201.9.0.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle%201.9.0.exe) |
+| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0-arm64-mac.zip) |
+| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0-mac.zip) |
+| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.0/yeatle-desktop_1.9.0_amd64.deb) |
+| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.0/yeatle-desktop_1.9.0_arm64.deb) |
+
+These are initial desktop preview builds. Installation steps for each OS are
+below. [SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.9.0/SHA256SUMS.txt)
+are provided with the release. Browser users can download the repository ZIP
+without choosing a desktop installer.
 
 ## Requirements
 
