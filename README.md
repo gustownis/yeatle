@@ -34,10 +34,10 @@ without a GitHub account. GitHub may require sign-in for Actions build artifacts
 - [Yeatle repository](https://github.com/gustownis/yeatle)
 - [Desktop release 1.9.0](https://github.com/gustownis/yeatle/releases/tag/v1.9.0)
 - [Desktop build artifacts](https://github.com/gustownis/yeatle/actions/workflows/desktop-builds.yml), after a build completes
-- [Node.js LTS — official download page](https://nodejs.org/en/download)
-- [Git — optional, for cloning and contributing](https://git-scm.com/downloads)
-- [Optional HQ stems — MEGA](https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g)
-- [Spleeter ONNX models — upstream files](https://huggingface.co/Best-Practice/spleeter-4stems-onnx/tree/main)
+- [Node.js LTS - official download page](https://nodejs.org/en/download)
+- [Git - optional, for cloning and contributing](https://git-scm.com/downloads)
+- [Optional HQ stems - MEGA](https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g)
+- [Spleeter ONNX models - upstream files](https://huggingface.co/Best-Practice/spleeter-4stems-onnx/tree/main)
 
 The MEGA link is supplied by the project maintainer. Its contents and size may
 change; the optional stem pack is not included in this repository. You can play
