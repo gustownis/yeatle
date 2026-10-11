@@ -14,37 +14,24 @@ preserves that game and adds desktop packaging, setup documentation, and
 maintenance improvements. Third-party libraries and models are credited
 separately below.
 
-## Choose how to play
-
-| Version | What you download | What you install separately |
-| --- | --- | --- |
-| Desktop app | A Yeatle installer or portable app for your OS | No separate Node.js installation |
-| Browser version | This repository as a ZIP, or a Git clone | Node.js LTS and a modern browser |
-| Optional HQ stems | The separately hosted song pack | Nothing else; extract the song folders into the correct Songs folder |
-
 Both versions run on your computer. The browser version opens a local page;
 it is not a public hosted website. The desktop app runs the same game inside
 its own window and includes an **Open in Browser** menu option.
 
-The repository is **public**. Anyone can download its code and desktop releases
-without a GitHub account. GitHub may require sign-in for Actions build artifacts.
-
 ## Downloads
 
-- [Yeatle repository](https://github.com/gustownis/yeatle)
-- [Desktop release 1.9.0](https://github.com/gustownis/yeatle/releases/tag/v1.9.0)
-- [Desktop build artifacts](https://github.com/gustownis/yeatle/actions/workflows/desktop-builds.yml), after a build completes
-- [Node.js LTS - official download page](https://nodejs.org/en/download)
-- [Git - optional, for cloning and contributing](https://git-scm.com/downloads)
-- [Optional HQ stems - MEGA](https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g)
-- [Spleeter ONNX models - upstream files](https://huggingface.co/Best-Practice/spleeter-4stems-onnx/tree/main)
+- **Desktop app:** choose your computer in the table below. Everything needed
+  to run the app is included; you do not need to install Node.js.
+- **Browser version:** [download Yeatle as a ZIP](https://github.com/gustownis/yeatle/archive/refs/heads/main.zip),
+  install [Node.js LTS](https://nodejs.org/en/download), then follow the
+  [browser setup instructions](#download-the-browser-version).
+- **Optional higher-quality stems:** [download from MEGA](https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g)
+  and follow the [stem setup instructions](#optional-hq-stems).
 
-The MEGA link is supplied by the project maintainer. Its contents and size may
-change; the optional stem pack is not included in this repository. You can play
-without it. The four separation models download automatically on the first
-launch, so most players do not need to download them manually.
+You can play without the optional stems. The built-in audio separation files
+download automatically on first launch.
 
-### Desktop app files
+### Choose your desktop download
 
 | Computer | Downloads |
 | --- | --- |
@@ -56,8 +43,7 @@ launch, so most players do not need to download them manually.
 
 These are initial desktop preview builds. Installation steps for each OS are
 below. [SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.9.0/SHA256SUMS.txt)
-are provided with the release. Browser users can download the repository ZIP
-without choosing a desktop installer.
+are provided with the release.
 
 ## Requirements
 
@@ -80,16 +66,16 @@ to play in a browser.** Desktop development/building requires npm packages.
 
 ## Download the browser version
 
-1. Open the [repository](https://github.com/gustownis/yeatle).
-2. Click **Code → Download ZIP**.
-3. Extract the entire ZIP into a writable folder, such as Downloads or Documents.
-4. Open the extracted folder containing `server.js`, `build/`, and this README.
+1. [Download the browser version ZIP](https://github.com/gustownis/yeatle/archive/refs/heads/main.zip).
+2. Extract the entire ZIP into a writable folder, such as Downloads or Documents.
+3. Open the extracted folder containing `server.js`, `build/`, and this README,
+   then follow the Windows, macOS, or Linux browser instructions below.
 
 Keep the folders together. Do not run `server.js` inside the ZIP, move it away
 from `build/`, or open `build/index.html` directly. The local server supplies
 the song list, audio routes, models, and browser headers the game needs.
 
-If you prefer Git, install it from the official link above and run:
+If you prefer Git, [install it here](https://git-scm.com/downloads) and run:
 
 ```sh
 git clone https://github.com/gustownis/yeatle.git
