@@ -262,6 +262,15 @@ per ten songs when the game's conditions are met, without a streak/stat penalty.
 You can enable or disable eras and filter for released or unreleased songs.
 The original game also includes completion surprises.
 
+The 1.9 tracker overhaul added more era categories. When playing **Released**
+or **Unreleased** rather than **All songs**, select every era associated with
+the album you want. For example, include **Lyfestyle [V2]**, **LYFESTYLE**, and
+**LYFESTYLE DIGITAL DELUXE** to cover the associated Lyfestyle categories.
+
+The original creator's 1.9 notes report that both **Kranky** tracks in the
+**Super Geeky** era now work. One is labeled `Kranky *Tanky` to distinguish
+the versions with different runtimes.
+
 ## Optional HQ stems
 
 Open the [separate MEGA folder](https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g),
@@ -395,6 +404,12 @@ The server replaces the plaintext password with a salted hash on startup.
 Never share `admin.json`. The original imported credential file is excluded
 from the repository and desktop packages.
 
+The original creator's separately distributed 1.9 package used the lowercase
+password `garlic` at `/admin`. **This repository and its desktop builds do not
+enable that shared password automatically.** Follow the setup above to enable
+your local panel. It lets you correct song names, eras, and other minor metadata
+issues while waiting for an upstream update.
+
 ## Troubleshooting
 
 | Problem | What to do |
@@ -488,6 +503,16 @@ yeatle/
 
 The imported `Yeatle 1.9 + Mac/` folder, if present on the maintainer's machine,
 is a preserved local original and is not part of the published repository.
+
+## Feedback and community
+
+Yeatle originated in the [Twizz Discord community](https://discord.gg/twizz).
+Please report remaining song or playback issues, suggest additions, and share
+ideas for improvements in the server's Yeatle feedback channel.
+
+The original creator describes development as an enjoyable but challenging
+process and appreciates everyone who plays the game and shares feedback.
+Your reports help improve future updates.
 
 ## License and credits
 
