@@ -47,7 +47,7 @@ launch, so most players do not need to download them manually.
 
 | Computer | Downloads |
 | --- | --- |
-| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle%20Setup%201.9.0.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle%201.9.0.exe) |
+| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle.Setup.1.9.0.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle.1.9.0.exe) |
 | Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0-arm64-mac.zip) |
 | Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0-mac.zip) |
 | Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.0/Yeatle-1.9.0.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.0/yeatle-desktop_1.9.0_amd64.deb) |
@@ -102,7 +102,7 @@ Do not put your password or access token into the clone URL.
 
 ### Desktop app
 
-1. Download the Windows **x64 installer** (`Yeatle Setup ... .exe`) for a usual
+1. Download the Windows **x64 installer** (`Yeatle.Setup.1.9.0.exe`) for a usual
    Intel/AMD Windows PC, or the matching portable `.exe` if offered.
 2. Run the installer, choose the installation folder if prompted, and open
    **Yeatle** from Start. The portable app runs directly without installation.
