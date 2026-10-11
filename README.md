@@ -507,9 +507,11 @@ npm run prepare:release -- 1.9.1 release/github-builds-1.9.1 release/update-meta
 ```
 
 For a future release, replace `1.9.1` in the version and folder names. The script
-requires all ten installers/archive files and fails if any are missing. Attach
-those ten files plus `SHA256SUMS.txt`, `latest.yml`, `latest-linux.yml`, and
-`latest-linux-arm64.yml` to a draft GitHub Release. Verify all uploads before
+requires all ten installers/archive files and fails if any are missing. It
+copies them into the output folder with consistent download names, including
+normalizing Linux's `amd64`/`x86_64` names to `x64`. Attach all fourteen files
+from that output folder (ten downloads, checksums, and three updater feeds)
+to a draft GitHub Release. Verify all uploads before
 publishing it as a regular **Latest** release. The metadata must match the
 installer bytes; rerun the script if you rebuild anything. Do not rename the
 installer files after generating metadata.

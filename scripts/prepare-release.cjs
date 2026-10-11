@@ -22,15 +22,22 @@ async function prepareRelease(version, input, output) {
   ];
   const records = new Map();
   for (const name of expected) {
-    const matches = files.filter(file => path.basename(file) === name);
+    // Linux packaging uses x86_64 for AppImages and amd64 for DEBs. Keep the
+    // public downloads consistently named x64, as the app's selector expects.
+    const builtName = name.replace("-linux-x64.AppImage", "-linux-x86_64.AppImage").replace("-linux-x64.deb", "-linux-amd64.deb");
+    const matches = files.filter(file => [name, builtName].includes(path.basename(file)));
     if (matches.length !== 1) throw new Error(`Expected exactly one release file: ${name}`);
     const sha256 = crypto.createHash("sha256"), sha512 = crypto.createHash("sha512");
     let size = 0;
     for await (const chunk of fs.createReadStream(matches[0])) { size += chunk.length; sha256.update(chunk); sha512.update(chunk); }
     if (!size) throw new Error(`Empty release file: ${name}`);
-    records.set(name, { size, sha256: sha256.digest("hex"), sha512: sha512.digest("base64") });
+    records.set(name, { file: matches[0], size, sha256: sha256.digest("hex"), sha512: sha512.digest("base64") });
   }
   fs.mkdirSync(output, { recursive: true });
+  for (const [name, record] of records) {
+    const destination = path.join(output, name);
+    if (path.resolve(record.file) !== path.resolve(destination)) fs.copyFileSync(record.file, destination);
+  }
   fs.writeFileSync(path.join(output, "SHA256SUMS.txt"), [...records].map(([name, record]) => `${record.sha256}  ${name}`).join("\n") + "\n");
   const feeds = [
     ["latest.yml", assetName(version, "win32", "x64", "nsis")],
@@ -47,7 +54,7 @@ async function prepareRelease(version, input, output) {
 if (require.main === module) {
   const [version, input, output] = process.argv.slice(2);
   if (!version || !input || !output) { console.error("Usage: npm run prepare:release -- VERSION DOWNLOADED_ARTIFACTS OUTPUT_FOLDER"); process.exitCode = 1; }
-  else prepareRelease(version, path.resolve(input), path.resolve(output)).then(names => console.log(`Prepared checksums and updater feeds for ${names.length} installers.`)).catch(error => { console.error(error.message); process.exitCode = 1; });
+  else prepareRelease(version, path.resolve(input), path.resolve(output)).then(names => console.log(`Prepared ${names.length} installers, checksums, and updater feeds in ${output}.`)).catch(error => { console.error(error.message); process.exitCode = 1; });
 }
 
 module.exports = { prepareRelease };

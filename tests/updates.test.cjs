@@ -74,8 +74,12 @@ test("release preparation creates matching SHA-512 feeds for Windows and both Li
   const input = folder(t), output = folder(t);
   const names = [assetName("1.9.2", "win32", "x64", "nsis"), assetName("1.9.2", "win32", "x64", "portable")];
   for (const arch of ["x64", "arm64"]) names.push(assetName("1.9.2", "darwin", arch, "dmg"), `Yeatle-1.9.2-mac-${arch}.zip`, assetName("1.9.2", "linux", arch, "appimage"), assetName("1.9.2", "linux", arch, "deb"));
-  for (const name of names) fs.writeFileSync(path.join(input, name), name);
+  for (const name of names) {
+    const builtName = name.replace("-linux-x64.AppImage", "-linux-x86_64.AppImage").replace("-linux-x64.deb", "-linux-amd64.deb");
+    fs.writeFileSync(path.join(input, builtName), name);
+  }
   assert.equal((await prepareRelease("1.9.2", input, output)).length, 10);
+  for (const name of names) assert.equal(fs.readFileSync(path.join(output, name), "utf8"), name);
   assert.equal(fs.readFileSync(path.join(output, "SHA256SUMS.txt"), "utf8").trim().split("\n").length, 10);
   for (const [feed, name] of [["latest.yml", names[0]], ["latest-linux.yml", assetName("1.9.2", "linux", "x64", "appimage")], ["latest-linux-arm64.yml", assetName("1.9.2", "linux", "arm64", "appimage")]]) {
     const text = fs.readFileSync(path.join(output, feed), "utf8");
