@@ -152,16 +152,19 @@ function refreshMenu() {
     updateStatus: updates.status,
     updating: updates.busy
   })));
+  if (adminWindow && !adminWindow.isDestroyed()) adminWindow.setMenu(null);
 }
 
 function openAdmin() {
   if (adminWindow && !adminWindow.isDestroyed()) { adminWindow.show(); adminWindow.focus(); return; }
   const window = new BrowserWindow({
-    title: "Yeatle Admin", width: 1100, height: 800, backgroundColor: "#000000",
+    title: "Yeatle Admin", width: 1100, height: 800, backgroundColor: "#000000", show: false,
     icon: path.join(PROJECT_DIR, "build", "favicon.png"),
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true }
   });
   adminWindow = window;
+  window.setMenu(null);
+  window.once("ready-to-show", () => { if (!window.isDestroyed()) window.show(); });
   window.on("closed", () => { if (adminWindow === window) adminWindow = null; });
   window.webContents.on("will-navigate", (event, url) => {
     if (new URL(url).origin !== serverUrl) { event.preventDefault(); openExternal(url); }

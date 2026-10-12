@@ -43,3 +43,28 @@ export function createWaveformGate(policy = audioPerformancePolicy) {
     return true;
   };
 }
+
+export function startVisiblePolling(task, { document = globalThis.document, setTimeout = globalThis.setTimeout, clearTimeout = globalThis.clearTimeout, interval = 800 } = {}) {
+  let stopped = false, running = false, timer;
+  async function poll() {
+    clearTimeout(timer);
+    if (stopped || document.hidden || running) return;
+    running = true;
+    try { await task(); } catch (_) { /* a later check can retry */ }
+    finally {
+      running = false;
+      if (!stopped && !document.hidden) timer = setTimeout(poll, interval);
+    }
+  }
+  function visibilityChanged() {
+    clearTimeout(timer);
+    if (!document.hidden) poll();
+  }
+  document.addEventListener("visibilitychange", visibilityChanged);
+  poll();
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+    document.removeEventListener("visibilitychange", visibilityChanged);
+  };
+}

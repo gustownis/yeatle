@@ -22,6 +22,7 @@ const path = require("path");
 const { URL } = require("url");
 const { exec } = require("child_process");
 const { pipeline } = require("stream/promises");
+const { createGzip, constants: zlibConstants } = require("node:zlib");
 const { staticCacheHeaders, isNotModified, rangeAllowed } = require("./static-cache.cjs");
 const APP_VERSION = require("./package.json").version;
 
@@ -1033,6 +1034,7 @@ async function refreshSongs() {
 
 const previewCache = loadJson(PREVIEW_CACHE_FILE, {});
 const resolvedCache = new Map();
+const resolvingSources = new Map();
 
 function savePreviewCache() {
   try { fs.writeFileSync(PREVIEW_CACHE_FILE, JSON.stringify(previewCache)); } catch (err) { /* ignore */ }
@@ -1513,23 +1515,28 @@ async function resolveExoshare(shareId, fileId) {
 async function resolveSource(song, source) {
   const cacheKey = source.kind === "search" ? `search:${song.id}` : `${source.kind}:${source.id}`;
   if (resolvedCache.has(cacheKey)) return resolvedCache.get(cacheKey);
+  if (resolvingSources.has(cacheKey)) return resolvingSources.get(cacheKey);
 
-  let url;
-  switch (source.kind) {
-    case "pillows": url = `https://api.pillows.su/api/get/${source.id}`; break;
-    case "drive": url = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(source.id)}&export=download&confirm=t`; break;
-    case "pixeldrain": url = `https://pixeldrain.com/api/file/${source.id}`; break;
-    case "url": url = source.id; break;
-    case "imgur": url = await resolveImgur(source.id); break;
-    case "exoshare": url = await resolveExoshare(source.id); break;
-    case "exofile": { const [s, f] = source.id.split("/"); url = await resolveExoshare(s, f); break; }
-    case "apple":
-    case "search": url = await findPreview(song); break;
-    default: url = null;
-  }
+  const job = (async () => {
+    let url;
+    switch (source.kind) {
+      case "pillows": url = `https://api.pillows.su/api/get/${source.id}`; break;
+      case "drive": url = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(source.id)}&export=download&confirm=t`; break;
+      case "pixeldrain": url = `https://pixeldrain.com/api/file/${source.id}`; break;
+      case "url": url = source.id; break;
+      case "imgur": url = await resolveImgur(source.id); break;
+      case "exoshare": url = await resolveExoshare(source.id); break;
+      case "exofile": { const [s, f] = source.id.split("/"); url = await resolveExoshare(s, f); break; }
+      case "apple":
+      case "search": url = await findPreview(song); break;
+      default: url = null;
+    }
 
-  if (url) resolvedCache.set(cacheKey, url);
-  return url;
+    if (url) resolvedCache.set(cacheKey, url);
+    return url;
+  })().finally(() => resolvingSources.delete(cacheKey));
+  resolvingSources.set(cacheKey, job);
+  return job;
 }
 
 function detectAudioType(buf) {
@@ -1660,6 +1667,8 @@ function serveStatic(req, res, pathname) {
     if (err || !stat.isFile()) { res.writeHead(404); res.end("Not found"); return; }
 
     const type = MIME[path.extname(file).toLowerCase()] || "application/octet-stream";
+    const compressible = /\.(html|js|mjs|css|json|wasm|svg)$/i.test(file) && stat.size >= 1024;
+    if (compressible) res.setHeader("Vary", "Accept-Encoding");
     const cache = staticCacheHeaders(file, stat, APP_VERSION);
     for (const [header, value] of Object.entries(cache)) res.setHeader(header, value);
     if (isNotModified(req.headers, cache.ETag, stat.mtimeMs)) {
@@ -1685,11 +1694,28 @@ function serveStatic(req, res, pathname) {
       return;
     }
 
+    // Keep byte ranges and audio untouched. Stream compression so a first
+    // download does not require another full-size copy of the WASM runtime.
+    if (compressible && !req.headers.range && acceptsGzip(req.headers["accept-encoding"])) {
+      res.writeHead(200, { "Content-Type": type, "Content-Encoding": "gzip" });
+      if (req.method === "HEAD") { res.end(); return; }
+      pipeline(fs.createReadStream(file), createGzip({ level: zlibConstants.Z_BEST_SPEED }), res).catch(() => res.destroy());
+      return;
+    }
     res.writeHead(200, {
       "Content-Type": type, "Content-Length": stat.size, "Accept-Ranges": "bytes"
     });
+    if (req.method === "HEAD") { res.end(); return; }
     fs.createReadStream(file).pipe(res);
   });
+}
+
+function acceptsGzip(value = "") {
+  const encodings = String(value).split(",").map(item => item.trim().split(";"));
+  const entry = encodings.find(([name]) => name.trim().toLowerCase() === "gzip") || encodings.find(([name]) => name.trim() === "*");
+  if (!entry) return false;
+  const quality = entry.slice(1).find(parameter => /^\s*q\s*=/i.test(parameter));
+  return quality === undefined || Number(quality.split("=")[1]) > 0;
 }
 
 function sendJson(res, status, body) {
@@ -1770,6 +1796,22 @@ function refreshOnce() {
  * ------------------------------------------------------------------ */
 
 const JOKES_FILE = path.join(DATA_DIR, "joke-photos.json");
+let preparedSongList;
+
+function songListJson() {
+  let jokesStamp = "missing";
+  try {
+    const stat = fs.statSync(JOKES_FILE);
+    jokesStamp = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  } catch (_) { /* no optional photos */ }
+  const key = [SONGS, ERAS, HIDDEN_IDS, LAST_UPDATE, LAST_SOURCE, LAST_ERROR, CONFIG.artist, jokesStamp];
+  if (preparedSongList && key.every((value, index) => value === preparedSongList.key[index])) return preparedSongList.json;
+  // Rebuild immediately after tracker/admin changes or an edited photo file.
+  const songs = attachJokes(SONGS.filter(s => !isHidden(s)).map(({ source, fallback, mergedFrom, ...rest }) => ({ ...rest, hasFull: Boolean(rest.mode === "filter" || fallback) })));
+  const json = JSON.stringify({ songs, eras: ERAS, updated: LAST_UPDATE, source: LAST_SOURCE, error: LAST_ERROR, artist: CONFIG.artist });
+  preparedSongList = { key, json };
+  return json;
+}
 
 function attachJokes(songs) {
   const entries = (loadJson(JOKES_FILE, {}).photos || []).filter(p => p && p.song && p.image);
@@ -1968,7 +2010,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
 <div class="wrap" id="app"></div>
 <script>
 var app = document.getElementById("app");
-var state = { songs: [], stale: [], splits: [], open: {}, selected: {}, search: "", show: "all", tab: "all", era: "all" };
+var state = { songs: [], stale: [], splits: [], open: {}, selected: {}, search: "", show: "all", tab: "all", era: "all", page: 0 };
 var audio = null;
 var playingId = null;
 
@@ -2050,6 +2092,8 @@ function showLogin(message) {
 /* ---------- main screen ---------- */
 
 var listBox, summary, selectedCount, hideBtn, showBtn, staleBox, splitBox, eraSelect;
+var previousPage, nextPage, pageInfo, pager, searchTimer;
+var PAGE_SIZE = 100;
 
 function load() {
   return api("/api/admin/songs").then(function (data) {
@@ -2117,13 +2161,18 @@ function buildScreen() {
   testPanel.appendChild(testResults);
 
   var search = el("input", { type: "text", class: "grow", placeholder: "Search title or era", "aria-label": "Search" });
-  search.addEventListener("input", function () { state.search = search.value.toLowerCase(); renderList(); });
+  search.addEventListener("input", function () {
+    state.search = search.value.toLowerCase();
+    state.page = 0;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () { if (search.isConnected && listBox) renderList(); }, 120);
+  });
 
   function select(label, key, options) {
     var node = el("select", { "aria-label": label }, options.map(function (o) {
       return el("option", { value: o[0], text: o[1] });
     }));
-    node.addEventListener("change", function () { state[key] = node.value; renderList(); });
+    node.addEventListener("change", function () { state[key] = node.value; state.page = 0; renderList(); });
     return node;
   }
 
@@ -2147,13 +2196,18 @@ function buildScreen() {
   ]));
   app.appendChild(testPanel);
   app.appendChild(el("div", { class: "bar sticky" }, [
-    el("button", { class: "btn small", text: "Select all shown", onclick: function () { shown().forEach(function (s) { state.selected[s.id] = true; }); renderList(); } }),
+    el("button", { class: "btn small", text: "Select all matches", onclick: function () { shown().forEach(function (s) { state.selected[s.id] = true; }); renderList(); } }),
     el("button", { class: "btn small", text: "Clear", onclick: function () { state.selected = {}; renderList(); } }),
     selectedCount,
     el("span", { class: "grow" }),
     showBtn,
     hideBtn
   ]));
+  previousPage = el("button", { class: "btn small", text: "Previous", onclick: function () { state.page--; renderList(); } });
+  nextPage = el("button", { class: "btn small", text: "Next", onclick: function () { state.page++; renderList(); } });
+  pageInfo = el("span", { class: "muted", "aria-live": "polite" });
+  pager = el("div", { class: "bar", "aria-label": "Song list pages" }, [previousPage, pageInfo, nextPage]);
+  app.appendChild(pager);
   app.appendChild(listBox);
   app.appendChild(staleBox);
   app.appendChild(splitBox);
@@ -2286,13 +2340,22 @@ function rowsPanel(song) {
 }
 
 function renderList() {
+  clearTimeout(searchTimer);
   var list = shown();
+  var pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  state.page = Math.max(0, Math.min(state.page, pages - 1));
+  var start = state.page * PAGE_SIZE;
+  var visible = list.slice(start, start + PAGE_SIZE);
   var hiddenCount = state.songs.filter(function (s) { return s.hidden; }).length;
-  summary.textContent = (state.songs.length - hiddenCount) + " in the game, " + hiddenCount + " hidden. Showing " + list.length + ".";
+  summary.textContent = (state.songs.length - hiddenCount) + " in the game, " + hiddenCount + " hidden. " + list.length + " match your filters.";
+  pageInfo.textContent = "Page " + (state.page + 1) + " of " + pages + " - " + (list.length ? (start + 1) + "-" + (start + visible.length) : "0") + " of " + list.length + " songs";
+  previousPage.disabled = state.page === 0;
+  nextPage.disabled = state.page === pages - 1;
+  pager.style.display = pages > 1 ? "flex" : "none";
   listBox.textContent = "";
   if (!list.length) listBox.appendChild(el("div", { class: "empty", text: "Nothing matches." }));
 
-  list.forEach(function (song) {
+  visible.forEach(function (song) {
     var box = el("input", { type: "checkbox", "aria-label": "Select " + song.display, checked: Boolean(state.selected[song.id]) });
     box.addEventListener("change", function () { state.selected[song.id] = box.checked; updateBar(); });
 
@@ -2525,9 +2588,9 @@ const server = http.createServer(async (req, res) => {
       if (searchParams.get("refresh")) await refreshOnce();
       else if (!SONGS.length) await refreshOnce();
 
-      // the client never needs the raw sources
-      const songs = attachJokes(SONGS.filter(s => !isHidden(s)).map(({ source, fallback, mergedFrom, ...rest }) => ({ ...rest, hasFull: Boolean(rest.mode === "filter" || fallback) })));
-      return sendJson(res, 200, { songs, eras: ERAS, updated: LAST_UPDATE, source: LAST_SOURCE, error: LAST_ERROR, artist: CONFIG.artist });
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      res.end(songListJson());
+      return;
     }
 
     if (pathname === "/api/cover") return serveCover(res, searchParams.get("era") || "");
@@ -2569,7 +2632,7 @@ server.listen(CONFIG.port, "127.0.0.1", async () => {
   console.log("  Keep this window open while you play. Close it to stop Yeatle.");
   if (ADMIN) console.log("  Admin panel: http://127.0.0.1:" + port + "/admin");
   console.log("");
-  // Show the game immediately, while tracker refresh and model downloads run.
+  // Show the game immediately while the tracker refresh runs.
   const cached = loadJson(CACHE_FILE, null);
   if (cached && Array.isArray(cached.songs)) {
     setSongs(cached.songs, "cache");
@@ -2578,8 +2641,7 @@ server.listen(CONFIG.port, "127.0.0.1", async () => {
   }
   if (process.send) process.send({ type: "yeatle-ready", port });
   openBrowser();
-  // fetch the splitter model in the background on the first run
-  Promise.all(MODEL_STEMS.map(ensureModel)).catch(() => {});
+  // Models download only when an AI-split song requests them.
   await refreshOnce();
 
   if (CONFIG.refreshMinutes > 0) {

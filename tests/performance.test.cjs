@@ -6,6 +6,7 @@ const vm = require("node:vm");
 const { pathToFileURL } = require("node:url");
 const { staticCacheHeaders, isNotModified, rangeAllowed } = require("../static-cache.cjs");
 const performanceModule = import(pathToFileURL(path.join(__dirname, "../build/assets/performance.mjs")).href);
+const modelDownloadModule = import(pathToFileURL(path.join(__dirname, "../build/assets/model-download.mjs")).href);
 
 test("static files revalidate without downloading unchanged bytes, and updates invalidate validators", () => {
   const stat = { size: 22000000, mtimeMs: 1700000000123 };
@@ -145,4 +146,48 @@ test("phone preloading is disabled while desktop preloading keeps the same path"
     preload({ mode: "filter" });
     assert.equal(requested, constrained ? 0 : 1);
   }
+});
+
+test("model downloads preserve bytes and progress with known, unknown, and compressed lengths", async () => {
+  const { readModelResponse } = await modelDownloadModule;
+  for (const headers of [{ "content-length": "5" }, {}, { "content-length": "2", "content-encoding": "gzip" }]) {
+    const chunks = [new Uint8Array([1, 2]), new Uint8Array([3, 4, 5])];
+    const response = new Response(new ReadableStream({ pull(controller) {
+      if (chunks.length) controller.enqueue(chunks.shift());
+      else controller.close();
+    } }), { headers });
+    const progress = [];
+    assert.deepEqual([...await readModelResponse(response, bytes => progress.push(bytes))], [1, 2, 3, 4, 5]);
+    assert.deepEqual(progress, [2, 3]);
+    assert.equal(response.body.locked, false);
+  }
+  await assert.rejects(readModelResponse(new Response(new Uint8Array([1, 2]), { headers: { "content-length": "5" } })), /incomplete/);
+  await assert.rejects(readModelResponse(new Response(new Uint8Array([1, 2]), { headers: { "content-length": "1" } })), /larger/);
+  await assert.rejects(readModelResponse(new Response(new ReadableStream({ start(controller) { controller.error(new Error("lost connection")); } }))), /lost connection/);
+});
+
+test("admin-song checks pause while hidden, resume immediately, and never overlap", async () => {
+  const { startVisiblePolling } = await performanceModule;
+  const timers = new Map(), handlers = new Set();
+  let nextTimer = 0, calls = 0, finish;
+  const document = { hidden: true, addEventListener(_name, handler) { handlers.add(handler); }, removeEventListener(_name, handler) { handlers.delete(handler); } };
+  const stop = startVisiblePolling(() => { calls++; return new Promise(resolve => { finish = resolve; }); }, {
+    document, setTimeout(fn) { const id = ++nextTimer; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); }
+  });
+  const visibility = () => handlers.forEach(handler => handler());
+  assert.equal(calls, 0);
+  document.hidden = false; visibility();
+  assert.equal(calls, 1);
+  document.hidden = true; visibility();
+  document.hidden = false; visibility();
+  assert.equal(calls, 1);
+  finish(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(timers.size, 1);
+  document.hidden = true; visibility();
+  assert.equal(timers.size, 0);
+  document.hidden = false; visibility();
+  assert.equal(calls, 2);
+  stop(); finish(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(timers.size, 0);
+  assert.equal(handlers.size, 0);
 });

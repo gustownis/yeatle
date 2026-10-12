@@ -27,20 +27,20 @@ The desktop app checks for updates on launch. Use **Help → Check for Updates**
   and follow the [stem setup instructions](#optional-hq-stems).
 
 You can play without the optional stems. The built-in audio separation files
-download automatically on first launch.
+download automatically when you first play a song that needs AI separation.
 
 ### Choose your desktop download
 
 | Computer | Downloads |
 | --- | --- |
-| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.9.3/Yeatle-Setup-1.9.3-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.9.3/Yeatle-1.9.3-windows-x64-portable.exe) |
-| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.3/Yeatle-1.9.3-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.3/Yeatle-1.9.3-mac-arm64.zip) |
-| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.3/Yeatle-1.9.3-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.3/Yeatle-1.9.3-mac-x64.zip) |
-| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.3/Yeatle-1.9.3-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.3/Yeatle-1.9.3-linux-x64.deb) |
-| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.3/Yeatle-1.9.3-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.3/Yeatle-1.9.3-linux-arm64.deb) |
+| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.9.4/Yeatle-Setup-1.9.4-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.9.4/Yeatle-1.9.4-windows-x64-portable.exe) |
+| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.4/Yeatle-1.9.4-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.4/Yeatle-1.9.4-mac-arm64.zip) |
+| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.4/Yeatle-1.9.4-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.4/Yeatle-1.9.4-mac-x64.zip) |
+| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.4/Yeatle-1.9.4-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.4/Yeatle-1.9.4-linux-x64.deb) |
+| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.4/Yeatle-1.9.4-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.4/Yeatle-1.9.4-linux-arm64.deb) |
 
 Installation steps for each OS are below.
-[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.9.3/SHA256SUMS.txt)
+[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.9.4/SHA256SUMS.txt)
 are provided with the release.
 
 ## Requirements
@@ -88,11 +88,11 @@ Cloning this public repository does not require authentication.
 
 ### Desktop app
 
-1. Download the Windows **x64 installer** (`Yeatle-Setup-1.9.3-windows-x64.exe`) for a usual
+1. Download the Windows **x64 installer** (`Yeatle-Setup-1.9.4-windows-x64.exe`) for a usual
    Intel/AMD Windows PC, or the matching portable `.exe` if offered.
 2. Run the installer, choose the installation folder if prompted, and open
    **Yeatle** from Start. The portable app runs directly without installation.
-3. On first launch, allow time for the song list and model downloads.
+3. On first launch, allow time for the song list. AI models download when a song first needs them; snippets, filtered playback, and local stems do not need them.
 
 Node.js is bundled with the desktop app. Do not install it just to run the app.
 These community builds are unsigned and may show an OS reputation
@@ -178,7 +178,7 @@ use the matching `.deb` on Debian/Ubuntu or the browser version.
 For a Debian/Ubuntu package, install the exact downloaded filename:
 
 ```sh
-sudo apt install ./Yeatle-1.9.3-linux-x64.deb
+sudo apt install ./Yeatle-1.9.4-linux-x64.deb
 ```
 
 For ARM64, use the package ending in `-arm64.deb`. Open Yeatle from your desktop
@@ -300,17 +300,23 @@ not change any copyright or download terms attached to the audio.
 
 ## Performance on phones
 
-Version 1.9.3 automatically uses a smaller audio cache on phones and low-memory devices, skips next-song AI preloading, and draws waveforms at about 30 FPS. The current round stays protected, and audio quality, snippet timing, and the final-level playback fix are preserved. The next AI song may take longer to become ready because it is loaded when you need it.
+Version 1.9.4 automatically uses a smaller audio cache on phones and low-memory devices, skips next-song AI preloading, and draws waveforms at about 30 FPS. The current round stays protected, and audio quality, snippet timing, and the final-level playback fix are preserved. The next AI song may take longer to become ready because it is loaded when you need it.
 
 The cache uses a 128 MiB soft budget on these devices and 384 MiB on other computers. An active song may exceed its budget; AI separation still needs substantial memory. Desktop preloading remains available when the budget permits.
 
 Unchanged game files, including the large WebAssembly runtime, can be reused after a quick server validation. New file contents and app releases change their validators, so updates still load correctly.
 
-For a hosted installation, update the full project and restart the server. Include the new `static-cache.cjs` and `build/assets/performance.mjs` files when deploying 1.9.3. The separately hosted online version gets these improvements when its operator deploys the update.
+The server compresses code and WebAssembly downloads for browsers that support gzip, while preserving audio files and byte-range playback. Repeated song-list requests reuse a prepared response until the tracker, admin settings, or optional song photos change. Hidden game tabs pause admin-song checks and check again when reopened.
+
+Version 1.9.4 loads AI models only when a song needs separation. Skipping an unfinished AI round cancels its unused download or split job, and the worker checks for cancellation between model runs. Temporary GPU checks and partially initialized models are cleaned up after failures. A native model operation already running finishes before cancellation takes effect; the separation calculations and final-level original-song playback are unchanged.
+
+The admin song list shows 100 songs per page, keeps selections across pages, and waits briefly between search keystrokes. **Select all matches** selects every song matching the current filters. The desktop admin window opens without the game menu bar.
+
+For a hosted installation, update the full project and restart the server. Include `static-cache.cjs` and all files in `build/assets/`, including `performance.mjs`, `model-download.mjs`, and `worker-lifecycle.mjs`. The separately hosted online version gets these improvements when its operator deploys the update.
 
 ## Models and first launch
 
-The server downloads these four files into its `models/` data folder:
+When a song first needs AI separation, the server downloads these four files into its `models/` data folder:
 
 - `drums.fp16.onnx`
 - `bass.fp16.onnx`
@@ -355,7 +361,7 @@ admin password, downloaded models, or stems. Game progress stays in the same
 desktop profile. If GitHub or your connection is unavailable, you can keep
 playing and try again later.
 
-**Upgrading from 1.9.0:** download and install 1.9.3 once using the links above.
+**Upgrading from 1.9.0:** download and install 1.9.4 once using the links above.
 The updater is available from 1.9.1 onward. The browser version has no desktop
 menu or installer updater; download the new browser ZIP or update your Git
 checkout, keeping your local settings and song folders.
@@ -502,7 +508,7 @@ The **Checks** workflow tests the server on Windows, macOS, and Linux.
 Tests cover compiled assets, WebAssembly headers, separate stem storage,
 cached lists, admin login, invalid configuration, interrupted model downloads,
 release selection, update integrity, the desktop menu, and final-level
-AI-split playback without restarts when new chunks arrive, safe cache revalidation, protected active-song memory, cancelled loads, and phone waveform frame limits.
+AI-split playback without restarts when new chunks arrive, cache validation, compressed downloads, protected active-song memory, lazy model loading, skipped-song cancellation, AI startup cleanup, and phone waveform frame limits.
 
 ### Publishing updates
 
@@ -510,10 +516,10 @@ After all five desktop builds finish, download their artifacts into a folder
 and prepare the checksums and updater metadata:
 
 ```sh
-npm run prepare:release -- 1.9.3 release/github-builds-1.9.3 release/update-metadata-1.9.3
+npm run prepare:release -- 1.9.4 release/github-builds-1.9.4 release/update-metadata-1.9.4
 ```
 
-For a future release, replace `1.9.3` in the version and folder names. The script
+For a future release, replace `1.9.4` in the version and folder names. The script
 requires all ten installers/archive files and fails if any are missing. It
 copies them into the output folder with consistent download names, including
 normalizing Linux's `amd64`/`x86_64` names to `x64`. Attach all fourteen files

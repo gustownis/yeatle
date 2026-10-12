@@ -62,6 +62,19 @@ test("desktop server serves compiled game, runtime, and external stems; admin de
   assert.equal(home.headers.get("cross-origin-opener-policy"), "same-origin");
   assert.equal(home.headers.get("cross-origin-embedder-policy"), "credentialless");
   assert.equal(home.headers.get("cache-control"), "no-cache");
+  const code = await fetch(`${url}/assets/yeatle.js`, { headers: { "Accept-Encoding": "gzip" } });
+  assert.equal(code.headers.get("content-encoding"), "gzip");
+  assert.equal(code.headers.get("vary"), "Accept-Encoding");
+  assert.equal(await code.text(), fs.readFileSync(path.join(root, "build/assets/yeatle.js"), "utf8"));
+  const identity = await fetch(`${url}/assets/yeatle.js`, { headers: { "Accept-Encoding": "gzip;q=0, *;q=1" } });
+  assert.equal(identity.headers.get("content-encoding"), null);
+  const codeRange = await fetch(`${url}/assets/yeatle.js`, { headers: { "Accept-Encoding": "gzip", Range: "bytes=0-3" } });
+  assert.equal(codeRange.status, 206);
+  assert.equal(codeRange.headers.get("content-encoding"), null);
+  assert.equal((await codeRange.arrayBuffer()).byteLength, 4);
+  const head = await fetch(`${url}/assets/yeatle.js`, { method: "HEAD", headers: { "Accept-Encoding": "gzip" } });
+  assert.equal(head.headers.get("content-encoding"), "gzip");
+  assert.equal((await head.arrayBuffer()).byteLength, 0);
   const freshHome = await fetch(url, { headers: { "If-None-Match": home.headers.get("etag") } });
   assert.equal(freshHome.status, 304);
   assert.equal(await freshHome.text(), "");
@@ -99,12 +112,15 @@ test("desktop server serves compiled game, runtime, and external stems; admin de
 test("saved song list is available when the tracker cannot provide rows", async t => {
   const folder = dataFolder(t);
   config(folder);
+  for (const stem of ["drums", "bass", "other", "vocals"]) fs.unlinkSync(path.join(folder, "models", `${stem}.fp16.onnx`));
+  fs.rmdirSync(path.join(folder, "models"));
   fs.writeFileSync(path.join(folder, "songs-cache.json"), JSON.stringify({ updated: 123, eras: [], songs: [{ id: "cached-song", title: "Cached song", mode: "filter" }] }));
   const { url } = await launch(t, folder);
   const list = await (await fetch(`${url}/api/songs`)).json();
   assert.equal(list.source, "cache");
   assert.equal(list.songs[0].id, "cached-song");
   assert.equal(list.updated, 123);
+  assert.equal(fs.existsSync(path.join(folder, "models")), false);
 });
 
 test("admin accepts garlic, hashes the password, and rejects anonymous edits", async t => {
@@ -125,6 +141,56 @@ test("admin accepts garlic, hashes the password, and rejects anonymous edits", a
   const saved = JSON.parse(fs.readFileSync(path.join(folder, "admin.json"), "utf8"));
   assert.equal(saved.password, undefined);
   assert.ok(saved.salt && saved.hash);
+});
+
+test("prepared song lists immediately reflect admin changes and edited photo files", async t => {
+  const folder = dataFolder(t);
+  config(folder);
+  fs.writeFileSync(path.join(folder, "admin.json"), JSON.stringify({ password: "garlic" }));
+  fs.writeFileSync(path.join(folder, "songs-cache.json"), JSON.stringify({ updated: 123, eras: [], songs: [{ id: "one", title: "One", display: "One", era: "Test", mode: "filter", source: { kind: "url", id: "https://audio.test/one" } }] }));
+  const { url } = await launch(t, folder);
+  const list = async () => (await fetch(`${url}/api/songs`)).json();
+  const first = await list();
+  assert.equal(first.songs[0].source, undefined);
+  assert.deepEqual(await list(), first);
+  fs.writeFileSync(path.join(folder, "joke-photos.json"), JSON.stringify({ photos: [{ song: "one", image: "first.jpg" }] }));
+  assert.equal((await list()).songs[0].joke.image, "Images/jokes/first.jpg");
+  fs.writeFileSync(path.join(folder, "joke-photos.json"), JSON.stringify({ photos: [{ song: "one", image: "second.jpg" }] }));
+  assert.equal((await list()).songs[0].joke.image, "Images/jokes/second.jpg");
+  const login = await fetch(`${url}/api/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "garlic" }) });
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  const edit = async (route, body) => {
+    const response = await fetch(`${url}/api/admin/${route}`, { method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    assert.equal(response.status, 200);
+  };
+  await edit("rename", { id: "one", name: "Renamed" });
+  assert.equal((await list()).songs[0].display, "Renamed");
+  await edit("hide", { ids: ["one"], hidden: true });
+  assert.equal((await list()).songs.length, 0);
+  await edit("hide", { ids: ["one"], hidden: false });
+  assert.equal((await list()).songs.length, 1);
+});
+
+test("simultaneous audio-link lookups share work and retry after failures", async () => {
+  const script = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const body = script.slice(script.indexOf("async function resolveSource("), script.indexOf("function detectAudioType("));
+  let calls = 0, fail = true;
+  const context = vm.createContext({ resolvedCache: new Map(), resolvingSources: new Map(), resolveImgur: async () => {
+    calls++;
+    await new Promise(resolve => setImmediate(resolve));
+    if (fail) throw new Error("unavailable");
+    return "https://audio.test/found";
+  } });
+  vm.runInContext(body, context);
+  const source = { kind: "imgur", id: "one" };
+  const failed = await Promise.allSettled([context.resolveSource({}, source), context.resolveSource({}, source)]);
+  assert.equal(calls, 1);
+  assert.ok(failed.every(result => result.status === "rejected"));
+  fail = false;
+  assert.deepEqual(await Promise.all([context.resolveSource({}, source), context.resolveSource({}, source)]), ["https://audio.test/found", "https://audio.test/found"]);
+  assert.equal(calls, 2);
+  assert.equal(await context.resolveSource({}, source), "https://audio.test/found");
+  assert.equal(calls, 2);
 });
 
 test("invalid configuration exits with useful instructions", async t => {
