@@ -1,9 +1,6 @@
 # Yeatle
 
-Yeatle is a self-hosted Yeat song guessing game with desktop and browser
-versions. Test your knowledge of released and unreleased tracks, choose the
-eras you want to play, and guess songs from isolated stems, filtered audio,
-or short snippets.
+Yeatle is a Yeat song guessing game with online, desktop, and local browser versions. Test your knowledge of released and unreleased tracks, choose the eras you want to play, and guess songs from isolated stems, filtered audio, or short snippets.
 
 ![Yeatle running in its desktop window](docs/desktop-preview.png)
 
@@ -14,13 +11,7 @@ preserves that game and adds desktop packaging, setup documentation, and
 maintenance improvements. Third-party libraries and models are credited
 separately below.
 
-Both versions run on your computer. The browser version opens a local page;
-it is not a public hosted website. The desktop app runs the same game inside
-its own window and includes an **Open in Browser** menu option.
-
-**New in 1.9.2:** the final level of AI-split songs plays the original song
-continuously, fixing out-of-order playback on phones. Hand-made stems are
-unaffected.
+The desktop app and downloaded browser version run on your computer. The desktop app opens the game in its own window and includes an **Open in Browser** menu option.
 
 The desktop app checks for updates on launch. Use **Help →
 Check for Updates** to check again, or **Developer → Open Admin Panel** to
@@ -28,9 +19,10 @@ manage songs. Developer tools now live in the **Developer** menu.
 
 ## Downloads
 
+- **Play online:** [open Yeatle](https://playyeatle.duckdns.org/) on any device with a browser. No downloads, installation, or Node.js required.
 - **Desktop app:** choose your computer in the table below. Everything needed
   to run the app is included; you do not need to install Node.js.
-- **Browser version:** [download Yeatle as a ZIP](https://github.com/gustownis/yeatle/archive/refs/heads/main.zip),
+- **Local browser version:** [download Yeatle as a ZIP](https://github.com/gustownis/yeatle/archive/refs/heads/main.zip),
   install [Node.js LTS](https://nodejs.org/en/download), then follow the
   [browser setup instructions](#download-the-browser-version).
 - **Optional higher-quality stems:** [download from MEGA](https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g)
@@ -55,9 +47,10 @@ are provided with the release.
 
 ## Requirements
 
+- **Online:** a browser and an internet connection. No app installation needed.
 - **Desktop:** a current Windows, macOS, or desktop Linux installation supported
   by the bundled Electron runtime. Choose a download matching your CPU.
-- **Browser:** Node.js **24 LTS or a newer supported LTS**, plus a current
+- **Local browser version:** Node.js **24 LTS or a newer supported LTS**, plus a current
   browser. Chrome or Edge is a useful starting point for troubleshooting the
   supplied ONNX/WebAssembly runtime. Other browsers may behave differently.
 - **Internet:** needed to read the tracker, stream remote audio, fetch artwork,
@@ -69,10 +62,11 @@ are provided with the release.
   Processing time and quality depend on the hardware and source audio. Local
   HQ stems and filtered playback avoid that separation work.
 
-The browser server uses built-in Node.js modules. **You do not need `npm install`
-to play in a browser.** Desktop development/building requires npm packages.
+The local browser server uses built-in Node.js modules. **You do not need `npm install` to play locally.** Desktop development/building requires npm packages.
 
 ## Download the browser version
+
+These steps are for running the browser version locally on your own computer.
 
 1. [Download the browser version ZIP](https://github.com/gustownis/yeatle/archive/refs/heads/main.zip).
 2. Extract the entire ZIP into a writable folder, such as Downloads or Documents.
