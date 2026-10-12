@@ -1,6 +1,6 @@
 {
   "name": "yeatle-desktop",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "A self-hosted Yeat song guessing game for desktop and browser.",
   "private": true,
   "license": "Unlicense",
@@ -34,7 +34,10 @@
       "output": "release"
     },
     "asar": true,
-    "publish": { "provider": "generic", "url": "https://github.com/gustownis/yeatle/releases/latest/download/" },
+    "publish": {
+      "provider": "generic",
+      "url": "https://github.com/gustownis/yeatle/releases/latest/download/"
+    },
     "files": [
       "desktop/**/*",
       "server.js",
@@ -65,7 +68,9 @@
       "allowToChangeInstallationDirectory": true,
       "artifactName": "Yeatle-Setup-${version}-windows-${arch}.${ext}"
     },
-    "portable": { "artifactName": "Yeatle-${version}-windows-${arch}-portable.${ext}" },
+    "portable": {
+      "artifactName": "Yeatle-${version}-windows-${arch}-portable.${ext}"
+    },
     "mac": {
       "target": [
         "dmg",

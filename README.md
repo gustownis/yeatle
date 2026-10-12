@@ -18,7 +18,11 @@ Both versions run on your computer. The browser version opens a local page;
 it is not a public hosted website. The desktop app runs the same game inside
 its own window and includes an **Open in Browser** menu option.
 
-**New in 1.9.1:** the desktop app checks for updates on launch. Use **Help →
+**New in 1.9.2:** the final level of AI-split songs plays the original song
+continuously, fixing out-of-order playback on phones. Hand-made stems are
+unaffected.
+
+The desktop app checks for updates on launch. Use **Help →
 Check for Updates** to check again, or **Developer → Open Admin Panel** to
 manage songs. Developer tools now live in the **Developer** menu.
 
@@ -39,14 +43,14 @@ download automatically on first launch.
 
 | Computer | Downloads |
 | --- | --- |
-| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-Setup-1.9.1-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-windows-x64-portable.exe) |
-| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-mac-arm64.zip) |
-| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-mac-x64.zip) |
-| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-linux-x64.deb) |
-| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.1/Yeatle-1.9.1-linux-arm64.deb) |
+| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.9.2/Yeatle-Setup-1.9.2-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.9.2/Yeatle-1.9.2-windows-x64-portable.exe) |
+| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.2/Yeatle-1.9.2-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.2/Yeatle-1.9.2-mac-arm64.zip) |
+| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.2/Yeatle-1.9.2-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.2/Yeatle-1.9.2-mac-x64.zip) |
+| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.2/Yeatle-1.9.2-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.2/Yeatle-1.9.2-linux-x64.deb) |
+| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.2/Yeatle-1.9.2-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.2/Yeatle-1.9.2-linux-arm64.deb) |
 
 Installation steps for each OS are below.
-[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.9.1/SHA256SUMS.txt)
+[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.9.2/SHA256SUMS.txt)
 are provided with the release.
 
 ## Requirements
@@ -92,7 +96,7 @@ Cloning this public repository does not require authentication.
 
 ### Desktop app
 
-1. Download the Windows **x64 installer** (`Yeatle-Setup-1.9.1-windows-x64.exe`) for a usual
+1. Download the Windows **x64 installer** (`Yeatle-Setup-1.9.2-windows-x64.exe`) for a usual
    Intel/AMD Windows PC, or the matching portable `.exe` if offered.
 2. Run the installer, choose the installation folder if prompted, and open
    **Yeatle** from Start. The portable app runs directly without installation.
@@ -182,7 +186,7 @@ use the matching `.deb` on Debian/Ubuntu or the browser version.
 For a Debian/Ubuntu package, install the exact downloaded filename:
 
 ```sh
-sudo apt install ./Yeatle-1.9.1-linux-x64.deb
+sudo apt install ./Yeatle-1.9.2-linux-x64.deb
 ```
 
 For ARM64, use the package ending in `-arm64.deb`. Open Yeatle from your desktop
@@ -326,7 +330,7 @@ or GPU drivers solely for this setup. The supplied game uses ONNX Runtime Web.
 
 ## Updating the desktop app
 
-Yeatle 1.9.1 checks this project's GitHub releases about ten seconds after
+Yeatle 1.9.1 and later check this project's GitHub releases about ten seconds after
 launch. It only offers newer regular releases, skipping drafts and prereleases.
 You can also select **Help → Check for Updates** at any time.
 
@@ -349,7 +353,7 @@ admin password, downloaded models, or stems. Game progress stays in the same
 desktop profile. If GitHub or your connection is unavailable, you can keep
 playing and try again later.
 
-**Upgrading from 1.9.0:** download and install 1.9.1 once using the links above.
+**Upgrading from 1.9.0:** download and install 1.9.2 once using the links above.
 The updater is available from 1.9.1 onward. The browser version has no desktop
 menu or installer updater; download the new browser ZIP or update your Git
 checkout, keeping your local settings and song folders.
@@ -414,7 +418,7 @@ project analytics service. Third-party services have their own policies.
 The original browser package provides its admin panel at
 **http://localhost:3093/admin**, with the password **`garlic`** (all lowercase).
 
-**Desktop 1.9.1:** select **Developer → Open Admin Panel**. A new installation
+**Desktop 1.9.1 and later:** select **Developer → Open Admin Panel**. A new installation
 uses `garlic`; an existing custom password is preserved. The panel opens in a
 separate window so your game stays open.
 
@@ -495,7 +499,8 @@ automatically. Maintainers can attach reviewed installers to a GitHub Release.
 The **Checks** workflow tests the server on Windows, macOS, and Linux.
 Tests cover compiled assets, WebAssembly headers, separate stem storage,
 cached lists, admin login, invalid configuration, interrupted model downloads,
-release selection, update integrity, and the desktop menu.
+release selection, update integrity, the desktop menu, and final-level
+AI-split playback without restarts when new chunks arrive.
 
 ### Publishing updates
 
@@ -503,10 +508,10 @@ After all five desktop builds finish, download their artifacts into a folder
 and prepare the checksums and updater metadata:
 
 ```sh
-npm run prepare:release -- 1.9.1 release/github-builds-1.9.1 release/update-metadata-1.9.1
+npm run prepare:release -- 1.9.2 release/github-builds-1.9.2 release/update-metadata-1.9.2
 ```
 
-For a future release, replace `1.9.1` in the version and folder names. The script
+For a future release, replace `1.9.2` in the version and folder names. The script
 requires all ten installers/archive files and fails if any are missing. It
 copies them into the output folder with consistent download names, including
 normalizing Linux's `amd64`/`x86_64` names to `x64`. Attach all fourteen files
