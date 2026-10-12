@@ -1,6 +1,6 @@
 {
   "name": "yeatle-desktop",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "description": "A self-hosted Yeat song guessing game for desktop and browser.",
   "private": true,
   "license": "Unlicense",
@@ -52,7 +52,8 @@
       "song-splits.json",
       "LICENSE",
       "THIRD_PARTY_NOTICES.md",
-      "licenses/**/*"
+      "licenses/**/*",
+      "static-cache.cjs"
     ],
     "win": {
       "target": [

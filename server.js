@@ -22,6 +22,8 @@ const path = require("path");
 const { URL } = require("url");
 const { exec } = require("child_process");
 const { pipeline } = require("stream/promises");
+const { staticCacheHeaders, isNotModified, rangeAllowed } = require("./static-cache.cjs");
+const APP_VERSION = require("./package.json").version;
 
 // when packaged as an exe, files live next to the exe, not inside it
 const ROOT = process.pkg ? path.dirname(process.execPath) : __dirname;
@@ -1658,7 +1660,14 @@ function serveStatic(req, res, pathname) {
     if (err || !stat.isFile()) { res.writeHead(404); res.end("Not found"); return; }
 
     const type = MIME[path.extname(file).toLowerCase()] || "application/octet-stream";
-    const range = /bytes=(\d*)-(\d*)/.exec(req.headers.range || "");
+    const cache = staticCacheHeaders(file, stat, APP_VERSION);
+    for (const [header, value] of Object.entries(cache)) res.setHeader(header, value);
+    if (isNotModified(req.headers, cache.ETag, stat.mtimeMs)) {
+      res.writeHead(304);
+      res.end();
+      return;
+    }
+    const range = rangeAllowed(req.headers, stat.mtimeMs) ? /bytes=(\d*)-(\d*)/.exec(req.headers.range || "") : null;
 
     if (range) {
       const start = range[1] ? Number(range[1]) : Math.max(0, stat.size - Number(range[2]));
@@ -1677,9 +1686,7 @@ function serveStatic(req, res, pathname) {
     }
 
     res.writeHead(200, {
-      "Content-Type": type, "Content-Length": stat.size, "Accept-Ranges": "bytes",
-      // the page and its code must never be cached, or an update looks like it did nothing
-      "Cache-Control": /\.(html|js|mjs|css|json|wasm)$/i.test(file) ? "no-cache, no-store, must-revalidate" : "public, max-age=3600"
+      "Content-Type": type, "Content-Length": stat.size, "Accept-Ranges": "bytes"
     });
     fs.createReadStream(file).pipe(res);
   });
