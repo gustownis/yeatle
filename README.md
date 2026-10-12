@@ -306,6 +306,8 @@ The cache uses a 128 MiB soft budget on these devices and 384 MiB on other compu
 
 Unchanged game files, including the large WebAssembly runtime, can be reused after a quick server validation. New file contents and app releases change their validators, so updates still load correctly.
 
+For a hosted installation, update the full project and restart the server. Include the new `static-cache.cjs` and `build/assets/performance.mjs` files when deploying 1.9.3. The separately hosted online version gets these improvements when its operator deploys the update.
+
 ## Models and first launch
 
 The server downloads these four files into its `models/` data folder:
