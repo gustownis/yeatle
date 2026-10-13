@@ -93,6 +93,8 @@ test("desktop server serves compiled game, runtime, and external stems; admin de
   const outdatedWasm = await fetch(`${url}/ort/ort-wasm-simd-threaded.jsep.wasm`, { headers: { Range: "bytes=0-3", "If-None-Match": 'W/"old-release"' } });
   assert.equal(outdatedWasm.status, 206);
   const list = await (await fetch(`${url}/api/songs`)).json();
+  assert.equal(list.liveControl, false);
+  assert.equal((await fetch(`${url}/api/active-song/events`)).status, 404);
   assert.equal(list.songs.length, 1);
   assert.equal(list.songs[0].mode, "stems");
   const stem = await fetch(`${url}/Songs/Test%20Song/drums.mp3`, { headers: { Range: "bytes=0-3" } });
@@ -121,6 +123,22 @@ test("saved song list is available when the tracker cannot provide rows", async 
   assert.equal(list.songs[0].id, "cached-song");
   assert.equal(list.updated, 123);
   assert.equal(fs.existsSync(path.join(folder, "models")), false);
+  assert.equal((await (await fetch(`${url}/api/separator-revision`)).json()).revision, null);
+});
+
+test("model cache validators and content fingerprints invalidate after a model is replaced", async t => {
+  const folder = dataFolder(t); config(folder);
+  const { url } = await launch(t, folder);
+  const model = await fetch(`${url}/models/drums.fp16.onnx`, { method: "HEAD" });
+  const etag = model.headers.get("etag"), hash = model.headers.get("x-yeatle-model-hash");
+  assert.ok(etag && hash);assert.equal(model.headers.get("cache-control"), "no-cache");
+  const notModified = await fetch(`${url}/models/drums.fp16.onnx`, { headers: { "If-None-Match": etag } });
+  assert.equal(notModified.status,304);
+  const before = (await (await fetch(`${url}/api/separator-revision`)).json()).revision;
+  fs.writeFileSync(path.join(folder,"models/drums.fp16.onnx"),Buffer.alloc(1000002,1));
+  const after = await fetch(`${url}/models/drums.fp16.onnx`,{method:"HEAD",headers:{"If-None-Match":etag}});
+  assert.equal(after.status,200);assert.notEqual(after.headers.get("x-yeatle-model-hash"),hash);
+  assert.notEqual((await (await fetch(`${url}/api/separator-revision`)).json()).revision,before);
 });
 
 test("admin accepts garlic, hashes the password, and rejects anonymous edits", async t => {
@@ -151,6 +169,10 @@ test("prepared song lists immediately reflect admin changes and edited photo fil
   const { url } = await launch(t, folder);
   const list = async () => (await fetch(`${url}/api/songs`)).json();
   const first = await list();
+  const compressed = await fetch(`${url}/api/songs`, { headers: { "Accept-Encoding": "gzip" } });
+  assert.equal(compressed.headers.get("content-encoding"), "gzip");
+  assert.equal(compressed.headers.get("vary"), "Accept-Encoding");
+  assert.deepEqual(await compressed.json(), first);
   assert.equal(first.songs[0].source, undefined);
   assert.deepEqual(await list(), first);
   fs.writeFileSync(path.join(folder, "joke-photos.json"), JSON.stringify({ photos: [{ song: "one", image: "first.jpg" }] }));
@@ -169,6 +191,28 @@ test("prepared song lists immediately reflect admin changes and edited photo fil
   assert.equal((await list()).songs.length, 0);
   await edit("hide", { ids: ["one"], hidden: false });
   assert.equal((await list()).songs.length, 1);
+});
+
+test("live song stream sends the current sequence and authenticated admin changes", async t => {
+  const folder = dataFolder(t); config(folder);
+  fs.writeFileSync(path.join(folder, "admin.json"), JSON.stringify({ password: "garlic" }));
+  fs.writeFileSync(path.join(folder, "songs-cache.json"), JSON.stringify({ updated: 123, eras: [], songs: [{ id: "one", title: "One", mode: "filter" }] }));
+  const { url } = await launch(t, folder);
+  const response = await fetch(`${url}/api/active-song/events`);
+  assert.match(response.headers.get("content-type"), /text\/event-stream/);
+  assert.equal(response.headers.get("content-encoding"), null);
+  const reader = response.body.getReader(); t.after(async () => { try { await reader.cancel(); } catch (_) { /* the child server may already be stopped */ } });
+  const first = new TextDecoder().decode((await reader.read()).value);
+  assert.match(first, /"seq":0/);
+  const epoch = JSON.parse(first.split("data: ")[1]).epoch;
+  assert.equal(typeof epoch, "string"); assert.ok(epoch.length > 0);
+  const login = await fetch(`${url}/api/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "garlic" }) });
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  const selected = await fetch(`${url}/api/admin/activate`, { method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json" }, body: JSON.stringify({ id: "one" }) });
+  assert.equal(selected.status, 200);
+  const changed = new TextDecoder().decode((await reader.read()).value);
+  assert.match(changed, /"id":"one"/); assert.match(changed, /"seq":1/);
+  assert.equal(JSON.parse(changed.split("data: ")[1]).epoch, epoch);
 });
 
 test("simultaneous audio-link lookups share work and retry after failures", async () => {

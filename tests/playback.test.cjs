@@ -16,7 +16,7 @@ const prototype = vm.runInNewContext(`({${[
   method("onJob(t){", "position(){"),
   method("position(){", "startSources(t){"),
   method("startSources(t){", "stopSources(){"),
-  method("stopSources(){", "useFiltersInstead(){"),
+  method("stopSources(){", "useFiltersInstead(reason){"),
   method("setLevel(t){", "goFull(){"),
   method("goFull(){", "async play(t){")
 ].join(",")}})`, { console });

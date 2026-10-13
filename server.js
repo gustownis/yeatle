@@ -23,7 +23,10 @@ const { URL } = require("url");
 const { exec } = require("child_process");
 const { pipeline } = require("stream/promises");
 const { createGzip, constants: zlibConstants } = require("node:zlib");
-const { staticCacheHeaders, isNotModified, rangeAllowed } = require("./static-cache.cjs");
+const { staticCacheHeaders, isNotModified, rangeAllowed, createCompressedCache, gzipBuffer } = require("./static-cache.cjs");
+const { createActiveSongFeed } = require("./live-control.cjs");
+const compressedAssets = createCompressedCache();
+const activeSongFeed = createActiveSongFeed();
 const APP_VERSION = require("./package.json").version;
 
 // when packaged as an exe, files live next to the exe, not inside it
@@ -945,7 +948,8 @@ function buildSongList(sheetRows, stemFolders) {
 let SONGS = [];
 let LAST_INPUT = null; // the rows from the last tracker read, kept so a split can be applied right away
 let SONG_INDEX = new Map();
-let ACTIVE_SONG = { id: "", seq: 0 };
+const ACTIVE_SONG_EPOCH = require("node:crypto").randomUUID();
+let ACTIVE_SONG = { id: "", seq: 0, epoch: ACTIVE_SONG_EPOCH };
 let LAST_UPDATE = 0;
 let LAST_SOURCE = "none";
 let LAST_ERROR = "";
@@ -1663,7 +1667,7 @@ function serveStatic(req, res, pathname) {
     res.writeHead(403); res.end("This path is outside the game folder."); return;
   }
 
-  fs.stat(file, (err, stat) => {
+  fs.stat(file, async (err, stat) => {
     if (err || !stat.isFile()) { res.writeHead(404); res.end("Not found"); return; }
 
     const type = MIME[path.extname(file).toLowerCase()] || "application/octet-stream";
@@ -1694,12 +1698,17 @@ function serveStatic(req, res, pathname) {
       return;
     }
 
-    // Keep byte ranges and audio untouched. Stream compression so a first
-    // download does not require another full-size copy of the WASM runtime.
+    // Keep byte ranges and audio untouched. Reuse bounded compressed variants;
+    // larger files still stream so their full contents are not held in memory.
     if (compressible && !req.headers.range && acceptsGzip(req.headers["accept-encoding"])) {
-      res.writeHead(200, { "Content-Type": type, "Content-Encoding": "gzip" });
-      if (req.method === "HEAD") { res.end(); return; }
-      pipeline(fs.createReadStream(file), createGzip({ level: zlibConstants.Z_BEST_SPEED }), res).catch(() => res.destroy());
+      try {
+        const body = await compressedAssets.get(file, stat);
+        if (res.destroyed) return;
+        res.writeHead(200, { "Content-Type": type, "Content-Encoding": "gzip", ...(body ? { "Content-Length": body.length } : {}) });
+        if (req.method === "HEAD") { res.end(); return; }
+        if (body) res.end(body);
+        else pipeline(fs.createReadStream(file), createGzip({ level: zlibConstants.Z_BEST_SPEED }), res).catch(() => res.destroy());
+      } catch (_) { res.destroy(); }
       return;
     }
     res.writeHead(200, {
@@ -1736,6 +1745,31 @@ const MODELS_DIR = path.join(DATA_DIR, "models");
 const MODEL_URL = "https://huggingface.co/Best-Practice/spleeter-4stems-onnx/resolve/main/";
 const MODEL_STEMS = ["vocals", "drums", "bass", "other"];
 const modelDownloads = new Map();
+const modelDigests = new Map();
+
+async function modelDigest(stem) {
+  const file = path.join(MODELS_DIR, `${stem}.fp16.onnx`);
+  const stat = fs.statSync(file);
+  const key = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  const held = modelDigests.get(stem);
+  if (held?.key === key) return held.pending;
+  const pending = (async () => {
+    const hash = crypto.createHash("sha256");
+    for await (const chunk of fs.createReadStream(file)) hash.update(chunk);
+    return hash.digest("hex");
+  })();
+  modelDigests.set(stem, { key, pending });
+  pending.catch(() => { if (modelDigests.get(stem)?.pending === pending) modelDigests.delete(stem); });
+  return pending;
+}
+
+async function separatorRevision() {
+  try {
+    const stems = ["drums", "bass", "other", "vocals"];
+    if (stems.some(stem => fs.statSync(path.join(MODELS_DIR, `${stem}.fp16.onnx`)).size <= 1000000)) return null;
+    return (await Promise.all(stems.map(async stem => `${stem}:${await modelDigest(stem)}`))).join("|");
+  } catch (_) { return null; }
+}
 
 function ensureModel(stem) {
   const file = path.join(MODELS_DIR, `${stem}.fp16.onnx`);
@@ -1774,8 +1808,12 @@ async function serveModel(req, res, stem) {
   if (!MODEL_STEMS.includes(stem)) { res.writeHead(404); res.end(); return; }
   try {
     const file = await ensureModel(stem);
-    const size = fs.statSync(file).size;
-    res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": size, "Cache-Control": "public, max-age=86400" });
+    const stat = fs.statSync(file), headers = staticCacheHeaders(file, stat, APP_VERSION);
+    headers["Cache-Control"] = "no-cache";
+    headers["X-Yeatle-Model-Hash"] = await modelDigest(stem);
+    if (isNotModified(req.headers, headers.ETag, stat.mtimeMs)) { res.writeHead(304, headers); res.end(); return; }
+    res.writeHead(200, { ...headers, "Content-Type": "application/octet-stream", "Content-Length": stat.size });
+    if (req.method === "HEAD") { res.end(); return; }
     fs.createReadStream(file).pipe(res);
   } catch (err) {
     sendJson(res, 502, { error: `couldn't download the song splitter: ${err.message}` });
@@ -1808,9 +1846,15 @@ function songListJson() {
   if (preparedSongList && key.every((value, index) => value === preparedSongList.key[index])) return preparedSongList.json;
   // Rebuild immediately after tracker/admin changes or an edited photo file.
   const songs = attachJokes(SONGS.filter(s => !isHidden(s)).map(({ source, fallback, mergedFrom, ...rest }) => ({ ...rest, hasFull: Boolean(rest.mode === "filter" || fallback) })));
-  const json = JSON.stringify({ songs, eras: ERAS, updated: LAST_UPDATE, source: LAST_SOURCE, error: LAST_ERROR, artist: CONFIG.artist });
+  const json = JSON.stringify({ songs, eras: ERAS, updated: LAST_UPDATE, source: LAST_SOURCE, error: LAST_ERROR, artist: CONFIG.artist, liveControl: Boolean(ADMIN) });
   preparedSongList = { key, json };
   return json;
+}
+
+function songListGzip() {
+  songListJson();
+  const entry = preparedSongList;
+  return entry.gzip || (entry.gzip = gzipBuffer(entry.json).catch(error => { delete entry.gzip; throw error; }));
 }
 
 function attachJokes(songs) {
@@ -2474,7 +2518,8 @@ async function handleAdmin(req, res, pathname) {
     const id = String(body.id || "");
     const song = SONGS.find(s => s.id === id);
     if (!song || isHidden(song)) { sendJson(res, 404, { error: "Song not found or hidden. Refresh the tracker and try again." }); return true; }
-    ACTIVE_SONG = { id, seq: ACTIVE_SONG.seq + 1 };
+    ACTIVE_SONG = { id, seq: ACTIVE_SONG.seq + 1, epoch: ACTIVE_SONG_EPOCH };
+    activeSongFeed.publish(ACTIVE_SONG);
     sendJson(res, 200, { ok: true, seq: ACTIVE_SONG.seq });
     return true;
   }
@@ -2583,13 +2628,22 @@ const server = http.createServer(async (req, res) => {
     if (model) return serveModel(req, res, model[1]);
 
     if (pathname === "/api/active-song") return sendJson(res, 200, ACTIVE_SONG);
+    if (pathname === "/api/separator-revision") return sendJson(res, 200, { revision: await separatorRevision() });
+    if (pathname === "/api/active-song/events") {
+      if (!ADMIN) return sendJson(res, 404, { enabled: false });
+      if (req.method !== "GET") return sendJson(res, 405, { error: "Use GET for the song event stream." });
+      return activeSongFeed.subscribe(req, res, ACTIVE_SONG);
+    }
 
     if (pathname === "/api/songs") {
       if (searchParams.get("refresh")) await refreshOnce();
       else if (!SONGS.length) await refreshOnce();
 
-      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      res.end(songListJson());
+      const json = songListJson();
+      const gzip = acceptsGzip(req.headers["accept-encoding"]);
+      const body = gzip ? await songListGzip() : json;
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store", "Vary": "Accept-Encoding", "Content-Length": Buffer.byteLength(body), ...(gzip ? { "Content-Encoding": "gzip" } : {}) });
+      res.end(req.method === "HEAD" ? undefined : body);
       return;
     }
 
