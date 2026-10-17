@@ -85,3 +85,41 @@ test("karaoke delay tests match taps and claps to the beeps", async () => {
   const messy = clicks.map((c, i) => c + (i % 2 ? 0.25 : -0.05));
   assert.equal(estimateDelay(clicks, messy, 0.3, 0.3).reason, "uneven");
 });
+
+test("karaoke rapped parts become note bars with a pitch", async () => {
+  const { analyzeVocals, buildChart } = await load();
+  const vocals = new Float32Array(6 * SR);
+  tone(vocals, 0.5, 1.5, 60);
+  let seed = 7;
+  for (let i = 2 * SR; i < 3.5 * SR; i++) { seed = (seed * 16807) % 2147483647; vocals[i] = 0.2 * ((seed / 2147483647) * 2 - 1); }
+  const chart = buildChart(await analyzeVocals(vocals, SR));
+  assert.ok(chart.notes.length >= 2);
+  chart.notes.forEach(n => assert.ok(Number.isFinite(n.midi), `${n.kind} note has a pitch`));
+  assert.ok(chart.active && chart.hop > 0);
+});
+
+test("karaoke slides early or late lyrics onto the vocals", async () => {
+  const { alignLyrics } = await load();
+  const hop = 0.02, offset = 0.01, N = Math.round(60 / hop);
+  const active = new Uint8Array(N);
+  const sung = [[5, 7.5], [8.2, 10.6], [14, 16.5], [17.1, 19.8], [25, 28], [29, 31.5], [40, 43]];
+  for (const [a, b] of sung) for (let i = Math.round(a / hop); i < Math.round(b / hop); i++) active[i] = 1;
+  const chart = { active, hop, offset };
+  const truth = sung.map(([a], k) => ({ t: a, text: `line ${k}`, words: null }));
+  // lyrics timed 2.6 s late (a version with a longer intro)
+  const late = truth.map(l => ({ ...l, t: l.t + 2.6 }));
+  const fixed = alignLyrics(late, chart);
+  assert.ok(Math.abs(fixed.shift + 2.6) < 0.1, `shift was ${fixed.shift}`);
+  fixed.lines.forEach((l, k) => assert.ok(Math.abs(l.t - truth[k].t) < 0.15, `line ${k} at ${l.t}`));
+  // and 3.4 s early
+  const early = alignLyrics(truth.map(l => ({ ...l, t: l.t - 3.4 })), chart);
+  early.lines.forEach((l, k) => assert.ok(Math.abs(l.t - truth[k].t) < 0.15, `early line ${k} at ${l.t}`));
+  // lyrics that already fit stay put
+  const right = alignLyrics(truth, chart);
+  assert.equal(right.shift, 0);
+  right.lines.forEach((l, k) => assert.ok(Math.abs(l.t - truth[k].t) < 0.06));
+  // one line that's off on its own gets nudged without moving the rest
+  const oneOff = truth.map((l, k) => ({ ...l, t: k === 3 ? l.t + 0.45 : l.t }));
+  const nudged = alignLyrics(oneOff, chart);
+  assert.ok(Math.abs(nudged.lines[3].t - truth[3].t) < 0.1, `nudged to ${nudged.lines[3].t}`);
+});

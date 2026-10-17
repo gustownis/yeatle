@@ -6,10 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <title>Yeatle Karaoke</title>
-    <link rel="stylesheet" href="./assets/karaoke.css?v=1.10.1">
-    <link rel="stylesheet" href="./assets/navigation.css?v=1.10.1">
-    <script type="module" src="./assets/interface-motion.mjs?v=1.10.1"></script>
-    <script type="module" src="./assets/karaoke.js?v=1.10.1"></script>
+    <link rel="stylesheet" href="./assets/karaoke.css?v=1.10.2">
+    <link rel="stylesheet" href="./assets/navigation.css?v=1.10.2">
+    <script type="module" src="./assets/interface-motion.mjs?v=1.10.2"></script>
+    <script type="module" src="./assets/karaoke.js?v=1.10.2"></script>
   </head>
   <body>
     <div id="karaoke-app">
@@ -88,7 +88,7 @@
           <label class="stage-volume" title="Music volume">🔊<input id="stage-volume" type="range" min="0" max="100" step="5" aria-label="Music volume"></label>
           <div class="progress"><i id="progress"></i></div>
         </header>
-        <div class="lane-wrap"><canvas id="lane"></canvas></div>
+        <div class="lane-wrap"><canvas id="lane"></canvas><div id="countdown" class="countdown" aria-live="polite"></div></div>
         <div class="lyrics">
           <div id="lyric-now" class="lyric-now"></div>
           <div id="lyric-next" class="lyric-next"></div>

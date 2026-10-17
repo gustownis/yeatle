@@ -110,6 +110,10 @@ h2:first-child { margin-top: 0; }
 .progress i { display: block; height: 100%; width: 0; background: var(--accent); }
 .stage-volume { display: flex; align-items: center; gap: 6px; font-size: 14px; }
 .stage-volume input { width: 90px; accent-color: var(--accent); }
+.countdown { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: clamp(64px, 14vw, 140px); font-weight: 900; color: #fff; text-shadow: 0 0 30px var(--accent), 0 4px 20px rgba(0, 0, 0, 0.8); pointer-events: none; }
+.countdown.tick { animation: countdown 0.9s ease-out; }
+@keyframes countdown { 0% { opacity: 0; transform: scale(1.6); } 20% { opacity: 1; transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0.2; transform: scale(0.9); } }
+@media (prefers-reduced-motion: reduce) { .countdown.tick { animation: none; } }
 .lane-wrap { position: relative; min-height: 0; }
 #lane { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .lyrics { text-align: center; min-height: 86px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }

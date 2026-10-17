@@ -10,7 +10,7 @@
      every other song goes through the game's AI splitter (sharing its stem
      cache, so a song you already played in Yeatle loads fast).
   2. Track the pitch of the vocal stem and turn it into note tubes (held,
-     pitched notes) and "talky" notes (rapped parts with no steady pitch).
+     pitched notes) and rapped parts, placed at their rough pitch.
   3. Look up the lyrics: lyrics pasted in on this page, a lyrics.lrc in the
      song's folder, or online by title + artist (lrclib.net, then lyrics.ovh).
      Lyrics without timestamps get lined up with the sung phrases.
@@ -39,6 +39,7 @@ const RATINGS = [
 const STREAK_MIN = 0.6;          // phrase accuracy that keeps the multiplier going
 const POINTS_PER_SECOND = 250;   // points for one second of perfectly sung notes, before the multiplier
 const LEAD = 4;                  // seconds of notes shown ahead of the now line
+const COUNT_IN = 3;              // 3-2-1 before each song starts
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 /* ---------- small helpers ---------- */
@@ -242,14 +243,54 @@ export function buildChart(analysis) {
       const start = time(from) - hop / 2, end = time(i - 1) + hop / 2;
       let joinable = talk.length && from - lastEnd <= Math.ceil(0.1 / hop);
       for (let k = lastEnd + 1; joinable && k < from; k++) if (covered[k]) joinable = false;
-      if (joinable) talk[talk.length - 1].end = end;
-      else talk.push({ kind: "talk", start, end, midi: null });
+      if (joinable) { talk[talk.length - 1].end = end; talk[talk.length - 1].to = i - 1; }
+      else talk.push({ kind: "talk", start, end, midi: null, from, to: i - 1 });
       lastEnd = i - 1;
       from = -1;
     }
   }
 
-  let all = [...pitched, ...talk.filter(note => note.end - note.start >= 0.15)].sort((a, b) => a.start - b.start);
+  // Rapped parts have no steady pitch, but the voice still sits somewhere. Place each one at its
+  // rough pitch (splitting where it clearly moves) so the lane only shows piano-roll style notes.
+  const rough = i => (conf[i] > 0.45 && midi[i] > 33 && midi[i] < 88 ? midi[i] : NaN);
+  const nearestPitched = t => {
+    let best = null;
+    for (const note of pitched) if (!best || Math.abs(note.start - t) < Math.abs(best.start - t)) best = note;
+    return best ? best.midi : null;
+  };
+  const talkNotes = [];
+  for (const seg of talk) {
+    if (seg.end - seg.start < 0.15) continue;
+    const pieces = [];
+    let piece = null;
+    for (let i = seg.from; i <= seg.to; i++) {
+      const m = rough(i);
+      if (Number.isNaN(m)) { if (piece) piece.to = i; continue; }
+      if (piece && piece.vals.length >= 5 && Math.abs(m - median(piece.vals.slice(-5))) > 2.5 && time(i) - time(piece.from) >= 0.15) {
+        pieces.push(piece);
+        piece = null;
+      }
+      if (!piece) piece = { from: i, to: i, vals: [] };
+      piece.vals.push(m);
+      piece.to = i;
+    }
+    if (piece) pieces.push(piece);
+    const fallback = nearestPitched(seg.start);
+    if (!pieces.length) {
+      talkNotes.push({ kind: "talk", start: seg.start, end: seg.end, midi: fallback ?? 52 });
+      continue;
+    }
+    pieces.forEach((pc, k) => {
+      const start = k === 0 ? seg.start : time(pc.from) - hop / 2;
+      const end = k === pieces.length - 1 ? seg.end : time(pieces[k + 1].from) - hop / 2;
+      const m = pc.vals.length >= 3 ? Math.round(median(pc.vals)) : (fallback ?? Math.round(median(pc.vals)));
+      const prev = talkNotes[talkNotes.length - 1];
+      if (prev && prev.midi === m && Math.abs(prev.end - start) < 0.02) prev.end = end;
+      else talkNotes.push({ kind: "talk", start, end, midi: m });
+    });
+  }
+
+  let all = [...pitched, ...talkNotes].sort((a, b) => a.start - b.start);
   const clean = [];
   for (const note of all) {
     const prev = clean[clean.length - 1];
@@ -261,12 +302,12 @@ export function buildChart(analysis) {
   const phrases = groupPhrases(kept);
   phrases.forEach((ph, index) => ph.notes.forEach(note => { note.phrase = index; }));
 
-  const tones = kept.filter(note => note.kind === "pitch").map(note => note.midi).sort((a, b) => a - b);
+  const tones = kept.map(note => note.midi).sort((a, b) => a - b);
   let lo = tones.length ? tones[Math.floor(tones.length * 0.03)] - 2 : 45;
   let hi = tones.length ? tones[Math.max(0, Math.ceil(tones.length * 0.97) - 1)] + 2 : 60;
   if (hi - lo < 12) { const mid = (hi + lo) / 2; lo = mid - 6; hi = mid + 6; }
 
-  return { notes: kept, phrases, lo, hi, totalDur: phrases.reduce((sum, ph) => sum + ph.dur, 0) };
+  return { notes: kept, phrases, lo, hi, totalDur: phrases.reduce((sum, ph) => sum + ph.dur, 0), active, hop, offset };
 }
 
 /* ---------- lyrics ---------- */
@@ -296,6 +337,68 @@ export function parseLrc(text) {
   lines.forEach(line => { line.t -= shift; if (line.words) line.words.forEach(w => { w.t -= shift; }); });
   lines.sort((a, b) => a.t - b.t);
   return lines.some(line => line.text) ? lines : [];
+}
+
+// Synced lyrics online are often timed to a different version of the song (longer intro,
+// radio edit, different upload), which pushes every line early or late. This slides the
+// lyrics to where the vocals really are, then nudges single lines onto nearby vocal entries.
+export function alignLyrics(lines, chart, maxShift = 20) {
+  const { active, hop, offset } = chart || {};
+  const textLines = (lines || []).filter(l => l.text);
+  if (!active || !active.length || textLines.length < 3) return { lines, shift: 0, score: 0, moved: 0 };
+  const N = active.length;
+  const pre = new Float64Array(N + 1);
+  for (let i = 0; i < N; i++) pre[i + 1] = pre[i] + active[i];
+  const mean = pre[N] / N;
+  const frac = (a, b) => {
+    const i0 = clamp(Math.round((a - offset) / hop), 0, N), i1 = clamp(Math.round((b - offset) / hop), 0, N);
+    return i1 > i0 ? (pre[i1] - pre[i0]) / (i1 - i0) : 0;
+  };
+  const sorted = lines.slice().sort((a, b) => a.t - b.t);
+  const spans = [];
+  sorted.forEach((l, k) => {
+    if (!l.text) return;
+    const next = sorted[k + 1];
+    spans.push({ t: l.t, dur: clamp((next ? next.t : l.t + 4) - l.t, 0.4, 6) });
+  });
+  const totalDur = spans.reduce((sum, sp) => sum + sp.dur, 0);
+  const onset = t => frac(t, t + 0.45) - frac(t - 0.45, t);
+  const score = s => {
+    let cover = 0, rise = 0;
+    for (const sp of spans) { cover += frac(sp.t + s, sp.t + s + sp.dur) * sp.dur; rise += onset(sp.t + s); }
+    return cover / totalDur - mean + 0.5 * (rise / spans.length);
+  };
+  // coarse search, then fine around the best
+  let best = 0, bestScore = score(0);
+  const base = bestScore;
+  for (let s = -maxShift; s <= maxShift + 1e-9; s += 0.1) {
+    const v = score(s) - Math.abs(s) * 0.0015;
+    if (v > bestScore) { bestScore = v; best = s; }
+  }
+  for (let s = best - 0.1; s <= best + 0.1 + 1e-9; s += 0.02) {
+    const v = score(s) - Math.abs(s) * 0.0015;
+    if (v > bestScore) { bestScore = v; best = s; }
+  }
+  // only move everything when the vocals clearly agree better
+  const shift = bestScore - base > 0.02 ? Math.round(best * 100) / 100 : 0;
+  let moved = 0, last = -Infinity;
+  const out = sorted.map(l => {
+    let t = l.t + shift;
+    if (l.text) {
+      let bestD = 0, bestV = onset(t);
+      for (let d = -0.6; d <= 0.6 + 1e-9; d += 0.05) {
+        const v = onset(t + d) - Math.abs(d) * 0.25;
+        if (v > bestV + 0.15) { bestV = v; bestD = d; }
+      }
+      if (bestD) moved++;
+      t += bestD;
+    }
+    t = Math.max(t, last + 0.15);
+    const delta = t - l.t;
+    last = t;
+    return { ...l, t, words: l.words ? l.words.map(w => ({ ...w, t: w.t + delta })) : null };
+  });
+  return { lines: out, shift, score: score(shift), moved };
 }
 
 /* ---------- everything below needs a browser ---------- */
@@ -585,11 +688,22 @@ async function searchLyricsOnline(title, artist, duration, signal) {
   const synced = hits.filter(r => r.syncedLyrics && (!duration || !r.duration || Math.abs(r.duration - duration) <= 8)).sort(closest);
   if (synced.length) {
     const lines = parseLrc(synced[0].syncedLyrics);
-    if (lines.length) return { lines, source: "lrclib.net" };
+    // keep a few other timings too; the one that fits the actual vocals gets picked later
+    const seenText = new Set([synced[0].syncedLyrics.replace(/\s+/g, " ")]);
+    const alternates = [];
+    for (const r of synced.slice(1)) {
+      const key = r.syncedLyrics.replace(/\s+/g, " ");
+      if (seenText.has(key)) continue;
+      seenText.add(key);
+      alternates.push(r.syncedLyrics);
+      if (alternates.length >= 4) break;
+    }
+    if (lines.length) return { lines, source: "lrclib.net", online: true, alternates };
   }
   const plain = hits.filter(r => r.plainLyrics).sort(closest);
   if (plain.length) {
     const lines = plainLyricLines(plain[0].plainLyrics);
+    // (plain lyrics get placed on the sung phrases, so no alignment needed)
     if (lines.length) return { lines: [], plain: lines, source: "lrclib.net" };
   }
   for (const v of variants) {
@@ -753,14 +867,15 @@ export function estimateDelay(clicks, events, before, after, mode = "nearest") {
   return { ok: spread <= 0.05, reason: spread <= 0.05 ? "" : "uneven", delay, spread, count: offsets.length };
 }
 
-function beep(ctx, when, high) {
+function beep(ctx, when, high, level = 0.6, out = ctx.destination) {
   const osc = ctx.createOscillator(), gain = ctx.createGain();
   osc.frequency.value = high ? 1320 : 880;
   gain.gain.setValueAtTime(0.0001, when);
-  gain.gain.exponentialRampToValueAtTime(0.6, when + 0.003);
+  gain.gain.exponentialRampToValueAtTime(level, when + 0.003);
   gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.06);
-  osc.connect(gain); gain.connect(ctx.destination);
+  osc.connect(gain); gain.connect(out);
   osc.start(when); osc.stop(when + 0.07);
+  return osc;
 }
 
 function openCalibration(kind) {
@@ -1050,7 +1165,21 @@ async function startSong() {
     if (!chart.phrases.length) throw new Error("Couldn't find any vocals to sing in this song.");
     if (job.cancelled) return;
     state.job = null;
-    beginGame(song, audio, chart, lyrics.lines.length ? lyrics.lines : timePlainLyrics(lyrics.plain, chart.phrases));
+    let lines = lyrics.lines.length ? lyrics.lines : timePlainLyrics(lyrics.plain, chart.phrases);
+    let lyricNote = "";
+    if (lyrics.online && lyrics.lines.length) {
+      // try every online timing against the vocals and keep the best fit
+      const options = [lyrics.lines, ...(lyrics.alternates || []).map(parseLrc)].filter(l => l.length);
+      let best = null;
+      for (const option of options) {
+        const fit = alignLyrics(option, chart);
+        if (!best || fit.score > best.score) best = fit;
+      }
+      lines = best.lines;
+      if (Math.abs(best.shift) >= 0.3) lyricNote = `Lyrics lined up with the vocals (moved ${Math.abs(best.shift).toFixed(1)}s ${best.shift > 0 ? "later" : "earlier"})`;
+    }
+    beginGame(song, audio, chart, lines);
+    if (lyricNote) showToast(lyricNote);
   } catch (err) {
     if (job.cancelled) return;
     state.job = null;
@@ -1079,7 +1208,7 @@ function beginGame(song, audio, chart, lyrics) {
   applyVolume();
   buildStage();
   resetRun();
-  playFrom(0);
+  playFrom(0, COUNT_IN);
   showScreen("stage");
   resizeCanvas();
   const currentGame = game;
@@ -1125,15 +1254,17 @@ function stopSources() {
   game.sources = [];
 }
 
-function playFrom(offset) {
+// countIn: seconds of 3-2-1 before the music starts; the notes scroll in meanwhile
+function playFrom(offset, countIn = 0) {
   const ctx = audioCtx();
   stopSources();
   const inst = ctx.createBufferSource(), guide = ctx.createBufferSource();
   inst.buffer = game.audio.inst; guide.buffer = game.audio.guide;
   inst.connect(game.instGain); guide.connect(game.guideGain);
-  const when = ctx.currentTime + 0.08;
+  const when = ctx.currentTime + 0.08 + countIn;
   inst.start(when, offset); guide.start(when, offset);
   game.sources = [inst, guide];
+  for (let k = Math.round(countIn); k >= 1; k--) game.sources.push(beep(ctx, when - k, false, 0.25, game.instGain));
   game.startCtx = when;
   game.startOffset = offset;
   game.lastT = null;
@@ -1194,6 +1325,7 @@ function tick() {
   }
 
   draw(t);
+  updateCountdown(heard);
   updateLyrics(heard + game.lyricShift);
   updateHud(t);
   if (heard >= game.audio.duration + 0.3) showResults();
@@ -1308,25 +1440,16 @@ function draw(t) {
   for (let k = game.drawIdx; k < notes.length && notes[k].start < t + LEAD + 0.2; k++) {
     const note = notes[k];
     const x1 = X(note.start), x2 = X(note.end);
-    const isTalk = note.kind === "talk";
-    const bandH = isTalk ? (bottom - top) * 0.2 : tubeH;
-    const yc = isTalk ? (top + bottom) / 2 : Y(note.midi);
-    const y0 = yc - bandH / 2;
+    const bandH = tubeH;
+    const y0 = Y(note.midi) - bandH / 2;
     const passed = note.end < t;
-    if (isTalk) {
-      g.fillStyle = passed ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.07)";
+    g.fillStyle = passed ? "rgba(255,255,255,0.18)" : "rgba(240,232,255,0.92)";
+    pill(g, x1, y0, x2 - x1, bandH); g.fill();
+    if (!passed && x1 < nowX) {
+      g.save(); g.beginPath(); g.rect(0, 0, nowX, h); g.clip();
+      g.fillStyle = "rgba(60,50,80,0.85)";
       pill(g, x1, y0, x2 - x1, bandH); g.fill();
-      g.strokeStyle = passed ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.6)";
-      g.setLineDash([6, 5]); g.lineWidth = 2; g.stroke(); g.setLineDash([]);
-    } else {
-      g.fillStyle = passed ? "rgba(255,255,255,0.18)" : "rgba(240,232,255,0.92)";
-      pill(g, x1, y0, x2 - x1, bandH); g.fill();
-      if (!passed && x1 < nowX) {
-        g.save(); g.beginPath(); g.rect(0, 0, nowX, h); g.clip();
-        g.fillStyle = "rgba(60,50,80,0.85)";
-        pill(g, x1, y0, x2 - x1, bandH); g.fill();
-        g.restore();
-      }
+      g.restore();
     }
     // what each singer actually hit, as coloured stripes
     const stripe = bandH / n;
@@ -1403,6 +1526,16 @@ function updateLyrics(lt) {
   }
 }
 
+function updateCountdown(heard) {
+  const box = $("#countdown");
+  const text = heard < 0 ? String(Math.min(COUNT_IN, Math.ceil(-heard))) : heard < 0.6 ? "Go!" : "";
+  if (box.textContent !== text) {
+    box.textContent = text;
+    box.classList.remove("tick");
+    if (text) { void box.offsetWidth; box.classList.add("tick"); }
+  }
+}
+
 function updateHud(t) {
   const { phrases } = game.chart;
   const ph = phrases[game.phraseIdx];
@@ -1433,7 +1566,8 @@ function updateHud(t) {
   const nextPh = phrases[game.phraseIdx];
   const skip = $("#skip");
   let target = null, label = "";
-  if (!nextPh) { if (game.audio.duration - heard > 4) { target = "end"; label = "Finish (S)"; } }
+  if (heard < 0) { /* counting in */ }
+  else if (!nextPh) { if (game.audio.duration - heard > 4) { target = "end"; label = "Finish (S)"; } }
   else if (nextPh.start - t > 7) { target = nextPh.start - 2.5; label = "Skip ahead (S)"; }
   game.skipTarget = target;
   skip.hidden = target == null || game.paused;
@@ -1452,8 +1586,12 @@ function shiftLyrics(delta) {
   game.lyricShift = Math.round((game.lyricShift + delta) * 10) / 10;
   store.set(`yeatle-karaoke-shift:${game.song.id}`, game.lyricShift);
   game.shownLine = -2;
+  showToast(`Lyrics ${game.lyricShift > 0 ? "earlier" : game.lyricShift < 0 ? "later" : "timing reset"}${game.lyricShift ? ` by ${Math.abs(game.lyricShift).toFixed(1)}s` : ""}`);
+}
+
+function showToast(text) {
   const toast = $("#toast");
-  toast.textContent = `Lyrics ${game.lyricShift > 0 ? "earlier" : game.lyricShift < 0 ? "later" : "timing reset"}${game.lyricShift ? ` by ${Math.abs(game.lyricShift).toFixed(1)}s` : ""}`;
+  toast.textContent = text;
   toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
 }
 
@@ -1469,6 +1607,7 @@ function endGame() {
   if (audioCtx().state === "suspended") audioCtx().resume();
   try { game.wakeLock?.release(); } catch { /* fine */ }
   $("#pause").hidden = true;
+  $("#countdown").textContent = "";
 }
 
 function showResults() {
