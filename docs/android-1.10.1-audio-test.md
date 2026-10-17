@@ -4,7 +4,7 @@ Tested on 17 October 2026 on the connected Samsung SM-S931B running Android 16.
 Chrome Beta 157.0.8103.5 and Brave 1.97.56 (Chromium 155.0.8059.40) both passed
 the checks below. This follows the [silent phone check](android-1.10.1-silent-test.md).
 This report records pre-release testing. Publication was authorized separately
-by the user on 17 October 2026.
+by the user after final checks on 17 October 2026.
 
 ## Conditions
 

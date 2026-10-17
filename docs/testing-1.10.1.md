@@ -3,7 +3,7 @@
 Candidate based on 1.10.0. Automated PC checks and physical Android checks for
 playback and real microphone capture have passed. Singing, calibration, and
 the remaining hands-on checks are still pending.
-The user authorized release on 17 October 2026 after reviewing these results.
+The user authorized release after the final checks on 17 October 2026.
 Unchecked items below remain documented limitations of the verification.
 
 ## Automated verification
@@ -129,8 +129,33 @@ Do not change browser security flags or expose the server to the LAN.
 
 ## Release preparation
 
-Release was authorized on 17 October 2026. Before publication, review the final
-diff, run the full suite, build/verify the desktop installers, generate
-checksums/updater feeds, and replace the README's download links only after the
-release assets exist. The remaining hands-on checks above are disclosed in the
-release notes.
+The final local package check passed with release-version asset URLs and exact
+packaged file matches. The final motion test passed with no page errors,
+callback failures, or browser cancellations; its evidence is in
+`.tmp/motion-1101-result.json` and `.tmp/motion-1101-1792222638033/`.
+
+The temporary test runner now writes diagnostics to its own file and is launched
+with output redirected while waiting for completion. This prevents the `EPIPE`
+dialog caused by the earlier detached test process. Browser-native skipped
+transitions are recorded separately from callback failures and application
+errors. A diagnostic run disabling only cross-page animation confirmed that
+the earlier skip message came from native navigation; the final run passed
+with native cross-page animations enabled and no skipped transitions.
+
+GitHub Checks passed on Windows, macOS, and Linux. Desktop build run
+[39014103284](https://github.com/gustownis/yeatle/actions/runs/39014103284)
+built Windows x64, macOS x64/ARM64, and Linux x64/ARM64 from commit `8b3b992`;
+all five jobs passed their tests and packaging. Later release documentation
+changes do not alter the packaged application.
+
+All ten downloads passed binary-format and SHA-256 checks. The three updater
+feeds match the appropriate installer sizes and SHA-512 hashes. All fourteen
+uploaded draft assets match GitHub's reported sizes and SHA-256 digests. The
+README's download links were updated after these draft assets were verified.
+
+The application archive was extracted from the actual GitHub-built Windows
+installer without installing it. Its packaged files match the release sources,
+both game pages load, synthetic audio input succeeds, camera access is denied,
+and no page errors were reported. Evidence is in
+`.tmp/installer-1101-result.json`, `.tmp/release-1101-manifest.json`, and
+`.tmp/1.10.1-draft-verified.json`.
