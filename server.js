@@ -1651,7 +1651,7 @@ const MIME = {
   ".ico": "image/x-icon", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".mp4": "video/mp4",
   ".webm": "video/webm", ".txt": "text/plain; charset=utf-8", ".woff2": "font/woff2",
   ".wasm": "application/wasm", ".mjs": "text/javascript", ".onnx": "application/octet-stream",
-  ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif"
+  ".jpeg": "image/jpeg", ".lrc": "text/plain; charset=utf-8", ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif"
 };
 
 function serveStatic(req, res, pathname) {

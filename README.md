@@ -32,14 +32,14 @@ You can play without the optional stems. The built-in audio separation files dow
 
 | Computer | Downloads |
 | --- | --- |
-| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.9.5/Yeatle-Setup-1.9.5-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.9.5/Yeatle-1.9.5-windows-x64-portable.exe) |
-| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.5/Yeatle-1.9.5-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.5/Yeatle-1.9.5-mac-arm64.zip) |
-| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.9.5/Yeatle-1.9.5-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.9.5/Yeatle-1.9.5-mac-x64.zip) |
-| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.5/Yeatle-1.9.5-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.5/Yeatle-1.9.5-linux-x64.deb) |
-| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.9.5/Yeatle-1.9.5-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.9.5/Yeatle-1.9.5-linux-arm64.deb) |
+| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.10.0/Yeatle-Setup-1.10.0-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.10.0/Yeatle-1.10.0-windows-x64-portable.exe) |
+| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.10.0/Yeatle-1.10.0-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.10.0/Yeatle-1.10.0-mac-arm64.zip) |
+| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.10.0/Yeatle-1.10.0-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.10.0/Yeatle-1.10.0-mac-x64.zip) |
+| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.10.0/Yeatle-1.10.0-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.10.0/Yeatle-1.10.0-linux-x64.deb) |
+| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.10.0/Yeatle-1.10.0-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.10.0/Yeatle-1.10.0-linux-arm64.deb) |
 
 Installation steps for each OS are below.
-[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.9.5/SHA256SUMS.txt)
+[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.10.0/SHA256SUMS.txt)
 are provided with the release.
 
 ## Requirements
@@ -87,7 +87,7 @@ Cloning this public repository does not require authentication.
 
 ### Desktop app
 
-1. Download the Windows **x64 installer** (`Yeatle-Setup-1.9.5-windows-x64.exe`) for a usual
+1. Download the Windows **x64 installer** (`Yeatle-Setup-1.10.0-windows-x64.exe`) for a usual
    Intel/AMD Windows PC, or the matching portable `.exe` if offered.
 2. Run the installer, choose the installation folder if prompted, and open
    **Yeatle** from Start. The portable app runs directly without installation.
@@ -177,7 +177,7 @@ use the matching `.deb` on Debian/Ubuntu or the browser version.
 For a Debian/Ubuntu package, install the exact downloaded filename:
 
 ```sh
-sudo apt install ./Yeatle-1.9.5-linux-x64.deb
+sudo apt install ./Yeatle-1.10.0-linux-x64.deb
 ```
 
 For ARM64, use the package ending in `-arm64.deb`. Open Yeatle from your desktop
@@ -255,6 +255,34 @@ the album you want. For example, include **Lyfestyle [V2]**, **LYFESTYLE**, and
 The original creator's 1.9 notes report that both **Kranky** tracks in the
 **Super Geeky** era now work. One is labeled `Kranky *Tanky` to distinguish
 the versions with different runtimes.
+
+## Karaoke mode
+
+Click the **Karaoke** tab next to Stems and Snippets (or open
+`/karaoke.html`) to sing along Rock Band / Fortnite Festival style. Up to four
+people can sing at once, each on their own microphone, and each singer's pitch
+shows up as a coloured arrow on the note lane.
+
+- **Notes are made automatically** from the song's vocals. Songs with HQ stems
+  use `vocals.mp3`; every other song is split by the same AI splitter the game
+  uses (and shares its saved stems). Held notes are tubes you match in pitch,
+  and the dashed boxes are rapped parts where you just need to be on the beat.
+- **Octave doesn't matter**, so anyone can sing any song. Each phrase gets a
+  rating, and good phrases in a row raise your multiplier up to x4.
+- **Lyrics** are looked up online by song title and artist on
+  [lrclib.net](https://lrclib.net), then [lyrics.ovh](https://lyrics.ovh).
+  Synced lyrics are used when they exist; plain lyrics get lined up with the
+  singing automatically. Lyrics you paste in on the karaoke page, or a
+  `lyrics.lrc` file in the song's `Songs/` folder, take priority.
+  Use `[` and `]` while singing to nudge the timing; it's remembered per song.
+- **Music volume** is in Options and on the singing screen, so you can turn the beat down mid-song.
+- **Delay tests:** run the **Tap test** once to measure how late sound reaches
+  your ears (Bluetooth headphones can add 200 ms or more), then the **Clap test**
+  to measure your mic's delay. Both are saved, and the sliders can fine-tune them.
+- **Tips:** headphones give the most accurate scoring. If you play through
+  speakers, keep "Playing out loud through speakers" ticked. If quiet singing
+  isn't picked up, raise **Mic sensitivity**.
+- Browsers only allow microphones on `https://` addresses or `localhost`.
 
 ## Optional HQ stems
 
@@ -362,7 +390,7 @@ admin password, downloaded models, or stems. Game progress stays in the same
 desktop profile. If GitHub or your connection is unavailable, you can keep
 playing and try again later.
 
-**Upgrading from 1.9.0:** download and install 1.9.5 once using the links above.
+**Upgrading from 1.9.0:** download and install 1.10.0 once using the links above.
 The updater is available from 1.9.1 onward. The browser version has no desktop
 menu or installer updater; download the new browser ZIP or update your Git
 checkout, keeping your local settings and song folders.
@@ -517,10 +545,10 @@ After all five desktop builds finish, download their artifacts into a folder
 and prepare the checksums and updater metadata:
 
 ```sh
-npm run prepare:release -- 1.9.5 release/github-builds-1.9.5 release/update-metadata-1.9.5
+npm run prepare:release -- 1.10.0 release/github-builds-1.10.0 release/update-metadata-1.10.0
 ```
 
-For a future release, replace `1.9.5` in the version and folder names. The script
+For a future release, replace `1.10.0` in the version and folder names. The script
 requires all ten installers/archive files and fails if any are missing. It
 copies them into the output folder with consistent download names, including
 normalizing Linux's `amd64`/`x86_64` names to `x64`. Attach all fourteen files

@@ -123,8 +123,13 @@ function createWindow() {
     if (new URL(url).origin !== serverUrl) { event.preventDefault(); openExternal(url); }
   });
   window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
-  window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  window.webContents.session.setPermissionCheckHandler(() => false);
+  // Only karaoke mode's microphone is allowed, and only for the game's own pages.
+  const fromGame = url => { try { return new URL(url).origin === new URL(serverUrl).origin; } catch (_) { return false; } };
+  window.webContents.session.setPermissionRequestHandler((_contents, permission, callback, details) => {
+    const audioOnly = !details || !details.mediaTypes || details.mediaTypes.every(type => type === "audio");
+    callback(permission === "media" && audioOnly && fromGame(details && details.requestingUrl));
+  });
+  window.webContents.session.setPermissionCheckHandler((_contents, permission, origin) => permission === "media" && fromGame(origin));
   window.webContents.on("did-fail-load", (_event, code, description, _url, isMainFrame) => {
     if (isMainFrame && code !== -3 && !quitting) failStartup(new Error(`The game window could not load: ${description}`));
   });
