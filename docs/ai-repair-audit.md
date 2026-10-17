@@ -2,7 +2,6 @@
 
 Historical audit recorded before 1.9.5 release preparation. The verified repair and optimizations are included in the 1.9.5 release candidate, whose asset queries use `v=1.9.5`. See [release notes](releases/1.9.5.md). Website deployment remains separate.
 
-
 Date: 13 October 2026. Release metadata remains 1.9.4. This work is local and has not been deployed, pushed, packaged as a release, or published.
 
 This document records the initial repair and measurements before optimization approval. After the user authorized the doable improvements, the worker received separately verified lifecycle, buffer, and calculation changes. Its current contents therefore differ from the initial byte-for-byte rollback described below. See [local-optimization-results.md](local-optimization-results.md) for the current implementation, asset queries, and verification.
@@ -76,6 +75,6 @@ The normalization loop calls `Math.pow` twice for each mask value, once in the d
 
 No opportunity in this ranking has been implemented. Test-only provider overrides, worker termination, and the isolated mask experiment are measurements, not production optimizations.
 
-## Local evidence files
+## Audit record
 
-The ignored `.tmp/` folder contains `hosted-ai-audit/`, `hosted-browser-audit.trace`, `ai-repair-verification.json`, `ai-repair-smoke.json`, `mask-repetition-measurement.json`, `ai-failure-desktop.png`, and the diagnostic harnesses. These files contain local test evidence and are not part of a release. Any later release notes should use normal dashes with each paragraph on one physical line.
+This document summarizes observations from local testing. Raw traces, screenshots, and one-off diagnostic scripts were not published with this audit. The later implementation results are recorded in [local optimization results](local-optimization-results.md) and the [physical Android test report](android-ai-test.md).

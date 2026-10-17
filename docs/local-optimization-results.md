@@ -2,8 +2,7 @@
 
 Historical audit recorded before 1.9.5 release preparation. The verified repair and optimizations are included in the 1.9.5 release candidate, whose asset queries use `v=1.9.5`. See [release notes](releases/1.9.5.md). Website deployment remains separate.
 
-
-Date: 13 October 2026. The user authorized implementing the doable improvements after reviewing the audits. All changes remain local in `D:\yeatle`; version metadata is still 1.9.4. No deployment, push, release publication, or changes to real admin passwords or saved game data were made.
+Date: 13 October 2026. The user authorized implementing the doable improvements after reviewing the audits. At the time of this report, changes remained in the development checkout and version metadata was still 1.9.4. No deployment, push, release publication, or changes to real admin passwords or saved game data were made.
 
 ## Implemented, in measured priority order
 
@@ -45,6 +44,6 @@ The user's physical Android phone subsequently completed real-song separation in
 - No image quality/resolution changes, model compression, reduced audio precision, or persistent original-audio cache were added. Those require separate visual, transfer, range, invalidation, and storage measurements.
 - No broad React rewrite, autocomplete worker, waveform redesign, or audio-clock rendering change was made. Existing measurements did not justify those changes, and foreground frame/battery measurements are still needed.
 
-## Local evidence
+## Verification record
 
-Ignored `.tmp/` evidence includes `optimized-ai-verification.json`, `stem-cache-verification.json`, `cpu-cache-fallback.json`, `client-controls-verification.json`, `graph-after-optimization.json`, and the corresponding isolated browser harnesses. Baselines remain in `ai-repair-audit.md`, `further-optimization-audit.md`, and their ignored evidence files. Later release notes should use normal dashes and keep each paragraph on one physical line.
+The measurements above summarize local tests; raw logs and temporary diagnostic scripts were not published. The earlier observations are documented in the [AI repair audit](ai-repair-audit.md) and [further optimization audit](further-optimization-audit.md). The repository includes the [automated tests](../tests) for the shipped implementation; these are distinct from the one-off browser and performance measurements in this report.

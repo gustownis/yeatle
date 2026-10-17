@@ -2,7 +2,6 @@
 
 Historical audit recorded before 1.9.5 release preparation. The verified repair and optimizations are included in the 1.9.5 release candidate, whose asset queries use `v=1.9.5`. See [release notes](releases/1.9.5.md). Website deployment remains separate.
 
-
 Date: 13 October 2026. This extends the AI measurements in `ai-repair-audit.md`. Optimization candidates were measured or inspected without changing their production implementation. Nothing has been deployed or released.
 
 This is the historical audit made before the user authorized local implementation. Several measured candidates were subsequently implemented and verified; see [local-optimization-results.md](local-optimization-results.md) for the current results and remaining work.
@@ -68,6 +67,6 @@ The audit found an existing stylesheet rule, `@media (hover: none){.keys{display
 
 Focused browser checks verified computed visibility, not just DOM presence: the hint stayed hidden for Android phone, Android tablet, and iPad identities, and was visibly displayed on a 390-pixel-wide Windows desktop with ten touch points. The S shortcut still worked there. No optimization candidate in this document was implemented.
 
-## Evidence
+## Audit record
 
-Ignored local files in `.tmp/` include `further-static-audit.json`, `further-ui-audit.json`, `further-graph-audit.json`, CPU profiles named `ui-*-profile.json`, `desktop-hint-verification.json`, and `desktop-touch-hint.png`. The browser and compression experiments are also saved there for reproduction. The application repair, settings, progress, audio algorithms, and server behavior were otherwise left as they were at the start of this audit.
+This document summarizes local browser, compression, and memory measurements. Raw profiles, screenshots, and one-off diagnostic scripts were not published, so these measurements cannot be reproduced from this report alone. The application repair, settings, progress, audio algorithms, and server behavior were otherwise left as they were at the start of this audit. See [local optimization results](local-optimization-results.md) for the later implementation and verification record.

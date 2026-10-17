@@ -2,10 +2,7 @@
 
 Date: 17 October 2026. Candidate: local 1.10.1 preview 3.
 
-The user requested phone debugging while intermittently away, then asked to defer
-speaker playback because someone was sleeping. All checks below were silent.
-The phone's ten-minute screen timeout was left unchanged. No release or website
-deployment was performed.
+The user requested phone debugging while intermittently away, then asked to defer speaker playback because someone was sleeping. All checks below were silent. The phone's ten-minute screen timeout was left unchanged. No release or website deployment was performed.
 
 ## Setup and scope
 
@@ -14,18 +11,9 @@ Connected handset: Samsung SM-S931B, Android 16. Browsers tested:
 - Chrome Beta 157.0.8103.5.
 - Brave 1.97.56, Chromium 155.0.8059.40.
 
-A temporary loopback server supplied two existing audio fixtures and cached models
-over USB. Each browser used a new test tab and a separate local origin, with test
-volume zero and the singer set to watch without a microphone. Temporary guards
-blocked media-element playback, scheduled audio sources, and microphone requests
-before the app loaded. They recorded **zero playback attempts and zero microphone
-attempts** in both browsers. No phone volume settings, browser security flags,
-permissions, installed apps, normal Yeatle progress, or admin passwords were changed.
+A temporary loopback server supplied two existing audio fixtures and cached models over USB. Each browser used a new test tab and a separate local origin, with test volume zero and the singer set to watch without a microphone. Temporary guards blocked media-element playback, scheduled audio sources, and microphone requests before the app loaded. They recorded **zero playback attempts and zero microphone attempts** in both browsers. No phone volume settings, browser security flags, permissions, installed apps, normal Yeatle progress, or admin passwords were changed.
 
-The setup follows the official [Chrome Android debugging guide](https://developer.chrome.com/docs/devtools/remote-debugging/).
-Screen state was checked before foreground-dependent stages. The phone remained
-awake during the completed checks; no automatic unlocking or timeout override was
-used. Normal test taps interacted with the page.
+The setup follows the official [Chrome Android debugging guide](https://developer.chrome.com/docs/devtools/remote-debugging/). Screen state was checked before foreground-dependent stages. The phone remained awake during the completed checks; no automatic unlocking or timeout override was used. Normal test taps interacted with the page.
 
 ## Results
 
@@ -46,39 +34,21 @@ used. Normal test taps interacted with the page.
 | Sampled vocal data | Finite, nonzero samples | Same |
 | Playback / mic attempts | 0 / 0 | 0 / 0 |
 
-Times include local transfer, preparation, and normal phone conditions. These
-single runs are functional checks, not a controlled browser performance comparison.
-Browser memory/CPU hints are not the phone's physical specifications. Automatic
-charts can differ around pitch/confidence thresholds; this test does not validate
-their musical accuracy. No audible sources were started even though an audio
-context was running for preparation.
+Times include local transfer, preparation, and normal phone conditions. These single runs are functional checks, not a controlled browser performance comparison. Browser memory/CPU hints are not the phone's physical specifications. Automatic charts can differ around pitch/confidence thresholds; this test does not validate their musical accuracy. No audible sources were started even though an audio context was running for preparation.
 
-The panel's continuous darkness was verified separately in desktop paint-frame
-captures. This phone check confirms configuration and successful navigation,
-not a frame-by-frame phone compositing measurement.
+The panel's continuous darkness was verified separately in desktop paint-frame captures. This phone check confirms configuration and successful navigation, not a frame-by-frame phone compositing measurement.
 
 ## Remaining checks
 
 - Actual playback, pause/resume, final-level reveal, and perceived sound quality.
 - Real microphone permission, input switching, quiet singing, and scoring.
 - Tap/clap calibration, speaker echo reduction, headphones, and Bluetooth timing.
-- Screen lock/return, landscape use, cancellation/retry under phone memory pressure,
-  and longer multi-song sessions.
+- Screen lock/return, landscape use, cancellation/retry under phone memory pressure, and longer multi-song sessions.
 
-These remain deferred until sound and active participation are convenient.
-Silent checks alone do not approve release publication.
+These were deferred during the silent session. The subsequent [audio check](android-1.10.1-audio-test.md) records playback and microphone results and lists the remaining hands-on checks.
 
-## Evidence and cleanup
+## Test record and cleanup
 
-Ignored local evidence lives in `.tmp/android-1101/`: `chrome-result.json`,
-`brave-result.json`, browser screenshots, the isolated server fixture, and the
-silent test harness. Instrumented tabs and their local test storage were removed
-after each browser run. Temporary USB mappings and the local test server are
-removed at the end of this task. Existing unrelated debugging connections and
-normal browser data are retained.
+This document is the published summary of the local silent test. Raw diagnostic logs, screenshots, and temporary test scripts were not published. Instrumented tabs and their local test storage were removed after each browser run. Temporary USB mappings and the local test server are removed at the end of this task. Existing unrelated debugging connections and normal browser data are retained.
 
-Initial harness attempts encountered an oversized power-status response and a
-touch/scroll settling delay. Narrowing the status query and waiting for the
-mobile toolbar/tap to settle resolved them. They were test-harness issues;
-neither establishes an application defect. No production-code repair was needed
-for the completed silent checks.
+Initial harness attempts encountered an oversized power-status response and a touch/scroll settling delay. Narrowing the status query and waiting for the mobile toolbar/tap to settle resolved them. They were test-harness issues; neither establishes an application defect. No production-code repair was needed for the completed silent checks.

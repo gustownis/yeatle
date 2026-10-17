@@ -2,14 +2,13 @@
 
 Historical audit recorded before 1.9.5 release preparation. The verified repair and optimizations are included in the 1.9.5 release candidate, whose asset queries use `v=1.9.5`. See [release notes](releases/1.9.5.md). Website deployment remains separate.
 
-
 Date: 13 October 2026. The user connected the phone and authorized USB debugging for this test. Device identifiers are omitted from this report. Release metadata remains 1.9.4; no website deployment, push, or release publication occurred.
 
 ## Device and setup
 
 The connected phone reports model SM-S931B, Android 16 / API 36, eight logical processors in Chrome Beta, and approximately 10.85 GiB in Android's `MemTotal`. Installed browsers were Chrome Beta 156.0.8078.25 and Brave 1.97.56, whose Chromium engine reports 155.0.8059.40. Brave reported six processors and 4 GiB through browser APIs; Chrome Beta reported eight processors and 8 GiB. These browser values do not establish the phone's physical memory or core count.
 
-Google's portable Android SDK Platform-Tools were downloaded into the ignored `.tmp/android-debug/` directory. USB forwarding connected the browsers' separate DevTools sockets and a temporary local server. No phone apps, drivers, browser flags, global device settings, real admin passwords, or production server data were changed. Only test tabs were inspected. Hosted Yeatle settings and progress were backed up before each hosted trial and restored before retiring its tab. Local tests used a separate loopback origin with temporary server data, existing real models, and real audio fixtures.
+Google's portable Android SDK Platform-Tools were downloaded for local use. USB forwarding connected the browsers' separate DevTools sockets and a temporary local server. No phone apps, drivers, browser flags, global device settings, real admin passwords, or production server data were changed. Only test tabs were inspected. Hosted Yeatle settings and progress were backed up before each hosted trial and restored before retiring its tab. Local tests used a separate loopback origin with temporary server data, existing real models, and real audio fixtures.
 
 The setup follows the official [Android platform-tools documentation](https://developer.android.com/tools/releases/platform-tools) and [Chrome Android debugging documentation](https://developer.chrome.com/docs/devtools/remote-debugging/). No root access or broad device log collection was used.
 
@@ -67,9 +66,9 @@ The local cache now tests a separate 1,024-sample synthetic buffer before attach
 
 After this fix, Brave completed 60 WebGPU inferences, delivered its first stem in 3.92 seconds, and completed the recording in 33.20 seconds. Persistent caching was correctly disabled in its current privacy configuration; reloading attempted fresh separation rather than reusing altered samples. A deliberate model 503 displayed its reason and selected Light, and retry produced stems successfully. Asset queries were advanced to `v=1.9.4-local-opt2`; the release version was not changed.
 
-## Evidence and limits
+## Test record and limits
 
-The automated suite passes 43 tests, including a non-mutating probe case, a simulated privacy-mutating API, and an unavailable API. The ignored `.tmp/android-debug/` directory contains hosted and local network/worker traces, `hosted-result.json`, `original-round-result.json`, `local-result.json`, `cpu-result.json`, `brave-before-cache-guard.json`, `brave-audio-inspection.json`, `brave-result.json`, `playback-result.json`, screenshots, private settings backups, and the test harnesses. Settings backups and device connection files are intentionally excluded from Git.
+At the time of this report, the automated suite passed 43 tests, including a non-mutating probe case, a simulated privacy-mutating API, and an unavailable API. The [automated tests](../tests) are committed to the repository. This report summarizes the separate physical-phone observations; raw network traces, screenshots, temporary test scripts, settings backups, and device connection files were not published.
 
 Some earlier harness files retain test-only errors: an opaque `about:blank` storage access in an initial bootstrap, and a cleanup call made after the Rockets tab had already closed. The final local and Brave harnesses guard their test origin and close in the correct order. The hosted worker completed and settings were restored before the Rockets cleanup error. These harness errors do not establish a Yeatle browser failure.
 
