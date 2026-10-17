@@ -15,6 +15,45 @@ The desktop app and downloaded browser version run on your computer. The desktop
 
 The desktop app checks for updates on launch. Use **Help → Check for Updates** to check again, or **Developer → Open Admin Panel** to manage songs. Developer tools live in the **Developer** menu.
 
+## What's new in 1.10.1
+
+Version **1.10.1** improves 1.10.0's karaoke mode and mode switching. Desktop
+downloads remain on **1.10.0** while the 1.10.1 installers are being verified.
+
+- Optional lyrics lookups share pending requests and stop after eight seconds,
+  so an unavailable lyrics service cannot hold up singing indefinitely. Saved
+  lyric edits take priority over older online responses.
+- Cancel works while microphone permission or audio preparation is pending.
+  Repeated **Sing** clicks cannot start overlapping song loads, and a cancelled
+  load cannot start another AI worker.
+- Changing microphones discards late results from the previous selection and
+  stops their streams. A failed microphone setup keeps the retry button visible.
+- Restarting or finishing a song disconnects its playback audio connections.
+  A screen wake lock arriving after the round ends is released.
+- Desktop permissions allow audio input from Yeatle's local origin and reject
+  camera access in both permission checks and requests.
+- Vocal note analysis yields more often to keep Cancel responsive. Pitch
+  detection, note thresholds, audio quality, and scoring rules are unchanged.
+- Karaoke shows only music volume by default. **Mic & audio settings** expands
+  the remaining controls; **Reset timing** restores automatic audio delay and
+  the default mic delay without changing other preferences.
+- The settings dropdown animates on capable devices. Reported memory of 4 GB
+  or less, four or fewer CPU threads, unknown capabilities, data saver, or reduced
+  motion keep it instant. These browser resource hints are approximate.
+- Supported browsers use a short crossfade for mode switches and respect reduced-motion preferences,
+  while keeping each mode's existing layout. The logo now uses the supplied
+  transparent PNG. The black game panel stays above the background during switches.
+
+See the [1.10.1 release notes](docs/releases/1.10.1.md) and
+[testing checklist](docs/testing-1.10.1.md) for verification and the remaining
+hands-on checks.
+
+[Silent Android checks](docs/android-1.10.1-silent-test.md) passed in Chrome Beta
+and Brave on the connected handset. Follow-up [audio checks](docs/android-1.10.1-audio-test.md)
+also passed for real microphone capture, HQ/AI playback, pause/restart, timed
+snippets, and the full-song reveal. Singing accuracy, calibration, and longer
+hands-on sessions remain to be checked.
+
 ## Downloads
 
 - **Play online:** [open Yeatle](https://playyeatle.duckdns.org/) on any device with a browser. No downloads, installation, or Node.js required.
@@ -275,14 +314,19 @@ shows up as a coloured arrow on the note lane.
   singing automatically. Lyrics you paste in on the karaoke page, or a
   `lyrics.lrc` file in the song's `Songs/` folder, take priority.
   Use `[` and `]` while singing to nudge the timing; it's remembered per song.
-- **Music volume** is in Options and on the singing screen, so you can turn the beat down mid-song.
-- **Delay tests:** run the **Tap test** once to measure how late sound reaches
+- **Music volume** is in Options and on the singing screen, so you can turn the beat down mid-song. Open **Mic & audio settings** for guide vocals, sensitivity, speaker echo reduction, and timing controls.
+- **Delay tests:** under **Mic & audio settings**, run **Test audio delay** (the tap test) to estimate how late sound reaches
   your ears (Bluetooth headphones can add 200 ms or more), then the **Clap test**
-  to measure your mic's delay. Both are saved, and the sliders can fine-tune them.
+  using **Test mic delay** to estimate your mic's delay. Both are saved, and the sliders can fine-tune them. **Reset timing** restores the defaults.
 - **Tips:** headphones give the most accurate scoring. If you play through
-  speakers, keep "Playing out loud through speakers" ticked. If quiet singing
+  speakers, keep **Using speakers (reduce echo)** ticked. If quiet singing
   isn't picked up, raise **Mic sensitivity**.
 - Browsers only allow microphones on `https://` addresses or `localhost`.
+
+For Android testing against this PC, use USB port reversal so the phone opens
+the local server at `http://localhost:3095/karaoke.html`. A plain HTTP Wi-Fi IP
+address cannot provide microphone access. The server normally listens only on
+loopback; see the [test checklist](docs/testing-1.10.1.md) for the USB setup.
 
 ## Optional HQ stems
 
@@ -341,7 +385,7 @@ Version 1.9.5 releases idle AI sessions after one minute, dismantle retired audi
 
 The admin song list shows 100 songs per page, keeps selections across pages, and waits briefly between search keystrokes. **Select all matches** selects every song matching the current filters. The desktop admin window opens without the game menu bar.
 
-For a hosted update, update the full project and restart the server. Include `static-cache.cjs`, `live-control.cjs`, and all files in `build/assets/`, including `performance.mjs` and `stem-cache.mjs`. The AI worker is standalone and no longer imports `model-download.mjs` or `worker-lifecycle.mjs`. Asset queries distinguish the local changes from cached 1.9.5 scripts. The separately hosted online version gets these changes when its operator deploys the update.
+For a hosted update, update the full project and restart the server. Include `static-cache.cjs`, `live-control.cjs`, and all files in `build/assets/`, including `performance.mjs` and `stem-cache.mjs`. The AI worker is standalone and no longer imports `model-download.mjs` or `worker-lifecycle.mjs`. Asset queries distinguish the local changes from cached 1.9.5 scripts. The [online version](https://playyeatle.duckdns.org/) is expected to update automatically from this repository, according to its operator.
 
 ## Models and first launch
 

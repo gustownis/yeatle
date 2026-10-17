@@ -117,6 +117,7 @@ export function downsample(input, factor, out) {
 /* ---------- turning the vocal stem into a chart ---------- */
 
 export async function analyzeVocals(vocals, sampleRate = SR, onProgress = () => {}, isCancelled = () => false) {
+  if (isCancelled()) throw new Error("cancelled");
   const factor = 4, rate = sampleRate / factor;
   const ds = downsample(vocals, factor);
   const n = 384, hop = 256, tauMax = Math.floor(rate / 70);
@@ -133,12 +134,13 @@ export async function analyzeVocals(vocals, sampleRate = SR, onProgress = () => 
       const r = yin(ds.subarray(start, start + n + tauMax + 1), n, rate, 70, 1000, scratch);
       if (r) { midi[i] = freqToMidi(r.freq); conf[i] = r.conf; }
     }
-    if (i % 400 === 0) {
+    if (i % 64 === 0) {
       if (isCancelled()) throw new Error("cancelled");
       onProgress(i / frames);
       await idle();
     }
   }
+  if (isCancelled()) throw new Error("cancelled");
   onProgress(1);
   return { midi, conf, rms, hop: hop / rate, offset: n / 2 / rate };
 }
@@ -298,7 +300,7 @@ export function parseLrc(text) {
 
 /* ---------- everything below needs a browser ---------- */
 
-const state = { songs: [], artist: "Yeat", song: null, lyricsCache: new Map(), job: null };
+const state = { songs: [], artist: "Yeat", song: null, lyricsCache: new Map(), lyricsPending: new Map(), job: null };
 const settings = Object.assign({
   difficulty: "medium", volume: 100, guide: 0, speakers: true, micDelay: 90, audioDelay: null, sensitivity: 50,
   players: [{ name: "Singer 1", deviceId: "" }]
@@ -375,7 +377,7 @@ class MicDetector {
   }
 }
 
-const mics = { allowed: false, devices: [], detectors: [], error: "" };
+const mics = { allowed: false, devices: [], detectors: [], requests: [], error: "" };
 
 async function enableMics() {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -405,23 +407,34 @@ async function refreshDevices() {
 }
 
 async function openMic(index) {
+  const request = {};
+  mics.requests[index] = request;
   if (mics.detectors[index]) { mics.detectors[index].stop(); mics.detectors[index] = null; }
   const player = settings.players[index];
   if (!mics.allowed || !player || player.deviceId === "none") return;
+  const deviceId = player.deviceId;
+  let stream;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
+    stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: player.deviceId ? { exact: player.deviceId } : undefined,
         echoCancellation: settings.speakers, noiseSuppression: false, autoGainControl: false, channelCount: 1
       }
     });
+    // A device change, singer removal, or a newer request may have won the race.
+    if (mics.requests[index] !== request || settings.players[index] !== player || player.deviceId !== deviceId || !mics.allowed) {
+      stream.getTracks().forEach(track => track.stop());
+      return;
+    }
     mics.detectors[index] = new MicDetector(audioCtx(), stream);
   } catch (err) {
-    mics.error = `${player.name}'s mic couldn't open (${err.message || err.name}).`;
+    stream?.getTracks().forEach(track => track.stop());
+    if (mics.requests[index] === request && settings.players[index] === player) mics.error = `${player.name}'s mic couldn't open (${err.message || err.name}).`;
   }
 }
 
 async function openAllMics() {
+  mics.error = "";
   for (let i = 0; i < Math.max(settings.players.length, mics.detectors.length); i++) {
     if (i < settings.players.length) await openMic(i);
     else if (mics.detectors[i]) { mics.detectors[i].stop(); mics.detectors[i] = null; }
@@ -488,19 +501,35 @@ function renderPicked() {
 
 async function lookUpLyrics(song, duration) {
   if (state.lyricsCache.has(song.id)) return state.lyricsCache.get(song.id);
-  const found = await findLyrics(song, duration).catch(() => ({ lines: [], source: "" }));
-  state.lyricsCache.set(song.id, found);
-  return found;
+  if (state.lyricsPending.has(song.id)) return state.lyricsPending.get(song.id).promise;
+  const request = { abort: new AbortController() };
+  const timer = setTimeout(() => request.abort.abort(), 8000);
+  state.lyricsPending.set(song.id, request);
+  request.promise = findLyrics(song, duration, request.abort.signal).catch(() => ({ lines: [], source: "" })).then(found => {
+    // A saved edit must not be overwritten by an older online lookup.
+    if (state.lyricsPending.get(song.id) === request) state.lyricsCache.set(song.id, found);
+    return state.lyricsCache.get(song.id) || found;
+  }).finally(() => {
+    clearTimeout(timer);
+    if (state.lyricsPending.get(song.id) === request) state.lyricsPending.delete(song.id);
+  });
+  return request.promise;
 }
 
-async function findLyrics(song, duration) {
+function invalidateLyrics(song) {
+  state.lyricsCache.delete(song.id);
+  state.lyricsPending.get(song.id)?.abort.abort();
+  state.lyricsPending.delete(song.id);
+}
+
+async function findLyrics(song, duration, signal) {
   const saved = store.get(`yeatle-karaoke-lrc:${song.id}`, null);
   if (saved) { const lines = parseLrc(saved); if (lines.length) return { lines, source: "your lyrics" }; }
 
   if (song.folder) {
     for (const name of ["lyrics.lrc", "Lyrics.lrc"]) {
       try {
-        const res = await fetch(folderUrl(song, name));
+        const res = await fetch(folderUrl(song, name), { signal });
         if (res.ok) { const lines = parseLrc(await res.text()); if (lines.length) return { lines, source: "the song folder" }; }
       } catch { /* not there */ }
     }
@@ -508,7 +537,7 @@ async function findLyrics(song, duration) {
 
   // a preview starts mid-song, so full-song lyrics wouldn't line up
   if (song.preview) return { lines: [], source: "" };
-  return searchLyricsOnline(song.title, state.artist || "Yeat", duration);
+  return searchLyricsOnline(song.title, state.artist || "Yeat", duration, signal);
 }
 
 const titleVariants = title => {
@@ -528,13 +557,13 @@ export function plainLyricLines(text) {
 }
 
 // Searches lrclib.net (synced or plain lyrics), then lyrics.ovh (plain) by title + artist.
-async function searchLyricsOnline(title, artist, duration) {
+async function searchLyricsOnline(title, artist, duration, signal) {
   const variants = titleVariants(title);
   const hits = [];
   const seen = new Set();
   const lrclib = async params => {
     try {
-      const res = await fetch(`https://lrclib.net/api/search?${new URLSearchParams(params)}`, { credentials: "omit" });
+      const res = await fetch(`https://lrclib.net/api/search?${new URLSearchParams(params)}`, { credentials: "omit", signal });
       if (!res.ok) return;
       for (const r of await res.json()) {
         if (seen.has(r.id) || !(r.syncedLyrics || r.plainLyrics)) continue;
@@ -545,8 +574,10 @@ async function searchLyricsOnline(title, artist, duration) {
     } catch { /* offline or blocked */ }
   };
   for (const v of variants) {
+    signal?.throwIfAborted();
     await lrclib({ track_name: v, artist_name: artist });
     if (hits.some(r => r.syncedLyrics)) break;
+    signal?.throwIfAborted();
     await lrclib({ q: `${artist} ${v}` });
     if (hits.some(r => r.syncedLyrics)) break;
   }
@@ -562,8 +593,9 @@ async function searchLyricsOnline(title, artist, duration) {
     if (lines.length) return { lines: [], plain: lines, source: "lrclib.net" };
   }
   for (const v of variants) {
+    signal?.throwIfAborted();
     try {
-      const res = await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(v)}`, { credentials: "omit" });
+      const res = await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(v)}`, { credentials: "omit", signal });
       if (!res.ok) continue;
       const lines = plainLyricLines((await res.json()).lyrics);
       if (lines.length) return { lines: [], plain: lines, source: "lyrics.ovh" };
@@ -608,11 +640,11 @@ function openLyricsEditor(song) {
         el("button", { class: "btn primary", text: "Save", onclick: () => {
           if (!parseLrc(area.value).length) { note.textContent = "That doesn't have any timed lines like [00:12.40] yet."; return; }
           store.set(key, area.value);
-          state.lyricsCache.delete(song.id);
+          invalidateLyrics(song);
           close();
           lookUpLyrics(song).then(() => renderPicked());
         } }),
-        el("button", { class: "btn", text: "Remove mine", onclick: () => { store.remove(key); state.lyricsCache.delete(song.id); close(); lookUpLyrics(song).then(() => renderPicked()); } }),
+        el("button", { class: "btn", text: "Remove mine", onclick: () => { store.remove(key); invalidateLyrics(song); close(); lookUpLyrics(song).then(() => renderPicked()); } }),
         el("button", { class: "btn", text: "Cancel", onclick: close })
       )
     )
@@ -641,12 +673,13 @@ function renderPlayers() {
         settings.players.splice(index, 1);
         if (mics.detectors[index]) mics.detectors[index].stop();
         mics.detectors.splice(index, 1);
+        mics.requests.splice(index, 1);
         saveSettings(); renderPlayers();
       } }) : null
     );
   }));
   $("#add-player").hidden = settings.players.length >= 4;
-  $("#enable-mics").hidden = mics.allowed;
+  $("#enable-mics").hidden = mics.allowed && mics.detectors.some(Boolean);
   $("#mic-error").textContent = mics.error;
 }
 
@@ -691,6 +724,12 @@ function buildOptions() {
   audio.oninput = () => { settings.audioDelay = Number(audio.value); saveSettings(); showAudio(); };
   $("#cal-audio").onclick = () => openCalibration("tap");
   $("#cal-mic").onclick = () => openCalibration("mic");
+  $("#reset-delays").onclick = () => {
+    settings.audioDelay = null;
+    settings.micDelay = 90;
+    saveSettings();
+    buildOptions();
+  };
   const speakers = $("#speakers");
   speakers.checked = settings.speakers;
   speakers.onchange = () => { settings.speakers = speakers.checked; saveSettings(); if (mics.allowed) openAllMics(); };
@@ -851,6 +890,7 @@ async function fetchBytes(url, job) {
 const decode = bytes => new OfflineAudioContext(2, 1, SR).decodeAudioData(bytes);
 
 async function loadStemSong(song, job) {
+  job.check();
   job.status("Loading the HQ stems…", 0);
   let done = 0;
   const names = ["drums", "bass", "other", "vocals"];
@@ -859,10 +899,12 @@ async function loadStemSong(song, job) {
     try { bytes = await fetchBytes(folderUrl(song, `${name}.mp3`), job); }
     catch (err) { if (job.cancelled) throw err; bytes = await fetchBytes(folderUrl(song, `${name[0].toUpperCase()}${name.slice(1)}.mp3`), job); }
     const buffer = await decode(bytes);
+    job.check();
     job.status("Loading the HQ stems…", ++done / names.length);
     return buffer;
   }));
   const [drums, bass, other, vox] = decoded;
+  job.check();
   const length = Math.max(...decoded.map(b => b.length));
   const ctx = audioCtx();
   const inst = ctx.createBuffer(2, length, SR), guide = ctx.createBuffer(2, length, SR);
@@ -882,6 +924,7 @@ async function loadStemSong(song, job) {
 
 function runSplitter(left, right, stems, job) {
   return new Promise((resolve, reject) => {
+    job.check();
     const worker = new Worker(new URL(`./separator.worker.js?v=${VERSION}`, import.meta.url), { type: "module" });
     let revision = null, settled = false;
     const finish = (fn, value) => {
@@ -912,6 +955,7 @@ function runSplitter(left, right, stems, job) {
 }
 
 async function loadSplitSong(song, job) {
+  job.check();
   job.status("Downloading the song…", null);
   const bytes = await fetchBytes(`api/audio/${encodeURIComponent(song.id)}`, job);
   const ctx = audioCtx();
@@ -924,23 +968,27 @@ async function loadSplitSong(song, job) {
 
   job.status("Decoding the song…", null);
   const mix = await decode(bytes);
-  if (job.cancelled) throw new Error("cancelled");
+  job.check();
   const total = mix.length;
   const left = mix.getChannelData(0), right = mix.numberOfChannels > 1 ? mix.getChannelData(1) : left;
   const stems = { drums: ctx.createBuffer(1, total, SR), bass: ctx.createBuffer(1, total, SR), other: ctx.createBuffer(1, total, SR) };
 
-  let revision = await fetch("api/separator-revision", { cache: "no-store" }).then(r => r.json()).then(j => j.revision || null).catch(() => null);
+  let revision = await fetch("api/separator-revision", { cache: "no-store", signal: job.abort.signal }).then(r => r.json()).then(j => j.revision || null).catch(() => null);
+  job.check();
   let saved = false;
   if (cache && hash) {
     job.status("Checking for saved stems…", null);
     saved = await cache.loadStems(cache.stemCacheKey(hash, revision, SR), stems, total, () => job.cancelled);
   }
   if (!saved) {
+    job.check();
     revision = (await runSplitter(left, right, stems, job)) || revision;
+    job.check();
     const key = cache && hash ? cache.stemCacheKey(hash, revision, SR) : null;
     if (key) cache.saveStems(key, stems, total).catch(() => {});
   }
 
+  job.check();
   // instrumental = the mix with the vocals taken out, which keeps it in stereo
   const d = stems.drums.getChannelData(0), b = stems.bass.getChannelData(0), o = stems.other.getChannelData(0);
   const vocals = new Float32Array(total);
@@ -960,6 +1008,7 @@ async function loadSplitSong(song, job) {
 function makeJob() {
   const job = {
     cancelled: false, abort: new AbortController(), onCancel: null,
+    check() { if (job.cancelled) throw new Error("cancelled"); },
     status(text, progress) {
       if (job.cancelled) return;
       $("#load-text").textContent = text;
@@ -974,23 +1023,27 @@ function makeJob() {
 
 async function startSong() {
   const song = state.song;
-  if (!song) return;
-  audioCtx().resume();
-  if (!mics.allowed && settings.players.some(p => p.deviceId !== "none")) await enableMics();
-
+  if (!song || state.job) return;
   const job = makeJob();
   state.job = job;
   $("#load-title").textContent = song.display;
   showScreen("loading");
   try {
+    await audioCtx().resume();
+    job.check();
+    if (!mics.allowed && settings.players.some(p => p.deviceId !== "none")) {
+      job.status("Waiting for microphone access…", null);
+      await enableMics();
+      job.check();
+    }
     const audio = song.mode === "stems" ? await loadStemSong(song, job) : await loadSplitSong(song, job);
     if (job.cancelled) return;
     job.status("Looking for lyrics…", null);
     let lyrics = state.lyricsCache.get(song.id);
     if (!lyrics || (!lyrics.lines.length && !lyrics.plain && !song.preview)) {
-      state.lyricsCache.delete(song.id);
       lyrics = await lookUpLyrics(song, audio.duration);
     }
+    job.check();
     job.status("Mapping out the vocal notes…", 0);
     const analysis = await analyzeVocals(audio.vocals, SR, p => job.status("Mapping out the vocal notes…", p), () => job.cancelled);
     const chart = buildChart(analysis);
@@ -1029,7 +1082,11 @@ function beginGame(song, audio, chart, lyrics) {
   playFrom(0);
   showScreen("stage");
   resizeCanvas();
-  try { navigator.wakeLock?.request("screen").then(lock => { if (game) game.wakeLock = lock; }).catch(() => {}); } catch { /* not supported */ }
+  const currentGame = game;
+  try { navigator.wakeLock?.request("screen").then(lock => {
+    if (game === currentGame && !currentGame.ended) currentGame.wakeLock = lock;
+    else lock.release().catch(() => {});
+  }).catch(() => {}); } catch { /* not supported */ }
   game.raf = requestAnimationFrame(tick);
 }
 
@@ -1403,10 +1460,12 @@ function shiftLyrics(delta) {
 /* ---------- results ---------- */
 
 function endGame() {
-  if (!game) return;
+  if (!game || game.ended) return;
   game.ended = true;
   cancelAnimationFrame(game.raf);
   stopSources();
+  game.instGain.disconnect();
+  game.guideGain.disconnect();
   if (audioCtx().state === "suspended") audioCtx().resume();
   try { game.wakeLock?.release(); } catch { /* fine */ }
   $("#pause").hidden = true;

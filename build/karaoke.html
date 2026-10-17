@@ -6,8 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <title>Yeatle Karaoke</title>
-    <link rel="stylesheet" href="./assets/karaoke.css?v=1.10.0">
-    <script type="module" src="./assets/karaoke.js?v=1.10.0"></script>
+    <link rel="stylesheet" href="./assets/karaoke.css?v=1.10.1">
+    <link rel="stylesheet" href="./assets/navigation.css?v=1.10.1">
+    <script type="module" src="./assets/interface-motion.mjs?v=1.10.1"></script>
+    <script type="module" src="./assets/karaoke.js?v=1.10.1"></script>
   </head>
   <body>
     <div id="karaoke-app">
@@ -41,15 +43,25 @@
             <h2>Options</h2>
             <div id="difficulty" class="segmented"></div>
             <label class="opt"><span>Music volume</span><input id="volume" type="range" min="0" max="100" step="5"><output id="volume-out"></output></label>
-            <label class="opt"><span>Guide vocals</span><input id="guide" type="range" min="0" max="100" step="5"><output id="guide-out"></output></label>
-            <label class="opt"><span>Mic sensitivity</span><input id="sensitivity" type="range" min="0" max="100" step="5"><output id="sensitivity-out"></output></label>
-            <label class="opt"><span>Audio delay</span><input id="audio-delay" type="range" min="0" max="500" step="5"><output id="audio-delay-out"></output></label>
-            <label class="opt"><span>Mic delay</span><input id="mic-delay" type="range" min="0" max="400" step="5"><output id="mic-delay-out"></output></label>
-            <div class="row cal-row">
-              <button id="cal-audio" class="btn small">Tap test (audio delay)</button>
-              <button id="cal-mic" class="btn small">Clap test (mic delay)</button>
-            </div>
-            <label class="check"><input id="speakers" type="checkbox"> Playing out loud through speakers (not headphones)</label>
+            <details class="audio-settings">
+              <summary>Mic &amp; audio settings</summary>
+              <div class="advanced-controls">
+                <p class="muted">Adjust voice detection, guide vocals, or timing if you need to.</p>
+                <label class="opt"><span>Mic sensitivity</span><input id="sensitivity" type="range" min="0" max="100" step="5"><output id="sensitivity-out"></output></label>
+                <p class="muted">Raise sensitivity if the meter moves but quiet singing is not detected.</p>
+                <label class="opt"><span>Guide vocals</span><input id="guide" type="range" min="0" max="100" step="5"><output id="guide-out"></output></label>
+                <label class="check"><input id="speakers" type="checkbox"> Using speakers (reduce echo)</label>
+                <h3>Timing</h3>
+                <p class="muted">Calibrate if your singing feels out of time. Delay changes scoring timing, not mic volume.</p>
+                <div class="row cal-row">
+                  <button id="cal-audio" class="btn small">Test audio delay</button>
+                  <button id="cal-mic" class="btn small">Test mic delay</button>
+                </div>
+                <label class="opt"><span>Audio delay</span><input id="audio-delay" type="range" min="0" max="500" step="5"><output id="audio-delay-out"></output></label>
+                <label class="opt"><span>Mic delay</span><input id="mic-delay" type="range" min="0" max="400" step="5"><output id="mic-delay-out"></output></label>
+                <button id="reset-delays" class="btn small">Reset timing</button>
+              </div>
+            </details>
 
             <h2>Song</h2>
             <div id="picked"></div>

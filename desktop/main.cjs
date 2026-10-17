@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { menuTemplate } = require("./menu.cjs");
 const { createUpdateController } = require("./updates.cjs");
+const { installMicrophonePermissions } = require("./permissions.cjs");
 app.setName("Yeatle");
 
 const PROJECT_DIR = path.join(__dirname, "..");
@@ -124,12 +125,7 @@ function createWindow() {
   });
   window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
   // Only karaoke mode's microphone is allowed, and only for the game's own pages.
-  const fromGame = url => { try { return new URL(url).origin === new URL(serverUrl).origin; } catch (_) { return false; } };
-  window.webContents.session.setPermissionRequestHandler((_contents, permission, callback, details) => {
-    const audioOnly = !details || !details.mediaTypes || details.mediaTypes.every(type => type === "audio");
-    callback(permission === "media" && audioOnly && fromGame(details && details.requestingUrl));
-  });
-  window.webContents.session.setPermissionCheckHandler((_contents, permission, origin) => permission === "media" && fromGame(origin));
+  installMicrophonePermissions(window.webContents.session, serverUrl);
   window.webContents.on("did-fail-load", (_event, code, description, _url, isMainFrame) => {
     if (isMainFrame && code !== -3 && !quitting) failStartup(new Error(`The game window could not load: ${description}`));
   });

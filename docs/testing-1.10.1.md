@@ -1,0 +1,136 @@
+# 1.10.1 local test checklist
+
+Candidate based on 1.10.0. Automated PC checks and physical Android checks for
+playback and real microphone capture have passed. Singing, calibration, and
+the remaining hands-on checks are still pending.
+The user authorized release on 17 October 2026 after reviewing these results.
+Unchecked items below remain documented limitations of the verification.
+
+## Automated verification
+
+- The unmodified 1.10.0 baseline passed all 48 existing tests on this PC.
+- New regression checks cover microphone request ordering, an obsolete mic
+  stream, lyrics timeouts and overlapping requests, saved lyrics winning a race,
+  cancelling during microphone permission, cancellation before worker creation,
+  audio connection cleanup, late screen locks, and vocal-analysis cancellation.
+- The candidate passed **59/59 tests** on Windows with Node 24.15.0.
+- An isolated Electron check loaded a 162.14-second HQ song with 443 notes and
+  23 phrases, played it, and verified pause/resume. After twelve restarts, only
+  the current two playback gains and one microphone sink remained connected.
+- A real 172.20-second recording completed WebGPU separation (15 segments) and
+  karaoke chart generation: 396 notes, 19 phrases. Preparation took about 17.6
+  seconds in this local run. A second load used saved stems with no new worker.
+  This is a functional check, not a controlled performance comparison.
+- Synthetic audio input was accepted; video input returned `NotAllowedError`.
+  The narrow desktop viewport had no horizontal overflow. This does not establish
+  physical Android behavior or foreground animation performance.
+- The unpacked Windows preview built successfully. Its packaged server,
+  desktop permissions helper, karaoke page, and karaoke module match the local
+  files. Both game/karaoke pages and their assets loaded from the package;
+  microphone access succeeded and camera access was denied.
+- The final renderer checks reported no uncaught errors. Synthetic microphone
+  devices do not verify a real microphone, acoustic scoring accuracy, or
+  headphone/Bluetooth latency. Online lyrics services were deliberately blocked
+  for the real-audio check; folder lyrics and the no-online-lyrics path worked.
+
+Local evidence is kept in ignored `.tmp/1.10.1-tests.log`,
+`.tmp/karaoke-1101-result.json`, and `.tmp/packaged-1101-result.json`. Tests use
+separate data/browser profiles and do not alter real passwords or game progress.
+
+## Manual PC checks
+
+Open `release/local-1.10.1-preview-3/win-unpacked/Yeatle.exe` from this repository.
+Keep its entire `win-unpacked` folder together. This local build uses the usual
+Yeatle desktop profile when launched normally; the automated checks used isolated
+profiles. The installed app and hosted website have not been updated.
+
+This UI preview adds the transparent logo, collapsed mic/audio controls, and mode transitions.
+The original preview folder is retained so an already-running copy is unaffected.
+
+The isolated UI check confirmed one visible setup slider by default, all four
+additional sliders available when expanded, saved values preserved, timing reset
+limited to its two delay values, and no horizontal overflow at a 390-pixel
+viewport. Stems/Snippets transitions completed, quick clicks kept the last
+selection, reduced motion bypassed animation, and navigation to/from Karaoke
+produced cross-document transitions. The new motion stylesheet left the game
+panel's measured width and height unchanged. Screenshots and results are in the
+ignored `.tmp/ui-1101-result.json` and its recorded run directory.
+
+Preview 3 also verifies the settings dropdown opening and closing through
+intermediate heights. Simulated 2 GB hardware and reduced-motion preferences
+produce a zero-second transition. Motion is allowed when the browser reports
+more than 4 GB memory or more than four logical CPU threads, with neither a
+reported memory nor CPU limit below that threshold. Unknown capabilities and
+data saver disable the optional animation. The existing audio-memory policy is
+unchanged; a capable phone is not automatically classified as low-end for motion.
+
+The panel regression was reproduced using a bright test background and captured
+paint frames: without a separate panel layer, green rose to 196/255 at an empty
+point inside the panel; with the fix, it stayed at 13–15/255 throughout sampled
+switches in both directions. This test changes only the isolated fixture's background. Real artwork,
+panel size, and saved game data are unchanged. Evidence is in ignored
+`.tmp/motion-1101-result.json` and `.tmp/1.10.1-motion-tests.log`.
+
+- [ ] Open Stems, Snippets, and Karaoke; confirm the song list loads and switching
+  modes preserves the usual settings and progress.
+- [ ] Allow a real microphone, change the input, and check the level meter. Add
+  a second singer if a second input is available; remove them during setup.
+- [ ] Sing an HQ stem song and an AI-split song. Check guide volume, music volume,
+  vocal notes, lyrics, accuracy ratings, and the results screen by ear.
+- [ ] Pause/resume, restart repeatedly, return to song selection, and cancel a
+  loading song. Retry a song after a failed audio or microphone request.
+- [ ] Run tap/clap calibration with the intended headphones. Confirm the saved
+  delay and lyric timing survive a reload. Check Bluetooth separately if used.
+- [ ] Check pasted LRC lyrics, local `lyrics.lrc`, unavailable online lyrics,
+  and a preview-only song. Plain lyrics have approximate automatic timing.
+
+## Android testing
+
+The [silent physical-phone report](android-1.10.1-silent-test.md) and subsequent
+[audio report](android-1.10.1-audio-test.md) record successful Chrome Beta and
+Brave checks on 17 October 2026. Real microphone capture, HQ/AI playback,
+pause/restart, timed snippets, and the Real stems reveal passed. The ten-minute
+timeout and system volume were preserved. Scoring accuracy and calibration
+still require active participation.
+
+Use the same local candidate through USB. Enable USB debugging on the phone
+and accept this PC's debugging prompt. Keep the phone unlocked for playback.
+Do not change browser security flags or expose the server to the LAN.
+
+1. Start the local preview server on port **3095**, using the isolated preview
+   data folder if it has already been prepared. Alternatively run
+   `node server.js` from the repository with `YEATLE_PORT=3095` and
+   `YEATLE_DESKTOP=1` in that terminal's environment.
+2. With Android Platform-Tools, run `adb devices`, then
+   `adb reverse tcp:3095 tcp:3095` for the connected test device. With multiple
+   devices, select the intended one using `adb -s DEVICE_SERIAL ...`.
+3. Open `http://localhost:3095/karaoke.html` in the phone browser. USB reversal
+   reaches the PC's loopback server while keeping the phone's localhost origin
+   suitable for microphone access. A plain HTTP LAN IP is unsuitable for karaoke.
+4. Test Chrome and the browser normally used for Yeatle, with real microphone
+   permission, headphones, foreground playback, and a screen-lock/return cycle.
+5. When finished, run `adb reverse --remove tcp:3095` for the same device. Leave
+   other debugging mappings and existing browser data alone.
+
+- [x] Silent HQ full-song decoding, chart generation, and folder lyrics.
+- [x] Silent AI separation and chart generation in Chrome Beta and Brave;
+  saved-stem reload in Chrome and safe cache bypass in Brave.
+- [x] Portrait layout, settings dropdown animation, and both tab-switch directions.
+- [x] HQ/AI playback output, pause/resume, and results in both browsers.
+- [x] Real microphone capture and speaker-mode echo reduction; old tracks close.
+- [x] Three karaoke restarts, app mute, seek, and pause when leaving the browser tab.
+- [ ] AI cancellation/retry and memory stability through several phone rounds.
+- [ ] Native microphone permission prompts, device changes, real sung-note scoring,
+  sensitivity, speaker mode, and tap/clap calibration.
+- [ ] Portrait/landscape layout, long titles, scrolling, app switching, screen
+  locking, and returning without unintentional playback.
+- [x] Stems/Snippets playback, repeated 0.5 s clips, HQ track synchronization,
+  Real stems reveal beyond the prepared segment, and return/retry in both browsers.
+
+## Release preparation
+
+Release was authorized on 17 October 2026. Before publication, review the final
+diff, run the full suite, build/verify the desktop installers, generate
+checksums/updater feeds, and replace the README's download links only after the
+release assets exist. The remaining hands-on checks above are disclosed in the
+release notes.

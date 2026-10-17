@@ -43,6 +43,15 @@ test("karaoke scoring ignores which octave you sing in", async () => {
   assert.equal(chromaDistance(54, 60), 6);
 });
 
+test("karaoke vocal analysis honours cancellation before allocation and after yielding", async () => {
+  const { analyzeVocals } = await load();
+  await assert.rejects(analyzeVocals(null, SR, () => {}, () => true), /cancelled/);
+  let cancelled = false;
+  const progress = [];
+  await assert.rejects(analyzeVocals(new Float32Array(SR * 10), SR, value => { progress.push(value); cancelled = true; }, () => cancelled), /cancelled/);
+  assert.deepEqual(progress, [0]);
+});
+
 test("karaoke reads synced and word-timed LRC lyrics", async () => {
   const { parseLrc } = await load();
   const lines = parseLrc("[ti:Test]\n[offset:+200]\n[00:01.00]hello world\n[00:03.50]<00:03.50>word <00:03.90>two\n[00:05.00]");
