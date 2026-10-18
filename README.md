@@ -15,80 +15,21 @@ The desktop app and downloaded browser version run on your computer. The desktop
 
 The desktop app checks for updates on launch. Use **Help → Check for Updates** to check again, or **Developer → Open Admin Panel** to manage songs. Developer tools live in the **Developer** menu.
 
-## What's new in 1.10.3
+## What's new in 1.10
 
-Version **1.10.3** fixes browser mode switching and makes existing HQ stem
-packs work on Linux without renaming their audio files.
+Version **1.10** adds **Karaoke** alongside Stems and Snippets. Pick a song,
+follow the vocal notes and lyrics, and sing solo or with friends.
 
-- Keep the animated Stems/Snippets switches and navigation to/from Karaoke
-  in the desktop app. Browsers switch modes immediately.
-- Recognize capitalized stem filenames, such as `Drums.mp3` and `Vocals.mp3`,
-  on case-sensitive filesystems. Lowercase names and file symlinks still work;
-  incomplete or broken packs are left out of the HQ song list.
-- Refresh completed or removed local stem packs while the tracker is unavailable.
-- Expand regression checks for interrupted transitions, count-in scheduling,
-  pause/seek cleanup, and stem loading on Linux.
+- Up to four singers can play together, each with their own microphone.
+- Songs use HQ stems or AI-separated vocals, with piano-roll note bars,
+  synced lyrics, and a 3-2-1 countdown before playback.
+- Choose a difficulty, adjust guide vocals, or open **Mic & audio settings**
+  to change sensitivity and calibrate audio and microphone timing.
+- Move between Stems, Snippets, and Karaoke from the same tabs. Desktop mode
+  changes animate; browsers switch immediately, with reduced-motion support.
 
-See the [1.10.3 release notes](docs/releases/1.10.3.md) and
-[Linux verification report](docs/testing-linux-1.10.3.md).
-
-## What's new in 1.10.2
-
-Version **1.10.2** makes karaoke easier to follow. Desktop downloads and
-updater files for this version are listed below.
-
-- Every song now starts with a 3-2-1 countdown (with soft count-in beeps) once
-  it has fully loaded, while the first notes scroll in, so you never jump in cold.
-- The note lane only shows piano-roll style note bars. Rapped parts used to be
-  big dashed boxes in the middle of the lane; they're now regular bars at the
-  rough pitch of the voice, still scored on timing only.
-- Online lyrics are lined up with the song's actual vocals before it starts.
-  Lyrics timed to a different version of a song (a longer intro, a radio edit)
-  used to show up seconds early or late; they now slide to where the singing
-  really is, single lines snap onto nearby vocal entries, and when lrclib.net
-  has several timings for a song, the one that fits best is used. A note shows
-  how far the lyrics were moved. `[` and `]` still nudge the timing by hand.
-
-See the [1.10.2 release notes](docs/releases/1.10.2.md).
-
-## What's new in 1.10.1
-
-Version **1.10.1** improves 1.10.0's karaoke mode and mode switching. Desktop
-downloads and updater files for this version are listed below.
-
-- Optional lyrics lookups share pending requests and stop after eight seconds,
-  so an unavailable lyrics service cannot hold up singing indefinitely. Saved
-  lyric edits take priority over older online responses.
-- Cancel works while microphone permission or audio preparation is pending.
-  Repeated **Sing** clicks cannot start overlapping song loads, and a cancelled
-  load cannot start another AI worker.
-- Changing microphones discards late results from the previous selection and
-  stops their streams. A failed microphone setup keeps the retry button visible.
-- Restarting or finishing a song disconnects its playback audio connections.
-  A screen wake lock arriving after the round ends is released.
-- Desktop permissions allow audio input from Yeatle's local origin and reject
-  camera access in both permission checks and requests.
-- Vocal note analysis yields more often to keep Cancel responsive. Pitch
-  detection, note thresholds, audio quality, and scoring rules are unchanged.
-- Karaoke shows only music volume by default. **Mic & audio settings** expands
-  the remaining controls; **Reset timing** restores automatic audio delay and
-  the default mic delay without changing other preferences.
-- The settings dropdown animates on capable devices. Reported memory of 4 GB
-  or less, four or fewer CPU threads, unknown capabilities, data saver, or reduced
-  motion keep it instant. These browser resource hints are approximate.
-- Supported browsers use a short crossfade for mode switches and respect reduced-motion preferences,
-  while keeping each mode's existing layout. The logo now uses the supplied
-  transparent PNG. The black game panel stays above the background during switches.
-
-See the [1.10.1 release notes](docs/releases/1.10.1.md) and
-[testing checklist](docs/testing-1.10.1.md) for verification and the remaining
-hands-on checks.
-
-[Silent Android checks](docs/android-1.10.1-silent-test.md) passed in Chrome Beta
-and Brave on the connected handset. Follow-up [audio checks](docs/android-1.10.1-audio-test.md)
-also passed for real microphone capture, HQ/AI playback, pause/restart, timed
-snippets, and the full-song reveal. Singing accuracy, calibration, and longer
-hands-on sessions remain to be checked.
+See the [release notes](https://github.com/gustownis/yeatle/releases) for
+individual fixes and updates.
 
 ## Downloads
 
