@@ -18,7 +18,7 @@ function deferred() {
 function harness(extra = {}) {
   const nodes = new Map();
   const node = id => {
-    if (!nodes.has(id)) nodes.set(id, { id: id.slice(1), hidden: false, style: { setProperty() {} }, classList: { toggle() {}, remove() {} } });
+    if (!nodes.has(id)) nodes.set(id, { id: id.slice(1), hidden: false, style: { setProperty() {} }, classList: { toggle() {}, remove() {}, add() {} } });
     return nodes.get(id);
   };
   const context = vm.createContext({
@@ -157,4 +157,79 @@ test("a screen lock arriving after its round ends is released", async () => {
   await pending.promise;
   await Promise.resolve();
   assert.equal(releases, 1);
+});
+
+function playbackHarness() {
+  const starts = [], beeps = [], stopped = [], disconnected = [];
+  const source = kind => ({
+    connect() {}, start(when, offset) { starts.push({ kind, when, offset }); },
+    stop() { stopped.push(this); }, disconnect() { disconnected.push(this); }
+  });
+  const ctx = { currentTime: 10, state: "running", createBufferSource: () => source("buffer"),
+    suspend() { this.state = "suspended"; }, resume() { this.state = "running"; } };
+  const h = harness({ cancelAnimationFrame() {} });
+  h.context.ctx = ctx;
+  h.context.testBeep = (_ctx, when) => { beeps.push(when); return source("beep"); };
+  h.run('audioContext = ctx; settings.audioDelay = 0; beep = testBeep; game = { sources: [], audio: { inst: {}, guide: {} }, instGain: {disconnect() {}}, guideGain: {disconnect() {}} }');
+  return { ...h, ctx, starts, beeps, stopped, disconnected };
+}
+
+test("karaoke schedules three count-in beeps before the music, with a negative playback clock", () => {
+  const h = playbackHarness();
+  h.run("playFrom(0, COUNT_IN)");
+  assert.equal(h.starts.length, 2);
+  assert.ok(h.starts.every(start => start.when === 13.08 && start.offset === 0));
+  assert.deepEqual(h.beeps.map(t => Number(t.toFixed(2))), [10.08, 11.08, 12.08]);
+  assert.ok(Math.abs(h.run("playbackTime()") + 3.08) < 1e-9);
+});
+
+test("seeking replaces scheduled sources and never adds another count-in", () => {
+  const h = playbackHarness();
+  h.run("playFrom(0, COUNT_IN); playFrom(42)");
+  assert.equal(h.stopped.length, 5);
+  assert.equal(h.disconnected.length, 5);
+  assert.equal(new Set(h.stopped).size, 5);
+  assert.equal(h.beeps.length, 3);
+  assert.ok(h.starts.slice(2).every(start => start.offset === 42 && Math.abs(start.when - 10.08) < 1e-9));
+});
+
+test("quitting during the count-in stops music and every pending beep once", () => {
+  const h = playbackHarness();
+  h.run('playFrom(0, COUNT_IN); endGame(); endGame()');
+  assert.equal(h.stopped.length, 5);
+  assert.equal(h.disconnected.length, 5);
+  assert.equal(h.run("game.sources.length"), 0);
+  assert.equal(h.node("#countdown").textContent, "");
+});
+
+test("pausing the count-in suspends its clock without scheduling duplicate sources", () => {
+  const h = playbackHarness();
+  h.run("playFrom(0, COUNT_IN); setPaused(true); setPaused(true)");
+  assert.equal(h.ctx.state, "suspended");
+  assert.equal(h.node("#pause").hidden, false);
+  h.run("setPaused(false)");
+  assert.equal(h.ctx.state, "running");
+  assert.equal(h.node("#pause").hidden, true);
+  assert.equal(h.starts.length, 2);
+  assert.equal(h.beeps.length, 3);
+});
+
+test("countdown labels follow negative time and clear after Go", () => {
+  const h = playbackHarness();
+  const labels = [-3.08, -2, -1, 0, 0.59, 0.6].map(time => {
+    h.context.heard = time;
+    h.run("updateCountdown(heard)");
+    return h.node("#countdown").textContent;
+  });
+  assert.deepEqual(labels, ["3", "2", "1", "Go!", "Go!", ""]);
+});
+
+test("a paused skip is ignored and a resumed skip does not count in again", () => {
+  const h = playbackHarness();
+  h.run("game.skipTarget = 42; game.paused = true; skipAhead()");
+  assert.equal(h.starts.length, 0);
+  h.run("game.paused = false; skipAhead()");
+  assert.equal(h.starts.length, 2);
+  assert.equal(h.beeps.length, 0);
+  assert.ok(h.starts.every(start => start.offset === 42));
 });

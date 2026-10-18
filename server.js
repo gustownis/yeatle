@@ -691,7 +691,16 @@ function readStemFolders() {
   }
 
   return names
-    .filter(name => STEM_FILES.every(stem => fs.existsSync(path.join(STEMS_DIR, name, `${stem}.mp3`))))
+    .filter(name => {
+      try {
+        const folder = path.join(STEMS_DIR, name);
+        const files = new Map(fs.readdirSync(folder).map(file => [file.toLowerCase(), file]));
+        return STEM_FILES.every(stem => {
+          const file = files.get(`${stem}.mp3`);
+          return file && fs.statSync(path.join(folder, file)).isFile();
+        });
+      } catch { return false; }
+    })
     .map(folder => {
       const info = {};
       try {
@@ -997,7 +1006,10 @@ async function refreshSongs() {
 
   if (!rows.length) {
     LAST_ERROR = errors.join("; ") || "No songs found on the sheet.";
-    if (!SONGS.length) {
+    if (LAST_SOURCE === "stems-only") {
+      // Local packs can change even while the tracker remains unavailable.
+      setSongs(buildSongList([], stemFolders), "stems-only");
+    } else if (!SONGS.length) {
       const cached = loadJson(CACHE_FILE, null);
       if (cached && Array.isArray(cached.songs)) {
         setSongs(cached.songs, "cache");
@@ -1661,10 +1673,20 @@ function serveStatic(req, res, pathname) {
 
   const base = rel.startsWith("/Songs/") ? STEMS_DIR : WEB_DIR;
   const requested = rel.startsWith("/Songs/") ? rel.slice("/Songs/".length) : rel.slice(1);
-  const file = path.resolve(base, requested);
+  let file = path.resolve(base, requested);
   const relative = path.relative(base, file);
   if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     res.writeHead(403); res.end("This path is outside the game folder."); return;
+  }
+
+  // Windows stem packs often capitalize filenames; keep their URLs portable.
+  if (base === STEMS_DIR && /^(drums|bass|other|vocals)\.mp3$/i.test(path.basename(file)) && !fs.existsSync(file)) {
+    try {
+      const name = path.basename(file).toLowerCase();
+      const entry = fs.readdirSync(path.dirname(file), { withFileTypes: true })
+        .find(entry => (entry.isFile() || entry.isSymbolicLink()) && entry.name.toLowerCase() === name);
+      if (entry) file = path.join(path.dirname(file), entry.name);
+    } catch { /* normal 404 handling below */ }
   }
 
   fs.stat(file, async (err, stat) => {
