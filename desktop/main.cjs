@@ -115,7 +115,7 @@ function createWindow() {
   gameWindow = new BrowserWindow({
     title: "Yeatle", width: 1280, height: 860, minWidth: 640, minHeight: 480,
     backgroundColor: "#000000", icon: path.join(PROJECT_DIR, "build", "favicon.png"), show: false,
-    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true }
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true }
   });
   const window = gameWindow;
   window.once("ready-to-show", () => { if (!window.isDestroyed()) window.show(); });

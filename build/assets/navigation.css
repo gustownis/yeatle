@@ -1,5 +1,5 @@
-/* Shared motion only: each mode keeps its existing layout. */
-@view-transition { navigation: auto; }
+/* App windows opt in through navigation-runtime.js. Browsers use normal navigation. */
+@view-transition { navigation: none; }
 
 .background, .bg { view-transition-name: yeatle-background; }
 /* Keep the dark surface above the independently captured background. */

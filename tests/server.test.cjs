@@ -111,6 +111,41 @@ test("desktop server serves compiled game, runtime, and external stems; admin de
   assert.match((await missing.json()).error, /Refresh the game/);
 });
 
+test("Windows stem filenames are detected and served on case-sensitive filesystems", async t => {
+  const folder = dataFolder(t);
+  config(folder);
+  const songs = path.join(folder, "Songs", "Mixed case");
+  fs.mkdirSync(songs, { recursive: true });
+  for (const name of ["Drums.mp3", "BASS.MP3", "oThEr.mp3", "Vocals.mp3"]) {
+    fs.writeFileSync(path.join(songs, name), name.toLowerCase());
+  }
+  if (process.platform !== "win32") {
+    const linked = path.join(folder, "other-audio.mp3");
+    fs.writeFileSync(linked, "other.mp3");
+    fs.unlinkSync(path.join(songs, "oThEr.mp3"));
+    fs.symlinkSync(linked, path.join(songs, "oThEr.mp3"));
+  }
+  const incomplete = path.join(folder, "Songs", "Incomplete");
+  fs.mkdirSync(incomplete, { recursive: true });
+  for (const stem of ["drums", "bass", "other"]) fs.writeFileSync(path.join(incomplete, `${stem}.mp3`), "audio");
+  fs.mkdirSync(path.join(incomplete, "Vocals.mp3"));
+  const { url } = await launch(t, folder);
+  const list = await (await fetch(`${url}/api/songs?refresh=1`)).json();
+  assert.equal(list.songs.length, 1);
+  assert.equal(list.songs[0].folder, "Mixed case");
+  assert.equal(list.songs[0].mode, "stems");
+  for (const stem of ["drums", "bass", "other", "vocals"]) {
+    const audio = await fetch(`${url}/Songs/Mixed%20case/${stem}.mp3`);
+    assert.equal(audio.status, 200);
+    assert.equal(await audio.text(), `${stem}.mp3`);
+    const range = await fetch(`${url}/Songs/Mixed%20case/${stem}.mp3`, { headers: { Range: "bytes=0-2" } });
+    assert.equal(range.status, 206);
+    assert.equal(await range.text(), stem.slice(0, 3));
+  }
+  assert.equal((await fetch(`${url}/Songs/Mixed%20case/missing.mp3`)).status, 404);
+  assert.equal((await fetch(`${url}/Songs/..%2Fconfig.json`)).status, 403);
+});
+
 test("saved song list is available when the tracker cannot provide rows", async t => {
   const folder = dataFolder(t);
   config(folder);
@@ -124,6 +159,64 @@ test("saved song list is available when the tracker cannot provide rows", async 
   assert.equal(list.updated, 123);
   assert.equal(fs.existsSync(path.join(folder, "models")), false);
   assert.equal((await (await fetch(`${url}/api/separator-revision`)).json()).revision, null);
+});
+
+test("capitalized stems retain HEAD, cache validation, suffix ranges, and range errors", async t => {
+  const folder = dataFolder(t); config(folder);
+  const name = "Tëst #1 + 100%";
+  const songs = path.join(folder, "Songs", name);
+  fs.mkdirSync(songs, { recursive: true });
+  for (const stem of ["Drums", "Bass", "Other", "Vocals"]) fs.writeFileSync(path.join(songs, `${stem}.MP3`), "0123456789");
+  const { url } = await launch(t, folder);
+  const audioUrl = `${url}/Songs/${encodeURIComponent(name)}/drums.mp3`;
+  const first = await fetch(audioUrl);
+  assert.equal(first.status, 200);
+  const etag = first.headers.get("etag");
+  assert.ok(etag);
+  const head = await fetch(audioUrl, { method: "HEAD" });
+  assert.equal(head.status, 200);
+  assert.equal(head.headers.get("content-type"), "audio/mpeg");
+  assert.equal(head.headers.get("content-length"), "10");
+  assert.equal((await head.arrayBuffer()).byteLength, 0);
+  assert.equal((await fetch(audioUrl, { headers: { "If-None-Match": etag } })).status, 304);
+  const suffix = await fetch(audioUrl, { headers: { Range: "bytes=-3" } });
+  assert.equal(suffix.status, 206);
+  assert.equal(await suffix.text(), "789");
+  const outside = await fetch(audioUrl, { headers: { Range: "bytes=20-30" } });
+  assert.equal(outside.status, 416);
+  assert.equal(outside.headers.get("content-range"), "bytes */10");
+  fs.writeFileSync(path.join(songs, "Drums.MP3"), "updated audio");
+  const updated = await fetch(audioUrl, { headers: { "If-None-Match": etag } });
+  assert.equal(updated.status, 200);
+  assert.equal(await updated.text(), "updated audio");
+  assert.notEqual(updated.headers.get("etag"), etag);
+});
+
+test("refresh detects completed stem packs and removes packs whose audio was deleted", async t => {
+  const folder = dataFolder(t); config(folder);
+  const songs = path.join(folder, "Songs", "Completion test");
+  fs.mkdirSync(songs, { recursive: true });
+  for (const stem of ["Drums", "Bass", "Other"]) fs.writeFileSync(path.join(songs, `${stem}.mp3`), "audio");
+  const { url } = await launch(t, folder);
+  const list = async () => (await (await fetch(`${url}/api/songs?refresh=1`)).json()).songs;
+  assert.equal((await list()).length, 0);
+  fs.writeFileSync(path.join(songs, "Vocals.mp3"), "audio");
+  assert.equal((await list()).length, 1);
+  fs.unlinkSync(path.join(songs, "Bass.mp3"));
+  assert.equal((await list()).length, 0);
+});
+
+test("broken stems and directory symlinks do not turn incomplete folders into HQ songs", { skip: process.platform === "win32" }, async t => {
+  const folder = dataFolder(t); config(folder);
+  for (const name of ["Broken", "Directory"]) {
+    const songs = path.join(folder, "Songs", name);
+    fs.mkdirSync(songs, { recursive: true });
+    for (const stem of ["Drums", "Bass", "Other"]) fs.writeFileSync(path.join(songs, `${stem}.mp3`), "audio");
+    fs.symlinkSync(name === "Broken" ? path.join(folder, "missing.mp3") : folder, path.join(songs, "Vocals.mp3"));
+  }
+  const { url } = await launch(t, folder);
+  assert.equal((await (await fetch(`${url}/api/songs?refresh=1`)).json()).songs.length, 0);
+  for (const name of ["Broken", "Directory"]) assert.equal((await fetch(`${url}/Songs/${name}/vocals.mp3`)).status, 404);
 });
 
 test("model cache validators and content fingerprints invalidate after a model is replaced", async t => {
