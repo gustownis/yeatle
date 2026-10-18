@@ -41,6 +41,16 @@ Set `YEATLE_TEST_APP_ROOT` to an unpacked application or its `resources/app.asar
 
 The separate navigation window check also covers the black panel during transitions, narrow layout, repeated mode changes, reduced motion, a missing transition API, and a window without the desktop preload. It runs in Electron, separately from the standalone Chrome and Brave checks above.
 
+## Release artifacts
+
+The [GitHub desktop build](https://github.com/gustownis/yeatle/actions/runs/39134192626) completed successfully for Windows x64, Mac ARM64/x64, and Linux ARM64/x64. It produced all ten downloads. The [Windows, macOS, and Linux checks](https://github.com/gustownis/yeatle/actions/runs/39134254864) also passed. Windows ran 77 tests and skipped the symlink-only case; the other runners passed all 78. Cross-compiling an ARM64 package on a hosted runner does not establish ARM64 device behavior.
+
+Package metadata confirmed version 1.10.3 and the expected architectures in both Mac ZIPs and both Linux DEBs. The relevant application files matched this checkout in those four packages, the Windows installer, the Windows portable application, and the Linux x64 AppImage.
+
+The Linux x64 AppImage downloaded from GitHub Actions started directly through FUSE on the Wayland desktop, showed all three game tabs, and exited successfully. Its actual packaged entry point passed the desktop smoke check, including full HQ stem decoding/vocal analysis, count-in, pause/resume, and five consecutive restarts. The hidden-window check verifies scheduled audio timing and count-in completion; standalone browser checks verify every transient countdown label.
+
+Checksums and updater feeds were generated from the final ten download files using `scripts/prepare-release.cjs`. These artifacts are fresh GitHub Actions builds, rather than the earlier local 1.10.2 repack.
+
 ## Limits
 
 These checks do not establish physical microphone quality, audible output, human singing accuracy, tap/clap calibration, Bluetooth delay, screen-lock recovery, or long-session memory and heat behavior. Lyrics use a local timing fixture; live lyric-provider accuracy and a fresh complete AI-model separation were not exercised. ARM64 and macOS/Windows runtime behavior require their own devices; build and automated-test results do not replace those checks.
