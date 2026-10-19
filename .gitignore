@@ -1,6 +1,9 @@
 # The imported original is preserved locally, outside the published project.
 /Yeatle 1.9 + Mac/
 
+# Local Windows/Linux assistant instructions and handoff. Never commit or upload.
+/AGENTS.md
+
 # Personal settings, credentials, and generated caches.
 /config.json
 /admin.json
