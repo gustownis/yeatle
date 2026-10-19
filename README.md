@@ -32,12 +32,6 @@ Version **1.11** adds **Daily** and a new **Base** Snippets difficulty.
   still switch immediately, and reduced motion disables desktop animation.
 - Karaoke's **No mic (just watch)** option works before microphone permission.
 
-Version **1.11.1** gives Daily the same purple styling and song-suggestion popup as
-Stems/Snippets, adds **Copy result**, and uses smaller logos in portrait layouts.
-
-Version **1.11.2** fixes the tab-text stretching when switching between Daily and
-Stems/Snippets on desktop.
-
 See the [release notes](https://github.com/gustownis/yeatle/releases) for
 individual fixes and updates.
 
