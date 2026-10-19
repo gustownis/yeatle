@@ -1,6 +1,8 @@
 import { BASE_LENGTHS, matchesSong, restoreRound, shareResult } from "./snippet-rules.mjs?v=1.11.0";
+import { attachSongSuggestions } from "./song-suggestions.mjs?v=1.11.1";
 
 const $ = selector => document.querySelector(selector);
+const suggestions = attachSongSuggestions($("#guess"), $("#song-suggestions"));
 let challenge, round, storageKey, clockAt, serverAt, loading = false;
 let ctx, master, clipGain, buffers, sources = [], audioLoad, abortAudio, playback = 0;
 let ready = false, busy = false, playing = false, storageAvailable = true;
@@ -16,6 +18,7 @@ function stop() {
   playing = false;
 }
 function dispose() {
+  suggestions.close();
   stop();
   abortAudio?.abort();
   abortAudio = null;
@@ -44,7 +47,7 @@ function render() {
   $("#clips").replaceChildren(...BASE_LENGTHS.map((length, index) => {
     const li = document.createElement("li");
     const attempt = round.attempts[index];
-    li.className = attempt?.kind || (!done && index === level() ? "now" : "");
+    li.className = `seg ${attempt?.kind || (!done && index === level() ? "now" : "")}`;
     li.textContent = `${length}s`;
     li.setAttribute("aria-label", `${length} seconds: ${attempt?.kind || (!done && index === level() ? "current" : "locked")}`);
     return li;
@@ -53,6 +56,7 @@ function render() {
   $("#play").disabled = busy || loading;
   $("#guess-form").hidden = done;
   for (const id of ["#guess", "#submit", "#skip"]) $(id).disabled = !ready || busy || loading;
+  if (done || !ready || busy || loading) suggestions.close();
   $("#skip").textContent = level() === BASE_LENGTHS.length - 1 ? "Give up" : "Skip";
   $("#guesses").replaceChildren(...round.attempts.map((attempt, index) => {
     const li = document.createElement("li");
@@ -153,6 +157,7 @@ function attempt(text, skip = false) {
   round.status = correct ? "won" : round.attempts.length === BASE_LENGTHS.length ? "lost" : "playing";
   save();
   $("#guess").value = "";
+  suggestions.close();
   render();
 }
 function expired() {
@@ -182,10 +187,10 @@ async function loadChallenge() {
     notice(round.status === "playing" ? "Tap Play to load today's song." : "Today's result is saved. Share it or keep playing Snippets.");
     render();
     // Suggestions are optional; the pinned answer remains guessable after a tracker edit.
+    suggestions.setSongs([body.song]);
     fetch("api/songs").then(r => r.json()).then(list => {
       if (challenge !== body) return;
-      const titles = [...new Set([body.song.display, ...(list.songs || []).map(s => s.display)])].filter(Boolean).sort();
-      $("#song-names").replaceChildren(...titles.map(title => { const option = document.createElement("option"); option.value = title; return option; }));
+      suggestions.setSongs([body.song, ...(list.songs || [])]);
     }).catch(() => {});
   } catch (error) { challenge = null; notice(error.message); $("#retry").hidden = false; }
   finally { loading = false; render(); }
@@ -199,16 +204,16 @@ $("#volume").oninput = () => { if (master) master.gain.value = Number($("#volume
 $("#share").onclick = async () => {
   const text = shareResult(challenge.date, round, challenge.shareUrl || new URL("daily.html", location.href).href);
   try {
-    if (navigator.share) await navigator.share({ text });
-    else if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); notice("Result copied. It doesn't reveal the song."); }
-    else throw new Error("Copy manually");
+    if (!navigator.clipboard?.writeText) throw new Error("Copy manually");
+    await navigator.clipboard.writeText(text);
+    $("#share-text").hidden = true;
+    notice("Result copied. Paste it wherever you like.");
   } catch (error) {
-    if (error.name === "AbortError") return;
     $("#share-text").hidden = false;
     $("#share-text").value = text;
     $("#share-text").focus();
     $("#share-text").select();
-    notice("Copy your result below.");
+    notice("Select and copy your result below.");
   }
 };
 addEventListener("storage", event => { if (challenge && event.key === storageKey) { stop(); round = readRound(); render(); } });

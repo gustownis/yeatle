@@ -73,6 +73,10 @@ private notes intact throughout synchronization.
 
 ## Important project constraints
 
+- New game tabs/pages must resemble the existing Stems and Snippets tabs as
+  closely as possible. Reuse their layout, proportions, spacing, controls,
+  purple accents, song suggestions, and navigation/transition conventions;
+  check both desktop and portrait/mobile layouts.
 - Yeatle uses a Node.js browser server (`server.js`) and an Electron desktop
   shell (`desktop/`). The working frontend lives in tracked `build/` files,
   including `build/assets/`. Do not delete `build/` as disposable output.

@@ -139,12 +139,12 @@ async function play(page, length) {
   let share = await page.evaluate(() => audit.copied);
   assert.match(share, /1s · 3\/6\n🟥⬛🟩⬜⬜⬜/);
   assert.ok(!share.toLowerCase().includes(daily.song.title.toLowerCase()));
-  // Exercise native API success/cancellation and selectable fallback with stubs.
-  await page.evaluate(() => Object.defineProperty(navigator, "share", { configurable: true, value: async ({ text }) => { audit.shared = text; } }));
+  // Copy directly even when native sharing exists; denied clipboard stays selectable.
+  await page.evaluate(() => Object.defineProperty(navigator, "share", { configurable: true, value: async () => { audit.shared = "unexpected native share"; } }));
   await page.locator("#share").click();
-  assert.equal(await page.evaluate(() => audit.shared), share);
-  await page.evaluate(() => Object.defineProperty(navigator, "share", { configurable: true, value: async () => { throw new DOMException("Cancelled", "AbortError"); } }));
-  await page.locator("#share").click();
+  assert.equal(await page.evaluate(() => audit.shared), "");
+  assert.equal(await page.evaluate(() => audit.copied), share);
+  assert.equal(await page.locator("#share").textContent(), "Copy result");
   assert.equal(await page.locator("#share-text").isVisible(), false);
   await page.evaluate(() => { Object.defineProperty(navigator, "share", { configurable: true, value: undefined }); Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("Denied"); } } }); });
   await page.locator("#share").click();

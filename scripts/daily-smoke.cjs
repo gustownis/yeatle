@@ -17,6 +17,8 @@ fs.mkdirSync(song, { recursive: true });
 fs.cpSync(process.env.YEATLE_TEST_STEMS || path.join(root, "build", "Songs", "Lyfe stealer"), song, { recursive: true });
 fs.writeFileSync(path.join(data, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "" }));
 app.setPath("userData", path.join(output, "profile"));
+app.setName("Yeatle Daily test");
+if (process.platform === "win32") app.setAppUserModelId("io.github.gustownis.yeatle.daily-test");
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 const result = { version: require("../package.json").version, platform: process.platform, versions: process.versions, checks: {}, output };
@@ -28,7 +30,11 @@ async function until(code, label, timeout = 30000) {
   while (Date.now() - start < timeout) { if (await evaluate(`Boolean(${code})`)) return; await wait(75); }
   throw new Error(`${label} timed out: ${await evaluate('document.querySelector("#notice")?.textContent')}`);
 }
-async function screenshot(name) { fs.writeFileSync(path.join(output, name), (await window.webContents.capturePage()).toPNG()); }
+async function screenshot(name) {
+  // A loaded document can precede its first composited frame on Windows.
+  await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  fs.writeFileSync(path.join(output, name), (await window.webContents.capturePage()).toPNG());
+}
 async function finish(error) {
   if (finished) return;
   finished = true;
@@ -47,7 +53,7 @@ app.whenReady().then(async () => {
   const port = await new Promise((resolve, reject) => { backend.on("message", m => { if (m.type === "yeatle-ready") resolve(m.port); }); backend.once("error", reject); backend.once("exit", code => reject(new Error(`Server exited ${code}`))); });
   const origin = `http://127.0.0.1:${port}`;
   console.log("Daily check: opening renderer");
-  window = new BrowserWindow({ show: process.env.YEATLE_SMOKE_SHOW === "1", width: 1000, height: 1000, webPreferences: { backgroundThrottling: false } });
+  window = new BrowserWindow({ title: "Yeatle Daily test", icon: path.join(root, "build", "favicon.png"), show: process.env.YEATLE_SMOKE_SHOW === "1", width: 1000, height: 1000, webPreferences: { backgroundThrottling: false } });
   window.webContents.setAudioMuted(true);
   await window.loadURL("about:blank");
   const debug = window.webContents.debugger;
