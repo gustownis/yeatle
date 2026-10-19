@@ -114,7 +114,7 @@ h2:first-child { margin-top: 0; }
 .countdown.tick { animation: countdown 0.9s ease-out; }
 @keyframes countdown { 0% { opacity: 0; transform: scale(1.6); } 20% { opacity: 1; transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0.2; transform: scale(0.9); } }
 @media (prefers-reduced-motion: reduce) { .countdown.tick { animation: none; } }
-.lane-wrap { position: relative; min-height: 0; }
+.lane-wrap { position: relative; min-height: 0; overflow: clip; }
 #lane { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .lyrics { text-align: center; min-height: 86px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
 .lyric-now { font-size: clamp(22px, 3.6vw, 40px); font-weight: 800; line-height: 1.15; min-height: 1.15em; text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8); }

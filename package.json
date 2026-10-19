@@ -1,6 +1,6 @@
 {
   "name": "yeatle-desktop",
-  "version": "1.10.3",
+  "version": "1.11.0",
   "description": "A self-hosted Yeat song guessing game for desktop and browser.",
   "private": true,
   "license": "Unlicense",
@@ -13,7 +13,9 @@
     "node": ">=22"
   },
   "scripts": {
+    "postinstall": "node scripts/install-electron.cjs",
     "start": "node server.js",
+    "test:1.11": "node scripts/test-1.11.cjs",
     "desktop": "electron .",
     "test": "node --test tests/*.test.cjs",
     "pack": "electron-builder --dir",
@@ -54,7 +56,9 @@
       "THIRD_PARTY_NOTICES.md",
       "licenses/**/*",
       "static-cache.cjs",
-      "live-control.cjs"
+      "live-control.cjs",
+      "daily-challenge.cjs",
+      "daily-authority.cjs"
     ],
     "win": {
       "target": [

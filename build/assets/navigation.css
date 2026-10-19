@@ -3,9 +3,9 @@
 
 .background, .bg { view-transition-name: yeatle-background; }
 /* Keep the dark surface above the independently captured background. */
-.shell, #setup .setup-grid { view-transition-name: yeatle-surface; }
-.brand .logo, #setup .top .logo { view-transition-name: yeatle-logo; }
-.modebar .tabs, #setup .top .tabs { view-transition-name: yeatle-tabs; }
+.shell, #setup .setup-grid, .daily-shell { view-transition-name: yeatle-surface; }
+.brand .logo, #setup .top .logo, .daily-shell > a > .logo { view-transition-name: yeatle-logo; }
+.modebar .tabs, #setup .top .tabs, .daily-shell > .tabs { view-transition-name: yeatle-tabs; }
 .brand .logo { mix-blend-mode: normal; }
 
 ::view-transition-group(*) {
