@@ -77,6 +77,8 @@ private notes intact throughout synchronization.
   closely as possible. Reuse their layout, proportions, spacing, controls,
   purple accents, song suggestions, and navigation/transition conventions;
   check both desktop and portrait/mobile layouts.
+  Keep the tab strip content-sized and put its full-width divider on the
+  surrounding mode bar, so desktop transitions do not stretch the tab text.
 - Yeatle uses a Node.js browser server (`server.js`) and an Electron desktop
   shell (`desktop/`). The working frontend lives in tracked `build/` files,
   including `build/assets/`. Do not delete `build/` as disposable output.
