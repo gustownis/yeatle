@@ -4,6 +4,8 @@
   "openBrowser": true,
   "refreshMinutes": 30,
   "artist": "Yeat",
+  "dailyAuthority": "https://playyeatle.duckdns.org",
+  "dailyPublicUrl": "",
   "sheetId": "1FUzAZyTCgFTVxQ--qbCAS2bUk4dsAw6ASxwjURPHbyI",
   "tabs": [
     { "name": "Released", "gid": "1617341558" },

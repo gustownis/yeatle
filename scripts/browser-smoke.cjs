@@ -36,7 +36,17 @@ const watchdog = setTimeout(() => { backend.kill(); browser?.close(); process.ex
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "deviceMemory", { get: () => 8, configurable: true });
     Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 8, configurable: true });
-    window.browserAudit = { starts: 0, cross: 0, countdown: [] };
+    window.browserAudit = { starts: 0, cross: 0, countdown: [], layout: { frames: 0, maxX: 0, maxY: 0 } };
+    const sampleLayout = () => {
+      if (document.querySelector('#stage')?.hidden === false) {
+        const layout = browserAudit.layout, root = document.documentElement;
+        layout.frames++;
+        layout.maxX = Math.max(layout.maxX, root.scrollWidth - innerWidth);
+        layout.maxY = Math.max(layout.maxY, root.scrollHeight - innerHeight);
+      }
+      requestAnimationFrame(sampleLayout);
+    };
+    requestAnimationFrame(sampleLayout);
     const start = document.startViewTransition?.bind(document);
     if (start) document.startViewTransition = (...args) => { browserAudit.starts++; return start(...args); };
     addEventListener("pagereveal", event => { if (event.viewTransition) browserAudit.cross++; });
@@ -77,9 +87,11 @@ const watchdog = setTimeout(() => { backend.kill(); browser?.close(); process.ex
   await page.locator("#start").click();
   await page.locator("#stage").waitFor({ state: "visible", timeout: 60000 });
   await page.waitForFunction(() => browserAudit.countdown.includes("Go!") && document.querySelector("#countdown").textContent === "");
-  result.checks.playback = await page.evaluate(() => ({ countdown: browserAudit.countdown, progress: document.querySelector("#progress").style.width }));
+  result.checks.playback = await page.evaluate(() => ({ countdown: browserAudit.countdown, layout: browserAudit.layout, progress: document.querySelector("#progress").style.width }));
   assert.deepEqual(result.checks.playback.countdown, ["3", "2", "1", "Go!", ""]);
   assert.ok(parseFloat(result.checks.playback.progress) > 0);
+  assert.ok(result.checks.playback.layout.frames > 0);
+  assert.ok(result.checks.playback.layout.maxX <= 1 && result.checks.playback.layout.maxY <= 1, JSON.stringify(result.checks.playback.layout));
   await page.screenshot({ path: path.join(output, "karaoke-playing.png") });
   await page.locator("#pause-btn").click();
   await page.locator("#pause").waitFor({ state: "visible" });

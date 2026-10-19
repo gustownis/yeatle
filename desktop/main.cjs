@@ -6,6 +6,8 @@ const { menuTemplate } = require("./menu.cjs");
 const { createUpdateController } = require("./updates.cjs");
 const { installMicrophonePermissions } = require("./permissions.cjs");
 app.setName("Yeatle");
+// The 1.11 test launcher uses a separate profile, including browser storage.
+if (process.env.YEATLE_TEST_PROFILE) app.setPath("userData", path.resolve(process.env.YEATLE_TEST_PROFILE));
 
 const PROJECT_DIR = path.join(__dirname, "..");
 const STEMS_URL = "https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g";

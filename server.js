@@ -25,6 +25,8 @@ const { pipeline } = require("stream/promises");
 const { createGzip, constants: zlibConstants } = require("node:zlib");
 const { staticCacheHeaders, isNotModified, rangeAllowed, createCompressedCache, gzipBuffer } = require("./static-cache.cjs");
 const { createActiveSongFeed } = require("./live-control.cjs");
+const { createDailyChallenges } = require("./daily-challenge.cjs");
+const { createDailyAuthority } = require("./daily-authority.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
 const APP_VERSION = require("./package.json").version;
@@ -34,9 +36,10 @@ const ROOT = process.pkg ? path.dirname(process.execPath) : __dirname;
 const WEB_DIR = path.join(ROOT, "build");
 // Installed desktop apps keep writable files outside the application bundle.
 const DATA_DIR = process.env.YEATLE_DATA_DIR ? path.resolve(process.env.YEATLE_DATA_DIR) : ROOT;
-const STEMS_DIR = process.env.YEATLE_DATA_DIR ? path.join(DATA_DIR, "Songs") : path.join(WEB_DIR, "Songs");
+const STEMS_DIR = process.env.YEATLE_STEMS_DIR ? path.resolve(process.env.YEATLE_STEMS_DIR) : process.env.YEATLE_DATA_DIR ? path.join(DATA_DIR, "Songs") : path.join(WEB_DIR, "Songs");
 const CACHE_FILE = path.join(DATA_DIR, "songs-cache.json");
 const PREVIEW_CACHE_FILE = path.join(DATA_DIR, "preview-cache.json");
+const dailyChallenge = createDailyChallenges(path.join(DATA_DIR, "daily-challenges.json"));
 try {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 } catch (err) {
@@ -49,6 +52,8 @@ const DEFAULT_CONFIG = {
   openBrowser: true,
   refreshMinutes: 30,
   artist: "Yeat",
+  dailyAuthority: "https://playyeatle.duckdns.org",
+  dailyPublicUrl: "",
   sheetId: "1FUzAZyTCgFTVxQ--qbCAS2bUk4dsAw6ASxwjURPHbyI",
   tabs: [
     { name: "Released", gid: "1617341558" },
@@ -86,6 +91,11 @@ if (!Number.isInteger(CONFIG.port) || CONFIG.port < 0 || CONFIG.port > 65535 ||
   process.exit(1);
 }
 const ERA_COVERS = (loadJson(path.join(DATA_DIR, "era-covers.json"), {}).covers) || {};
+let dailyAuthority;
+try {
+  if (typeof CONFIG.dailyAuthority !== "string" || typeof CONFIG.dailyPublicUrl !== "string") throw new Error("Use strings for dailyAuthority and dailyPublicUrl.");
+  if (CONFIG.dailyAuthority) dailyAuthority = createDailyAuthority(CONFIG.dailyAuthority, fetchJson);
+} catch (error) { console.error(`Invalid daily settings: ${error.message}`); process.exit(1); }
 
 /* ------------------------------------------------------------------ *
  *  Small helpers
@@ -1011,7 +1021,7 @@ async function refreshSongs() {
       setSongs(buildSongList([], stemFolders), "stems-only");
     } else if (!SONGS.length) {
       const cached = loadJson(CACHE_FILE, null);
-      if (cached && Array.isArray(cached.songs)) {
+      if (cached && Array.isArray(cached.songs) && cached.songs.length) {
         setSongs(cached.songs, "cache");
         ERAS = Array.isArray(cached.eras) ? cached.eras : [];
         LAST_UPDATE = cached.updated || 0;
@@ -1634,8 +1644,8 @@ async function pipeAudio(req, res, url) {
   req.on("close", () => upstream.destroy());
 }
 
-async function serveSongAudio(req, res, id) {
-  const song = SONG_INDEX.get(id);
+async function serveSongAudio(req, res, id, pinnedSong) {
+  const song = pinnedSong || SONG_INDEX.get(id);
   if (!song) return sendJson(res, 404, { error: "This song is no longer in the list. Refresh the game and try again." });
 
   // stems songs only come here for their full-file fallback
@@ -2667,6 +2677,43 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store", "Vary": "Accept-Encoding", "Content-Length": Buffer.byteLength(body), ...(gzip ? { "Content-Encoding": "gzip" } : {}) });
       res.end(req.method === "HEAD" ? undefined : body);
       return;
+    }
+
+    const dailyAudio = /^\/api\/daily\/audio\/(\d+)$/.exec(pathname);
+    if (pathname === "/api/daily" || pathname === "/api/daily/audio" || dailyAudio) {
+      if (!["GET", "HEAD"].includes(req.method)) return sendJson(res, 405, { error: "Use GET for the daily challenge." });
+      if (dailyAuthority) {
+        if (req.headers["x-yeatle-daily-proxy"]) return sendJson(res, 503, { error: "The authoritative website must set dailyAuthority to an empty string in its config.json." });
+        try {
+          const daily = await dailyAuthority.get();
+          if (dailyAudio) {
+            if (searchParams.get("challenge") !== daily.id) return sendJson(res, 409, { error: "A new daily challenge is available. Reload Daily." });
+            const audio = daily.audio[Number(dailyAudio[1])];
+            if (!audio) return sendJson(res, 404, { error: "Daily audio not found." });
+            return await pipeAudio(req, res, dailyAuthority.audioUrl(audio));
+          }
+          return sendJson(res, 200, { ...daily, scope: "global", shareUrl: dailyAuthority.shareUrl,
+            audio: daily.audio.map((_, index) => `api/daily/audio/${index}?challenge=${encodeURIComponent(daily.id)}`) });
+        } catch (error) {
+          return sendJson(res, 503, { error: `The shared Daily is unavailable. Retry later; no alternate song was selected. (${error.message})` });
+        }
+      }
+      if (!SONGS.length) await refreshOnce();
+      const daily = dailyChallenge(SONGS.filter(s => !isHidden(s)));
+      if (!daily) return sendJson(res, 503, { error: "No daily songs are available yet. Sync the tracker or add a local stem pack, then try again." });
+      // A withdrawn song is unavailable for the rest of the day; never give
+      // different players a replacement challenge under the same date.
+      if (isHidden(daily.song)) return sendJson(res, 503, { error: "Today's song has been withdrawn. Come back after midnight UTC." });
+      if (pathname === "/api/daily/audio") {
+        if (searchParams.get("challenge") !== daily.id) return sendJson(res, 409, { error: "A new daily challenge is available. Reload Daily." });
+        return serveSongAudio(req, res, daily.song.id, daily.song);
+      }
+      const { source, fallback, mergedFrom, ...song } = daily.song;
+      const audio = song.mode === "stems" && !fallback
+        ? ["drums", "bass", "other", "vocals"].map(stem => `Songs/${song.folder.split("/").map(encodeURIComponent).join("/")}/${stem}.mp3`)
+        : [`api/daily/audio?challenge=${encodeURIComponent(daily.id)}`];
+      return sendJson(res, 200, { id: daily.id, date: daily.date, seed: daily.seed, clipAt: daily.clipAt, resetsAt: daily.resetsAt, serverTime: daily.serverTime,
+        scope: CONFIG.dailyPublicUrl ? "global" : "local", shareUrl: CONFIG.dailyPublicUrl || undefined, song, audio });
     }
 
     if (pathname === "/api/cover") return serveCover(res, searchParams.get("era") || "");

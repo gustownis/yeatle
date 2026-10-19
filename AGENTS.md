@@ -90,7 +90,13 @@ private notes intact throughout synchronization.
 - Electron and other dependencies can contain platform-specific binaries.
   Do not reuse a `node_modules/` installation from another OS without checking
   it; reinstall from the root lockfile when switching the shared installation
-  between operating systems.
+  between operating systems. The root `postinstall` runs Electron's explicit
+  binary installer; keep it so `npm ci` also prepares the desktop executable.
+- Shared Daily uses the website configured by `dailyAuthority` for its song,
+  audio, clip start, and UTC reset. Only the authoritative website (or an
+  explicit local test) sets `dailyAuthority` to an empty string. Preserve its
+  ignored `daily-challenges.json` during updates; clients must not fall back
+  to locally selected songs when the shared host is unavailable.
 
 ## Run and verify
 

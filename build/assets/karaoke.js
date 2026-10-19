@@ -776,7 +776,6 @@ function renderPlayers() {
       ...mics.devices.filter(d => d.deviceId && d.deviceId !== "default").map((d, n) => el("option", { value: d.deviceId, text: d.label || `Mic ${n + 1}`, selected: player.deviceId === d.deviceId })),
       el("option", { value: "none", text: "No mic (just watch)", selected: player.deviceId === "none" })
     );
-    select.disabled = !mics.allowed;
     return el("div", { class: "player-row", style: `--c:${COLORS[index]}` },
       el("span", { class: "dot" }),
       el("input", { value: player.name, maxlength: "16", "aria-label": `Singer ${index + 1} name`, oninput: e => { player.name = e.target.value || `Singer ${index + 1}`; saveSettings(); } }),

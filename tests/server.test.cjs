@@ -194,6 +194,8 @@ test("capitalized stems retain HEAD, cache validation, suffix ranges, and range 
 
 test("refresh detects completed stem packs and removes packs whose audio was deleted", async t => {
   const folder = dataFolder(t); config(folder);
+  // An empty saved tracker response must not mask newly added local audio.
+  fs.writeFileSync(path.join(folder, "songs-cache.json"), JSON.stringify({ songs: [], eras: [] }));
   const songs = path.join(folder, "Songs", "Completion test");
   fs.mkdirSync(songs, { recursive: true });
   for (const stem of ["Drums", "Bass", "Other"]) fs.writeFileSync(path.join(songs, `${stem}.mp3`), "audio");

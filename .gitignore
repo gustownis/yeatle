@@ -10,6 +10,8 @@
 *.log
 /songs-cache.json
 /preview-cache.json
+/daily-challenges.json
+/daily-challenges.json.tmp
 /joke-photos.json
 
 # Models download automatically. Songs are distributed separately.
