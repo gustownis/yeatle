@@ -1,8 +1,9 @@
 # Yeatle 1.11 test handoff
 
 This handoff started with **1.11.0-test.1**, based on main commit `db3730a` /
-regular release 1.10.3. Stable **1.11.0** is published; the current **1.11.1** patch is under release
-verification. Dated results below retain their original test versions. Read
+regular release 1.10.3. Stable **1.11.0** and its **1.11.1** UI patch are published;
+see the [1.11.1 verification report](../docs/testing-windows-1.11.1.md).
+Dated results below retain their original test versions. Read
 this file and root `AGENTS.md` before continuing on another OS.
 
 ## Intended behavior

@@ -79,3 +79,43 @@ Local evidence is ignored under `.tmp/windows-1.11.1/` and the timestamped
 physical Android results remain in `test-1.11/RESULTS.md`. Bluetooth, real
 microphone quality/scoring, heat/memory, long sessions and overnight checks
 remain pending. No result was sent to anyone. Desktop packages remain unsigned.
+
+## Publication follow-up — 2026-10-19, 19:12 UTC
+
+[v1.11.1](https://github.com/gustownis/yeatle/releases/tag/v1.11.1) is published
+as a regular Latest release. Its annotated tag points to
+`f99fa278b2d0fc47b37b577af671076464aa51b1`, the exact source used by
+[Checks](https://github.com/gustownis/yeatle/actions/runs/39307871546) and all five
+[Desktop builds](https://github.com/gustownis/yeatle/actions/runs/39307875226).
+All jobs passed. The tag-triggered Checks run also passed. This documentation
+follow-up does not change the released runtime or tag.
+
+- All ten CI downloads contain 1.11.1 and match the tagged source's 56 runtime
+  files (text comparisons normalize line endings). The actual CI Windows
+  executable passed the full packaged test, including normal public Daily.
+- All fourteen prepared files passed versions, filenames, sizes, checksums,
+  and feed references. All fourteen uploaded draft assets matched their local
+  hashes before publication. Documentation links use the immutable source
+  commit and returned HTTP 200.
+- The public website serves all 13 checked frontend assets from this release.
+  Direct public UI checks and playback passed. Two independent clients with
+  different local libraries received identical challenge/date/song/clip start/
+  reset and audio bytes. Failed audio consumed no attempt; a failed authority
+  selected no local substitute. The pinned challenge stayed unchanged.
+- After publication, independent public downloads of all fourteen assets
+  matched their sizes and SHA-256 hashes. All three Latest feed aliases matched
+  their prepared metadata. Detection selected the correct files for all eight
+  supported updater paths; current 1.11.1 correctly reports no update.
+- The actual Windows installer updater, presented with version 1.11.0,
+  detected 1.11.1 and downloaded the 119,445,726-byte installer into an isolated
+  cache. Its SHA-256 is
+  `86c3684044d50da0eccc0f616fe0577d0ee870e2c5d40bc1b94c1efbd884d34e`.
+  Nothing was installed. The rendered GitHub README showed eleven correct
+  download/checksum links and its loaded image.
+
+Final evidence in `.tmp/windows-1.11.1/` includes `workflows-final.json`,
+`ci-package-check/result.json`, `prepublish-gates.json`,
+`public-authority-final.json`, `public-ui-final.json`,
+`public-release-result.json`, `published-updater/result.json`,
+`published-release.json`, `published-tag.json`, and `rendered-readme.json`.
+The physical-device limitations above remain pending.
