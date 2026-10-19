@@ -22,6 +22,11 @@ const result = { platform: process.platform, versions: process.versions, target,
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 let window, done = false;
 const evaluate = code => window.webContents.executeJavaScript(code, true);
+async function reloadWindow() {
+  const loaded = new Promise(resolve => window.webContents.once("did-finish-load", resolve));
+  window.webContents.reload();
+  await loaded;
+}
 async function until(code, label, timeout = 15000) {
   const started = Date.now();
   while (Date.now() - started < timeout) {
@@ -83,6 +88,15 @@ app.on("browser-window-created", (_event, created) => {
     addEventListener('error', event => smoke.errors.push(event.message));
     addEventListener('unhandledrejection', event => smoke.errors.push(String(event.reason)));
     const start = AudioBufferSourceNode.prototype.start;
+    addEventListener('pagereveal', event => {
+      if (!event.viewTransition) return;
+      event.viewTransition.ready.then(() => {
+        smoke.tabFrames = document.getAnimations()
+          .filter(animation => animation.animationName?.includes('group-anim-yeatle-tabs'))
+          .flatMap(animation => animation.effect.getKeyframes());
+      }).catch(() => {});
+      event.viewTransition.finished.then(() => { smoke.navigationDone = true; }).catch(() => {});
+    });
     AudioBufferSourceNode.prototype.start = function(when, offset) {
       window.smokeContext = this.context;
       const samples = this.buffer.getChannelData(0);
@@ -110,6 +124,28 @@ async function runWindow() {
   assert.equal(result.checks.game.desktop, true);
   assert.equal(result.checks.game.runtime, "desktop");
   const origin = new URL(window.webContents.getURL()).origin;
+  // Tab labels must retain their size while the active underline changes.
+  const geometry = '(()=>{const r=document.querySelector(".tabs").getBoundingClientRect();return {width:r.width,height:r.height}})()';
+  result.checks.dailyTabGeometry = [];
+  for (const mode of ["Stems", "Snippets"]) {
+    await evaluate(`[...document.querySelectorAll("[role=tab]")].find(tab => tab.textContent === ${JSON.stringify(mode)}).click()`);
+    await until(`document.querySelector('[role=tab][aria-selected=true]')?.textContent === ${JSON.stringify(mode)}`, mode);
+    await wait(250);
+    const before = await evaluate(geometry);
+    await evaluate('[...document.querySelectorAll("[role=tab]")].find(tab => tab.textContent === "Daily").click()');
+    await until('document.querySelector("#game") && smoke.navigationDone', `${mode} to Daily transition`);
+    const after = await evaluate(geometry), frames = await evaluate('smoke.tabFrames');
+    for (const dimension of ["width", "height"]) {
+      assert.ok(Math.abs(before[dimension] - after[dimension]) < 1, `Daily tab ${dimension} stretches`);
+      assert.ok(frames.length >= 2, "Missing native tab animation frames");
+      assert.ok(Math.abs(parseFloat(frames[0][dimension]) - parseFloat(frames.at(-1)[dimension])) < 1, `Animated tab ${dimension} stretches`);
+    }
+    await evaluate(`document.querySelector('.tabs a[href="./?mode=${mode === "Stems" ? "stems" : "snippet"}"]').click()`);
+    await until('document.querySelector("[role=tab]") && smoke.navigationDone', "return from Daily");
+    const returned = await evaluate(geometry);
+    assert.ok(Math.abs(returned.width - after.width) < 1 && Math.abs(returned.height - after.height) < 1);
+    result.checks.dailyTabGeometry.push({ mode, before, after, returned, frames });
+  }
   const arrived = new Promise(resolve => window.webContents.once("did-finish-load", resolve));
   await evaluate('[...document.querySelectorAll("[role=tab]")].find(tab => tab.textContent === "Karaoke").click()');
   await arrived;
@@ -119,7 +155,7 @@ async function runWindow() {
   await evaluate('document.querySelector("#players select").value="none"; document.querySelector("#players select").dispatchEvent(new Event("change"))');
   await until('JSON.parse(localStorage.getItem("yeatle-karaoke-settings")).players[0].deviceId === "none"', "No mic saved before permission");
   assert.equal(await evaluate('smoke.microphoneRequests'), 0);
-  window.webContents.reload();
+  await reloadWindow();
   await until('document.querySelector("#players select")?.value === "none"', "saved No mic preference");
   result.checks.noMicBeforePermissionAndSavedSetting = true;
   result.checks.permissions = await evaluate(`(async () => {
@@ -191,14 +227,14 @@ async function runWindow() {
   assert.equal(await evaluate('document.querySelector("#song-suggestions").hidden'), true);
   result.checks.dailySuggestions = true;
   await evaluate('document.querySelector("#guess").value="wrong";document.querySelector("#guess-form").requestSubmit();document.querySelector("#skip").click()');
-  window.webContents.reload();
+  await reloadWindow();
   await until('document.querySelector("#play")?.textContent === "Play 1s"', "desktop Daily unfinished reload");
   await evaluate('document.querySelector("#play").click()');
   await until('!document.querySelector("#skip").disabled', "desktop Daily reload audio");
   await evaluate(`document.querySelector("#guess").value=${JSON.stringify(daily.song.title)};document.querySelector("#guess-form").requestSubmit()`);
   await until('!document.querySelector("#result").hidden', "desktop Daily win");
   assert.equal(await evaluate('JSON.stringify(Object.fromEntries(Object.entries(localStorage).filter(([key]) => /stats|completed/.test(key))))'), stats);
-  window.webContents.reload();
+  await reloadWindow();
   await until('document.querySelector("#result") && !document.querySelector("#result").hidden', "desktop Daily saved result");
   await evaluate('document.querySelector("#play").click()');
   await until('document.querySelector("#play").textContent === "Stop"', "desktop Daily replay");
