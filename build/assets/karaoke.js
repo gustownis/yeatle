@@ -1204,6 +1204,11 @@ function beginGame(song, audio, chart, lyrics) {
     sources: [], startCtx: 0, startOffset: 0, paused: false, raf: 0, wakeLock: null
   };
   game.players = settings.players.map((p, index) => ({ index, name: p.name, color: COLORS[index], detector: mics.detectors[index] || null }));
+  // iPhones mute Web Audio with the silent switch unless the page says it plays media (Safari 17+).
+  // An open microphone already switches iOS to recording playback, so only "No mic" rounds need this.
+  if (!game.players.some(p => p.detector)) {
+    try { if (navigator.audioSession && navigator.audioSession.type === "auto") navigator.audioSession.type = "playback"; } catch { /* unsupported */ }
+  }
   applyVolume();
   buildStage();
   resetRun();

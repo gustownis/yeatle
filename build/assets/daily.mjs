@@ -99,10 +99,17 @@ async function loadAudio() {
   finally { if (challenge === current) audioLoad = null; }
 }
 
+// iPhones mute Web Audio with the silent switch (and in some cases entirely) unless the
+// page says it plays media. Safari 17+ exposes that as navigator.audioSession.
+function mediaPlaybackSession() {
+  try { if (navigator.audioSession && navigator.audioSession.type !== "playback") navigator.audioSession.type = "playback"; } catch { /* unsupported */ }
+}
+
 async function play() {
   if (loading || expired()) return;
   if (playing) { stop(); render(); return; }
   const current = challenge;
+  mediaPlaybackSession();
   try {
     if (!ctx) {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
