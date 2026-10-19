@@ -1,0 +1,128 @@
+# Shared instructions for coding assistants
+
+This file is tracked in Git and shared by contributors using Codex, Claude,
+and other coding assistants on Windows, Linux, and macOS. Keep it focused on
+durable project guidance. `CLAUDE.md` imports this file so the instructions
+have one maintained source.
+
+## Check for updates and synchronize automatically
+
+At the start of every work session, check whether the GitHub repository has
+new commits or a newer regular release. Routine synchronization of the local
+checkout is authorized: update the project files on the PC automatically when
+it is safe, rather than only telling the user an update exists.
+
+1. Confirm the repository root, branch, recent commits, and working tree with
+   `git rev-parse --show-toplevel`, `git branch --show-current`,
+   `git log -5 --oneline`, and `git status --short --untracked-files=all`.
+   Inspect existing diffs before editing or updating anything.
+2. Fetch remote commits and tags, normally with `git fetch --prune --tags origin`,
+   then compare the current branch with its configured upstream. If it has no
+   upstream, inspect the remote default branch and existing branch history;
+   do not guess a new branch relationship or discard local commits.
+3. Check the latest published regular GitHub release, for example with
+   `gh api repos/gustownis/yeatle/releases/latest`, and compare its tag with
+   the version in the root `package.json`. Compare version numbers correctly;
+   do not treat lexical ordering as version ordering. An unreleased development
+   version can be newer than the latest release and must not be downgraded.
+4. If the checkout is clean and its branch is behind its upstream with no
+   local-only commits, automatically run `git merge --ff-only '@{upstream}'`.
+   This updates tracked
+   project files locally without creating a merge commit. No additional
+   confirmation is needed for that routine update.
+5. If the branch is dirty or diverged, preserve all work. Inspect how the
+   incoming changes overlap the current task and reconcile them without
+   discarding unrelated edits. If an update cannot be completed safely,
+   explain the specific conflict and continue independent work. Never reset
+   hard, force-push, delete files, or stash someone else's changes merely to
+   force an update through.
+6. If the newest release is ahead of the active branch, fetch and inspect its
+   tag and the remote default branch. Incorporate it through the appropriate
+   Git history when safe; do not switch branches blindly or unpack a desktop
+   download over the source checkout. Updating this checkout does not by itself
+   update a separately installed desktop application.
+7. After synchronization, reread any changed instructions and the relevant
+   package files. Refresh dependencies with the root `npm ci` if needed for
+   the task because the lockfile changed or the installed binaries belong to
+   another OS. Run checks appropriate to the incoming changes and the task.
+   Report the version or commit actually reached and any remaining limitations.
+
+If GitHub or the network is unavailable, say the update check could not be
+completed and work from the available checkout. Do not claim it is current
+without checking. Keep ignored local settings, songs, models, caches, and
+private notes intact throughout synchronization.
+
+## Coordinate through the repository
+
+- Different contributors, operating systems, and assistant chats do not share
+  conversation history. Use current files, Git history, relevant docs, and the
+  user's request to establish what has already changed.
+- Preserve unrelated edits. Do not reset, clean away, overwrite, or stash
+  another person's work just to make the working tree clean.
+- Read the relevant parts of `README.md` and `docs/` for the requested change.
+  Treat old verification reports as dated evidence, not checks you just ran.
+- When handing off work, state the behavior changed, checks actually run,
+  operating system tested, remaining issues, and next useful step. Put lasting
+  project decisions in relevant documentation and commit or pull-request
+  descriptions. Keep private chat transcripts and machine-specific notes out
+  of this shared guide; ignored `.tmp/` can hold local notes.
+- Keep commits scoped to the request and review staged filenames and diffs.
+  Follow the user's requested delivery through to completion; distinguish
+  local changes, committed changes, and changes actually pushed to GitHub.
+  Release publication and deployments must stay within the user's request.
+
+## Important project constraints
+
+- Yeatle uses a Node.js browser server (`server.js`) and an Electron desktop
+  shell (`desktop/`). The working frontend lives in tracked `build/` files,
+  including `build/assets/`. Do not delete `build/` as disposable output.
+- `source/` is an incomplete imported Vite project: the original `src/`,
+  including `main.jsx`, is missing. Read `source/README.md` before frontend
+  build work. Do not overwrite the working `build/` by attempting a routine
+  Vite rebuild from the incomplete source.
+- Preserve local songs, settings, caches, downloaded models, and any imported
+  `Yeatle 1.9 + Mac/` folder. Respect `.gitignore`; do not commit credentials,
+  personal configuration, song packs, or generated release artifacts.
+- Use the repository root discovered on the current machine. Do not hardcode
+  another contributor's drive letter, username, or Linux mount path.
+- Match filename case exactly for Linux, quote paths with spaces, and follow
+  `.gitattributes` for line endings. Avoid whole-file newline changes.
+- Electron and other dependencies can contain platform-specific binaries.
+  Do not reuse a `node_modules/` installation from another OS without checking
+  it; reinstall from the root lockfile when switching the shared installation
+  between operating systems.
+
+## Run and verify
+
+The package requires Node.js >=22. The README and CI currently use Node.js 24
+as the baseline; check the current package files and workflow if this changes.
+Run commands from the repository root. In Windows PowerShell, use `npm.cmd`
+instead of `npm` if execution policy blocks `npm.ps1`.
+
+| Task | Command / guidance |
+| --- | --- |
+| Local browser game | `node server.js` or `npm start`; default URL `http://127.0.0.1:3093` |
+| Automated checks | `npm test` |
+| Install desktop dependencies | `npm ci` on the current OS |
+| Desktop development | `npm run desktop` |
+| Windows x64 packages | `npm run dist:win -- --x64` on Windows |
+| Linux x64 packages | `npm run dist:linux -- --x64` on Linux |
+| Other architectures / macOS | See the current README and desktop build workflow |
+
+Browser play does not require installing desktop dependencies. Packaging
+outputs go in ignored `release/`; use ignored `.tmp/` for temporary checks.
+
+Run checks appropriate to the change. For browser or desktop behavior, consult
+`scripts/browser-smoke.cjs`, `scripts/desktop-smoke.cjs`, and the relevant reports
+under `docs/` for prerequisites and limits. Verify platform-specific behavior
+on that platform, and report anything not exercised. Do not call an unrun check
+passed or present a package build as proof of device behavior.
+
+For README screenshot updates, inspect the rendered GitHub README after a
+requested push. If an overwritten image stays cached, give the replacement a
+new filename and update its link; verifying the file in `docs/` alone does not
+establish which image the front page displays.
+
+Update this guide when a durable workflow or project constraint changes.
+Keep current task status in Git history and relevant task documentation rather
+than appending a session log here.
