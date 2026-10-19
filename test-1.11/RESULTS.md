@@ -482,3 +482,40 @@ Audio was muted in automated Windows checks. The earlier user report of
 acceptable Android sound remains separate. Bluetooth, real microphone quality,
 controlled thermal/memory, long-session, and overnight checks remain pending.
 Normal music, settings, caches, models, profiles, and daily stores were preserved.
+
+## 2026-10-19 — stable 1.11.0 publication follow-up
+
+Published [v1.11.0](https://github.com/gustownis/yeatle/releases/tag/v1.11.0)
+as the regular Latest release at 18:44 UTC, tagged at
+`9c590f3fd3c6f44b0518807bf02160f1a2846cda`.
+[Checks](https://github.com/gustownis/yeatle/actions/runs/39295849911)
+and all five [Desktop builds](https://github.com/gustownis/yeatle/actions/runs/39295855488)
+passed on that exact commit: Windows x64, macOS x64/ARM64, and Linux x64/ARM64.
+All ten packages contained version 1.11.0 and the same 55 runtime files as the
+tagged source (text comparisons normalize line endings). The CI Windows
+executable also passed the packaged application checks.
+
+The website operator corrected the authoritative host config and restarted
+its existing server. Two independently configured local clients, including
+one with an unrelated library, then matched the public host's date, challenge,
+song, explicit clip start, reset and audio bytes. Direct public playback and
+both proxies passed. Failed audio retained the challenge without consuming an
+attempt; a failed host selected no local substitute. The operator reported
+that the pinned store's SHA-256 stayed unchanged across a restart; that server
+access check was performed by the operator, not inferred from our clients.
+
+After publication, all fourteen public downloads were fetched independently
+and matched their expected sizes and SHA-256 hashes. All three updater feeds
+matched the published binaries and Latest aliases. Release detection selected
+the expected downloads for all eight supported OS/architecture/package paths.
+The actual Windows installer updater, presented with version 1.10.3, detected
+1.11.0 and downloaded/verified its installer into an isolated cache; it did not
+install or replace the normal app. The rendered GitHub README showed eleven
+correct 1.11.0 download/checksum links and its loaded screenshot. Documentation
+links in the release body were also checked. Both isolated launchers were stopped.
+
+Evidence remains in ignored `.tmp/windows-1.11/`: `public-authority-final.json`,
+`ci-package-check/result.json`, `public-release-result.json`,
+`published-updater/result.json`, and `rendered-readme.json`. Physical limitations
+listed above remain pending. Follow-up 1.11.1 UI checks have their own report in
+`docs/testing-windows-1.11.1.md`.

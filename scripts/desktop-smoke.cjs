@@ -183,6 +183,13 @@ async function runWindow() {
   const sources = await evaluate('smoke.starts');
   assert.equal(sources.length, 4);
   assert.ok(sources.every(source => source.offset === daily.clipAt));
+  await evaluate(`document.querySelector("#guess").focus();document.querySelector("#guess").value=${JSON.stringify(daily.song.title.slice(0, 3))};document.querySelector("#guess").dispatchEvent(new Event("input"))`);
+  await until('!document.querySelector("#song-suggestions").hidden', "desktop Daily suggestions");
+  assert.equal(await evaluate('getComputedStyle(document.querySelector("#clips .now")).backgroundColor'), "rgb(137, 1, 185)");
+  await evaluate('document.querySelector("#song-suggestions .suggestion-item").click()');
+  assert.equal(await evaluate('document.querySelectorAll("#guesses li").length'), 0);
+  assert.equal(await evaluate('document.querySelector("#song-suggestions").hidden'), true);
+  result.checks.dailySuggestions = true;
   await evaluate('document.querySelector("#guess").value="wrong";document.querySelector("#guess-form").requestSubmit();document.querySelector("#skip").click()');
   window.webContents.reload();
   await until('document.querySelector("#play")?.textContent === "Play 1s"', "desktop Daily unfinished reload");
@@ -219,7 +226,7 @@ app.whenReady().then(async () => {
   const metadata = JSON.parse(fs.readFileSync(path.join(target, "package.json")));
   app.getVersion = () => metadata.version;
   result.version = metadata.version;
-  const files = ["desktop/main.cjs", "desktop/preload.cjs", "server.js", "daily-challenge.cjs", "daily-authority.cjs", "build/daily.html", "build/assets/daily.mjs", "build/assets/daily.css", "build/assets/snippet-rules.mjs", "build/index.html", "build/karaoke.html", "build/assets/karaoke.js", "build/assets/karaoke.css", "build/assets/navigation-runtime.js", "build/assets/navigation.mjs", "build/assets/navigation.css", "build/assets/yeatle.js"];
+  const files = ["desktop/main.cjs", "desktop/preload.cjs", "server.js", "daily-challenge.cjs", "daily-authority.cjs", "build/daily.html", "build/assets/daily.mjs", "build/assets/daily.css", "build/assets/song-suggestions.mjs", "build/assets/snippet-rules.mjs", "build/index.html", "build/karaoke.html", "build/assets/karaoke.js", "build/assets/karaoke.css", "build/assets/navigation-runtime.js", "build/assets/navigation.mjs", "build/assets/navigation.css", "build/assets/yeatle.js"];
   const hash = bytes => crypto.createHash("sha256").update(bytes.toString().replaceAll("\r\n", "\n")).digest("hex");
   for (const file of files) assert.equal(hash(fs.readFileSync(path.join(target, file))), hash(fs.readFileSync(path.join(root, file))), file);
   result.checks.packagedFilesMatch = true;

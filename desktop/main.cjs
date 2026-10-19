@@ -6,6 +6,8 @@ const { menuTemplate } = require("./menu.cjs");
 const { createUpdateController } = require("./updates.cjs");
 const { installMicrophonePermissions } = require("./permissions.cjs");
 app.setName("Yeatle");
+// Match the installed shortcut so Windows uses Yeatle's taskbar identity.
+if (process.platform === "win32") app.setAppUserModelId("io.github.gustownis.yeatle");
 // The 1.11 test launcher uses a separate profile, including browser storage.
 if (process.env.YEATLE_TEST_PROFILE) app.setPath("userData", path.resolve(process.env.YEATLE_TEST_PROFILE));
 

@@ -181,3 +181,5 @@ h2:first-child { margin-top: 0; }
   #stage { padding: 8px 8px 10px; }
   .score { font-size: 20px; }
 }
+
+@media (orientation: portrait), (max-width: 560px) { .top .logo { height: 30px; } .loading-box .logo { height: 38px; } }

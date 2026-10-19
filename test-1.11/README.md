@@ -1,7 +1,7 @@
 # Yeatle 1.11 test handoff
 
 This handoff started with **1.11.0-test.1**, based on main commit `db3730a` /
-regular release 1.10.3. The current source is promoted to **1.11.0** for release
+regular release 1.10.3. Stable **1.11.0** is published; the current **1.11.1** patch is under release
 verification. Dated results below retain their original test versions. Read
 this file and root `AGENTS.md` before continuing on another OS.
 
@@ -156,7 +156,12 @@ For repeatable offline results, use a disposable launcher folder with
 keep any seeded cache limited to that fixture's songs. The check tests Base,
 Daily persistence/sharing/navigation, failed audio, two independent shared
 clients, four-stem and single-file proxy audio, and fixture-clock UTC rollover.
-Sharing API stubs and narrow viewports do not replace physical Android checks.
+Clipboard API stubs and narrow viewports do not replace physical Android checks.
+
+`node scripts/daily-ui-smoke.cjs` uses the same optional browser dependencies to
+check Daily suggestions with mouse/keyboard/emulated touch, purple styling,
+portrait phone/tablet logos across all modes, copy-only results, and selectable
+clipboard fallback. These emulated input/layout checks do not replace a physical phone pass.
 
 ## Physical Android, using the same server
 
@@ -185,7 +190,7 @@ Remove the test mapping afterwards with `adb reverse --remove tcp:3193`.
    Reload mid-round and after completion; ensure attempts and result remain.
    Finish a second test profile with six misses to check loss handling.
 4. Compare the shared text: correct date, six squares, time/score, usable link,
-   no answer. Test native share, clipboard, and selectable-text fallback.
+   no answer. Test Copy result, clipboard denial, and selectable-text fallback.
    Localhost share links are only useful on the same local/reversed server;
    hosted share links become public after a deployment.
 5. Test airplane mode/failed audio then retry: no attempt should be consumed,
