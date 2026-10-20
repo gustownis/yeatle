@@ -65,6 +65,9 @@ h2:first-child { margin-top: 0; }
 .opt output { font-size: 13px; color: var(--muted); text-align: right; }
 .check { display: flex; gap: 8px; align-items: center; font-size: 14px; margin-top: 8px; }
 .check input { accent-color: var(--accent); }
+.white-mode { margin-top: 2px; }
+.check-note { margin: 2px 0 8px 26px; }
+.skip-info { color: #ffd59a; }
 .audio-settings { margin-top: 12px; border-top: 1px solid var(--line); }
 .audio-settings summary { padding: 12px 0 4px; cursor: pointer; font-size: 14px; color: var(--muted); }
 .audio-settings summary:hover, .audio-settings[open] summary { color: #fff; }
@@ -121,6 +124,10 @@ h2:first-child { margin-top: 0; }
 .lyric-now .sweep { --p: 0%; background: linear-gradient(90deg, var(--accent) var(--p), #fff var(--p)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .lyric-now .w { color: #fff; transition: color 0.08s; }
 .lyric-now .w.sung { color: var(--accent); }
+/* White people mode: words you can stay silent through */
+.lyric-now .w.skip { color: rgba(255, 196, 107, 0.7); }
+.lyric-now .w.skip, .lyric-now .skip-word { text-decoration: line-through 0.1em #ffc46b; }
+.pop.skipped { color: #ffc46b; }
 .lyric-next { font-size: clamp(15px, 2vw, 22px); color: var(--muted); min-height: 1.3em; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .card { position: relative; background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--c); border-radius: 12px; padding: 8px 12px; }

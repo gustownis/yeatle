@@ -401,11 +401,223 @@ export function alignLyrics(lines, chart, maxShift = 20) {
   return { lines: out, shift, score: score(shift), moved };
 }
 
+/* ---------- White people mode: skipped words ---------- */
+
+// The n-word and its usual spellings, matched as whole words only, so words
+// like "Niger", "niggle" or "snigger" are never skipped.
+const SKIP_WORD = /^n[i1!*]g{2,}(?:a|ah|uh|u|er|ur|ar)?(?:s|z|es)?$/;
+const SKIP_CENSORED = /^n[i1*]?\*{2,}[a-z]{0,2}$|^n\*[g*]{2}[a-z*]{0,3}$/;
+export function isSkipWord(word) {
+  const w = String(word || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase()
+    .replace(/[‘’']/g, "").replace(/^[^a-z0-9*]+|[^a-z0-9*]+$/g, "");
+  return w.length >= 4 && w.length <= 9 && (SKIP_WORD.test(w) || SKIP_CENSORED.test(w));
+}
+
+// Words of a lyric line with their character positions.
+export function skipTokens(text) {
+  const out = [], re = /[^\s\-–—/]+/g;
+  let m;
+  while ((m = re.exec(String(text || "")))) out.push({ text: m[0], index: m.index, skip: isSkipWord(m[0]) });
+  return out;
+}
+
+export function countSkipWords(lines) {
+  return (lines || []).reduce((sum, line) => sum + skipTokens(typeof line === "string" ? line : line.text).filter(x => x.skip).length, 0);
+}
+
+// Joins skip windows that touch or overlap, so overlapping skips never count twice.
+export function mergeSkips(list) {
+  const sorted = list
+    .filter(s => s && Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start)
+    .map(s => ({ start: Math.max(0, s.start), end: s.end, exact: Boolean(s.exact), mine: Boolean(s.mine), words: s.words ? [...s.words] : [s.word || ""] }))
+    .sort((a, b) => a.start - b.start);
+  const out = [];
+  for (const s of sorted) {
+    const last = out[out.length - 1];
+    if (last && s.start <= last.end + 0.05) {
+      last.end = Math.max(last.end, s.end);
+      last.exact = last.exact && s.exact;
+      last.mine = last.mine || s.mine;
+      last.words.push(...s.words);
+    } else out.push(s);
+  }
+  return out;
+}
+
+// Finds when the skipped words are sung, in song (audio) time. Lyrics are shown at
+// song time + lyric shift, so a word at lyric time L is sung at L - shift.
+// Word-timed lyrics give exact windows. Line-timed (and plain, auto-timed) lyrics only say
+// when the line starts, so the word is placed by spreading the line's words over the singing
+// heard during that line; those windows are wider and marked as estimates.
+export function findSkips(lines, chart, shift = 0, kind = "line") {
+  const out = [];
+  const sorted = (lines || []).filter(l => l && Number.isFinite(l.t)).slice().sort((a, b) => a.t - b.t);
+  sorted.forEach((line, k) => {
+    if (!line.text) return;
+    const lineEnd = sorted[k + 1] ? sorted[k + 1].t : line.t + 6;
+    if (line.words && line.words.length) {
+      line.words.forEach((w, j) => {
+        const toks = skipTokens(w.text);
+        if (!toks.some(x => x.skip)) return;
+        const end = clamp(line.words[j + 1] ? line.words[j + 1].t : lineEnd, w.t + 0.2, w.t + 1.2);
+        if (toks.length === 1) { out.push({ start: w.t - shift - 0.06, end: end - shift + 0.1, exact: true, word: w.text }); return; }
+        // a timed chunk holding several words: place the word by its letters within the chunk
+        const total = w.text.length || 1;
+        toks.forEach(x => {
+          if (!x.skip) return;
+          const a = w.t + ((end - w.t) * x.index) / total, b = w.t + ((end - w.t) * (x.index + x.text.length)) / total;
+          out.push({ start: a - shift - 0.12, end: b - shift + 0.15, exact: true, word: x.text });
+        });
+      });
+      return;
+    }
+    const toks = skipTokens(line.text);
+    if (!toks.some(x => x.skip)) return;
+    const a = line.t - shift, b = Math.min(lineEnd, line.t + 8) - shift;
+    const segs = [];
+    for (const note of (chart && chart.notes) || []) {
+      if (note.end <= a - 0.3 || note.start >= b) continue;
+      segs.push([Math.max(note.start, a - 0.3), Math.min(note.end, b)]);
+    }
+    let voiced = segs.reduce((sum, [x, y]) => sum + y - x, 0);
+    if (voiced < 0.25) {
+      segs.length = 0;
+      segs.push([a, Math.max(a + 0.4, Math.min(b, a + Math.max(0.8, line.text.length * 0.065)))]);
+      voiced = segs[0][1] - segs[0][0];
+    }
+    const at = f => {
+      let left = f * voiced;
+      for (const [x, y] of segs) { if (left <= y - x) return x + left; left -= y - x; }
+      return segs[segs.length - 1][1];
+    };
+    const weights = toks.map(x => x.text.length + 1), total = weights.reduce((sum, v) => sum + v, 0);
+    const pad = kind === "plain" ? 0.45 : 0.3;
+    let before = 0;
+    toks.forEach((x, i) => {
+      if (x.skip) {
+        const s = at(before / total), e = at((before + weights[i]) / total);
+        const mid = (s + e) / 2, half = clamp((e - s) / 2, 0.15, 0.45);
+        out.push({ start: mid - half - pad, end: mid + half + pad, exact: false, word: x.text });
+      }
+      before += weights[i];
+    });
+  });
+  return mergeSkips(out);
+}
+
+export const fmtTime = t => {
+  const s = Math.max(0, Math.round(t * 10) / 10);
+  return `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`;
+};
+
+// Your own skip times, one per line: "1:23.4" or "1:23.4 1.2" (start and length in seconds).
+export function parseSkipMarks(text) {
+  const marks = [], bad = [];
+  String(text || "").split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.replace(/#.*$/, "").trim();
+    if (!line) return;
+    const m = /^(?:(\d+):)?(\d+(?:\.\d+)?)(?:\s+\+?(\d+(?:\.\d+)?)s?)?$/.exec(line);
+    if (!m || (m[1] && Number(m[2]) >= 60)) { bad.push(i + 1); return; }
+    marks.push({ t: Math.round((Number(m[1] || 0) * 60 + Number(m[2])) * 100) / 100, len: clamp(m[3] ? Number(m[3]) : 0.8, 0.2, 3) });
+  });
+  marks.sort((a, b) => a.t - b.t);
+  return { marks, bad };
+}
+export const formatSkipMarks = marks => (marks || []).map(m => `${fmtTime(m.t)}${Math.abs(m.len - 0.8) > 0.01 ? ` ${m.len}` : ""}`).join("\n");
+export const marksToSkips = marks => (marks || []).map(m => ({ start: m.t - 0.05, end: m.t + m.len, exact: true, mine: true, word: "" }));
+
+// Records which part of each note is skipped, so scoring can leave it out.
+export function markFreeTime(chart, skips) {
+  for (const note of chart.notes || []) {
+    note.free = [];
+    for (const s of skips) {
+      if (s.end <= note.start) continue;
+      if (s.start >= note.end) break;
+      note.free.push([Math.max(s.start, note.start), Math.min(s.end, note.end)]);
+    }
+    note.freeDur = note.free.reduce((sum, [a, b]) => sum + b - a, 0);
+  }
+  (chart.phrases || []).forEach(ph => { ph.freeDur = ph.notes.reduce((sum, note) => sum + note.freeDur, 0); });
+}
+const freeIn = (note, a, b) => (note.free || []).reduce((sum, [x, y]) => sum + Math.max(0, Math.min(y, b) - Math.max(x, a)), 0);
+
+/* ---------- scoring ---------- */
+
+const SKIPPED_PHRASE = 0.25; // seconds left to sing after skips, below which a phrase isn't rated
+
+// Adds what each singer hit between t - dt and t. Skipped time is never counted.
+export function scoreFrame(g, t, dt, gate) {
+  const notes = g.chart.notes;
+  const ref = referencePitch(g, t);
+  g.players.forEach((p, pi) => {
+    const r = p.detector ? p.detector.read(gate) : { loud: false, voiced: false, midi: NaN };
+    p.reading = r;
+    const folded = r.voiced ? clamp(foldTo(r.midi, ref), g.chart.lo - 1, g.chart.hi + 1) : NaN;
+    p.trail.push({ t, m: folded });
+    if (r.voiced) p.lastMidi = folded;
+    while (p.trail.length && p.trail[0].t < t - 2) p.trail.shift();
+    if (dt <= 0) return;
+    for (let k = g.noteIdx; k < notes.length && notes[k].start < t; k++) {
+      const note = notes[k];
+      const from = Math.max(note.start, t - dt), to = Math.min(note.end, t);
+      if (to <= from) continue;
+      const hit = note.kind === "talk" ? r.loud : r.voiced && chromaDistance(r.midi, note.midi) <= g.tolerance;
+      if (!hit) continue;
+      const counted = to - from - freeIn(note, from, to);
+      if (counted > 0) note.hitTime[pi] += counted;
+      const spans = note.hits[pi], last = spans[spans.length - 1];
+      if (last && from - last[1] < 0.06) last[1] = to; else spans.push([from, to]);
+    }
+  });
+}
+
+// Rates a finished phrase for every singer. Skipped time counts as if it was sung, whatever
+// the mic heard then, so staying silent scores exactly like singing the word in normal mode,
+// and every other note counts as usual. A phrase with almost nothing left to sing after skips
+// isn't rated: it gives the points of a sung phrase (for singers with a mic) and leaves the
+// streak and multiplier as they were.
+export function scorePhrase(g, index) {
+  const ph = g.chart.phrases[index];
+  const free = ph.freeDur || 0;
+  return g.players.map((p, pi) => {
+    if (ph.dur - free < SKIPPED_PHRASE) {
+      const points = p.detector ? Math.round(ph.dur * POINTS_PER_SECOND) * p.mult : 0;
+      p.score += points;
+      p.skipped = (p.skipped || 0) + 1;
+      return (ph.results[pi] = { skipped: true, acc: null, rating: null, points });
+    }
+    const sung = ph.notes.reduce((sum, note) => sum + note.hitTime[pi], 0) + (p.detector ? free : 0);
+    // nobody hits every last frame, so a little slack makes 100% reachable
+    const acc = clamp((sung / ph.dur) * 1.12, 0, 1);
+    const rating = ratingFor(acc);
+    const points = Math.round(ph.dur * POINTS_PER_SECOND * acc) * p.mult;
+    p.score += points;
+    p.accSum += acc * ph.dur;
+    p.durSum += ph.dur;
+    p.counts[rating.cls]++;
+    if (acc >= STREAK_MIN) { p.streak++; p.bestStreak = Math.max(p.bestStreak, p.streak); }
+    else p.streak = 0;
+    p.mult = Math.min(4, 1 + p.streak);
+    return (ph.results[pi] = { acc, rating, points });
+  });
+}
+
+// the pitched note to fold a singer's pitch toward (octave doesn't matter)
+function referencePitch(g, t) {
+  const notes = g.chart.notes;
+  for (let k = Math.max(0, g.noteIdx - 1); k < notes.length && notes[k].start < t + 2.5; k++) {
+    if (notes[k].kind === "pitch" && notes[k].end > t - 0.4) return notes[k].midi;
+  }
+  for (let k = Math.min(notes.length - 1, g.noteIdx); k >= 0; k--) if (notes[k].kind === "pitch") return notes[k].midi;
+  return (g.chart.lo + g.chart.hi) / 2;
+}
+const foldTo = (m, ref) => m + 12 * Math.round((ref - m) / 12);
+
 /* ---------- everything below needs a browser ---------- */
 
-const state = { songs: [], artist: "Yeat", song: null, lyricsCache: new Map(), lyricsPending: new Map(), job: null };
+const state = { songs: [], artist: "Yeat", song: null, lyricsCache: new Map(), lyricsPending: new Map(), job: null, foundSkips: new Map() };
 const settings = Object.assign({
-  difficulty: "medium", volume: 100, guide: 0, speakers: true, micDelay: 90, audioDelay: null, sensitivity: 50,
+  difficulty: "medium", volume: 100, guide: 0, speakers: true, micDelay: 90, audioDelay: null, sensitivity: 50, whiteMode: false,
   players: [{ name: "Singer 1", deviceId: "" }]
 }, store.get("yeatle-karaoke-settings", {}));
 function saveSettings() { store.set("yeatle-karaoke-settings", settings); }
@@ -585,10 +797,12 @@ function renderPicked() {
   if (!song) { box.replaceChildren(el("p", { class: "muted", text: "Pick a song from the list." })); $("#start").disabled = true; return; }
   const tag = songTag(song);
   const lyr = state.lyricsCache.get(song.id);
-  const best = store.get(`yeatle-karaoke-best:${song.id}:${settings.difficulty}`, null);
+  const best = store.get(bestKey(song.id, settings.difficulty, settings.whiteMode), null);
   let lyricText = "Looking for synced lyrics…";
   if (lyr) lyricText = lyr.lines.length ? `Synced lyrics from ${lyr.source}` : lyr.plain ? `Lyrics from ${lyr.source}. They have no timing, so they get lined up with the singing automatically.` : "No lyrics found online, so you'll sing from the notes only. You can paste your own below.";
-  box.replaceChildren(
+  const modeLabel = `${DIFFICULTIES[settings.difficulty].label}${settings.whiteMode ? " (White people mode)" : ""}`;
+  // (leave out the parts that don't apply; replaceChildren would print a null as text)
+  box.replaceChildren(...[
     el("div", { class: "picked-song" },
       song.cover ? el("img", { src: song.cover, alt: "" }) : null,
       el("div", {}, el("b", { text: song.display }), el("small", { text: `${song.era || "No era"} · ${tag.text}` }))
@@ -596,9 +810,13 @@ function renderPicked() {
     el("p", { class: "muted", text: lyricText }),
     song.preview ? el("p", { class: "muted", text: "Only a 30-second preview of this song is available." }) : null,
     tag.cls === "ai" ? el("p", { class: "muted", text: "The vocals get split off by the AI first. That can take a minute the first time, then it's saved." }) : null,
-    best ? el("p", { class: "muted", text: `Best on ${DIFFICULTIES[settings.difficulty].label}: ${best.score.toLocaleString()} by ${best.name}` }) : null,
-    el("button", { class: "btn small", text: lyr && lyr.source === "your lyrics" ? "Edit lyrics" : "Add your own lyrics", onclick: () => openLyricsEditor(song) })
-  );
+    settings.whiteMode ? el("p", { class: "muted skip-info", text: skipSummary(song, lyr) }) : null,
+    best ? el("p", { class: "muted", text: `Best on ${modeLabel}: ${best.score.toLocaleString()} by ${best.name}` }) : null,
+    el("div", { class: "row" },
+      el("button", { class: "btn small", text: lyr && lyr.source === "your lyrics" ? "Edit lyrics" : "Add your own lyrics", onclick: () => openLyricsEditor(song) }),
+      settings.whiteMode ? el("button", { class: "btn small", id: "skip-timing", text: "Skip timing", onclick: () => openSkipEditor(song) }) : null
+    )
+  ].filter(Boolean));
   $("#start").disabled = false;
 }
 
@@ -767,6 +985,80 @@ function openLyricsEditor(song) {
   area.focus();
 }
 
+// White people mode keeps its own best scores, so existing ones stay as they were.
+const bestKey = (id, difficulty, white) => `yeatle-karaoke-best:${id}:${difficulty}${white ? ":wpm" : ""}`;
+const skipPrefs = id => {
+  const saved = store.get(`yeatle-karaoke-skips:${id}`, null) || {};
+  return { auto: saved.auto !== false, marks: Array.isArray(saved.marks) ? saved.marks.filter(m => Number.isFinite(m.t) && Number.isFinite(m.len)) : [] };
+};
+
+// What the player can expect to be skipped, said plainly before they start.
+function skipSummary(song, lyr) {
+  const prefs = skipPrefs(song.id);
+  const mine = prefs.marks.length ? ` Plus ${prefs.marks.length} skip time${prefs.marks.length === 1 ? "" : "s"} of your own.` : "";
+  if (!lyr) return "Skips the n-word wherever the lyrics have it." + mine;
+  const words = lyr.lines.length ? countSkipWords(lyr.lines) : countSkipWords(lyr.plain);
+  const exact = lyr.lines.some(l => l.words && l.words.length);
+  let text;
+  if (!prefs.auto) text = "Times from the lyrics are turned off for this song, so only your own skip times count.";
+  else if (!lyr.lines.length && !lyr.plain) text = "No lyrics, so nothing gets skipped automatically. Add skip times in Skip timing, or press K (Mark skip) while singing.";
+  else if (!words) text = "These lyrics don't have any words to skip.";
+  else {
+    const n = `${words} word${words === 1 ? "" : "s"} to skip`;
+    text = exact ? `${n}, timed word by word.`
+      : lyr.lines.length ? `${n}. These lyrics are only timed per line, so each skip is an estimate (marked ≈ on the lane). If one is off, fix it in Skip timing.`
+      : `${n}, but these lyrics have no timing at all, so the skips are rough guesses (≈). Set them in Skip timing for a fair round.`;
+  }
+  return text + mine;
+}
+
+function openSkipEditor(song) {
+  const key = `yeatle-karaoke-skips:${song.id}`;
+  const prefs = skipPrefs(song.id);
+  const found = state.foundSkips.get(song.id);
+  const area = el("textarea", { rows: 8, spellcheck: "false", placeholder: "1:23.4\n2:05.0 1.2" });
+  area.value = formatSkipMarks(prefs.marks);
+  const auto = el("input", { type: "checkbox" });
+  auto.checked = prefs.auto;
+  const note = el("p", { class: "muted" });
+  const close = () => modal.remove();
+  const foundText = found
+    ? found.length ? `Found from the lyrics in your last round: ${found.map(s => `${s.exact ? "" : "≈"}${fmtTime(s.start)}–${fmtTime(s.end)}`).join(", ")}` : "Your last round found no skips in the lyrics."
+    : "Sing a round in White people mode to see the times found from the lyrics here.";
+  const modal = el("div", { class: "modal" },
+    el("div", { class: "modal-box" },
+      el("h2", { text: `Skip timing for ${song.display}` }),
+      el("p", { class: "muted", text: "Add the moments to stay silent, one per line, as song time: 1:23.4 skips 0.8 seconds from 1:23.4, and 1:23.4 1.5 skips 1.5 seconds. Your times don't move when you nudge the lyric timing. Changes count from your next round." }),
+      el("label", { class: "check" }, auto, " Also use the times found from the lyrics"),
+      el("p", { class: "muted", text: foundText }),
+      found && found.length ? el("button", { class: "btn small", text: "Copy those into my times", onclick: () => {
+        const { marks } = parseSkipMarks(area.value);
+        const merged = mergeSkips([...marksToSkips(marks), ...found]);
+        area.value = formatSkipMarks(merged.map(s => {
+          const t = Math.round((s.start + (s.mine ? 0.05 : 0)) * 10) / 10;
+          return { t, len: clamp(Math.round((s.end - t) * 10) / 10, 0.2, 3) };
+        }));
+        auto.checked = false;
+        note.textContent = "Copied. Edit any time that's off, then Save. Times from the lyrics are now off, so yours replace them.";
+      } }) : null,
+      area, note,
+      el("div", { class: "row" },
+        el("button", { class: "btn primary", text: "Save", onclick: () => {
+          const { marks, bad } = parseSkipMarks(area.value);
+          if (bad.length) { note.textContent = `Line ${bad.join(", ")} isn't a time like 1:23.4 or 1:23.4 1.2.`; return; }
+          store.set(key, { auto: auto.checked, marks });
+          close();
+          renderPicked();
+        } }),
+        el("button", { class: "btn", text: "Clear my times", onclick: () => { area.value = ""; } }),
+        el("button", { class: "btn", text: "Cancel", onclick: close })
+      )
+    )
+  );
+  document.body.append(modal);
+  area.focus();
+}
+
 function renderPlayers() {
   const box = $("#players");
   if (!box) return;
@@ -843,6 +1135,9 @@ function buildOptions() {
     saveSettings();
     buildOptions();
   };
+  const white = $("#white-mode");
+  white.checked = Boolean(settings.whiteMode);
+  white.onchange = () => { settings.whiteMode = white.checked; saveSettings(); renderPicked(); };
   const speakers = $("#speakers");
   speakers.checked = settings.speakers;
   speakers.onchange = () => { settings.speakers = speakers.checked; saveSettings(); if (mics.allowed) openAllMics(); };
@@ -1177,7 +1472,8 @@ async function startSong() {
       lines = best.lines;
       if (Math.abs(best.shift) >= 0.3) lyricNote = `Lyrics lined up with the vocals (moved ${Math.abs(best.shift).toFixed(1)}s ${best.shift > 0 ? "later" : "earlier"})`;
     }
-    beginGame(song, audio, chart, lines);
+    const lyricKind = lyrics.lines.length ? (lines.some(l => l.words && l.words.length) ? "word" : "line") : lyrics.plain ? "plain" : "none";
+    beginGame(song, audio, chart, lines, lyricKind);
     if (lyricNote) showToast(lyricNote);
   } catch (err) {
     if (job.cancelled) return;
@@ -1191,15 +1487,17 @@ async function startSong() {
 
 let game = null;
 
-function beginGame(song, audio, chart, lyrics) {
+function beginGame(song, audio, chart, lyrics, lyricKind = "line") {
   const ctx = audioCtx();
   const instGain = ctx.createGain(), guideGain = ctx.createGain();
   instGain.connect(ctx.destination);
   guideGain.connect(ctx.destination);
 
   game = {
-    song, audio, chart, lyrics, instGain, guideGain,
+    song, audio, chart, lyrics, lyricKind, instGain, guideGain,
     difficulty: settings.difficulty, tolerance: DIFFICULTIES[settings.difficulty].tolerance,
+    // the scoring option is fixed for the whole round; changing it means starting a new one
+    whiteMode: Boolean(settings.whiteMode), skipPrefs: settings.whiteMode ? skipPrefs(song.id) : null, skips: [],
     lyricShift: store.get(`yeatle-karaoke-shift:${song.id}`, 0),
     sources: [], startCtx: 0, startOffset: 0, paused: false, raf: 0, wakeLock: null
   };
@@ -1210,6 +1508,8 @@ function beginGame(song, audio, chart, lyrics) {
     try { if (navigator.audioSession && navigator.audioSession.type === "auto") navigator.audioSession.type = "playback"; } catch { /* unsupported */ }
   }
   applyVolume();
+  applySkips(game);
+  if (game.whiteMode) state.foundSkips.set(song.id, game.foundSkips);
   buildStage();
   resetRun();
   playFrom(0, COUNT_IN);
@@ -1223,12 +1523,20 @@ function beginGame(song, audio, chart, lyrics) {
   game.raf = requestAnimationFrame(tick);
 }
 
+// Works out this round's skip windows (none outside White people mode) and marks them on the notes.
+function applySkips(g) {
+  g.foundSkips = g.whiteMode && g.skipPrefs.auto ? findSkips(g.lyrics, g.chart, g.lyricShift, g.lyricKind) : [];
+  g.skips = g.whiteMode ? mergeSkips([...g.foundSkips, ...marksToSkips(g.skipPrefs.marks)]) : [];
+  g.skipsEstimated = g.skips.some(s => !s.exact);
+  markFreeTime(g.chart, g.skips);
+}
+
 function resetRun() {
   const n = game.players.length;
   game.chart.notes.forEach(note => { note.hits = Array.from({ length: n }, () => []); note.hitTime = new Array(n).fill(0); });
   game.chart.phrases.forEach(ph => { ph.results = new Array(n).fill(null); });
   game.players.forEach(p => Object.assign(p, {
-    score: 0, mult: 1, streak: 0, bestStreak: 0, accSum: 0, durSum: 0,
+    score: 0, mult: 1, streak: 0, bestStreak: 0, accSum: 0, durSum: 0, skipped: 0,
     counts: Object.fromEntries(RATINGS.map(r => [r.cls, 0])), trail: [], lastMidi: NaN, shown: {}
   }));
   game.noteIdx = 0; game.phraseIdx = 0; game.drawIdx = 0; game.lyricIdx = 0; game.lastT = null; game.shownLine = -2;
@@ -1281,17 +1589,6 @@ function setPaused(paused) {
   if (paused) audioCtx().suspend(); else audioCtx().resume();
 }
 
-// the pitched note to fold a singer's pitch toward (octave doesn't matter)
-function referencePitch(t) {
-  const notes = game.chart.notes;
-  for (let k = Math.max(0, game.noteIdx - 1); k < notes.length && notes[k].start < t + 2.5; k++) {
-    if (notes[k].kind === "pitch" && notes[k].end > t - 0.4) return notes[k].midi;
-  }
-  for (let k = Math.min(notes.length - 1, game.noteIdx); k >= 0; k--) if (notes[k].kind === "pitch") return notes[k].midi;
-  return (game.chart.lo + game.chart.hi) / 2;
-}
-const foldTo = (m, ref) => m + 12 * Math.round((ref - m) / 12);
-
 function tick() {
   if (!game || game.ended) return;
   game.raf = requestAnimationFrame(tick);
@@ -1303,26 +1600,7 @@ function tick() {
   if (!game.paused) {
     if (game.lastT == null) game.lastT = t;
     const dt = clamp(t - game.lastT, 0, 0.1);
-    const ref = referencePitch(t);
-    game.players.forEach((p, pi) => {
-      const r = p.detector ? p.detector.read(gate) : { loud: false, voiced: false, midi: NaN };
-      p.reading = r;
-      const folded = r.voiced ? clamp(foldTo(r.midi, ref), game.chart.lo - 1, game.chart.hi + 1) : NaN;
-      p.trail.push({ t, m: folded });
-      if (r.voiced) p.lastMidi = folded;
-      while (p.trail.length && p.trail[0].t < t - 2) p.trail.shift();
-      if (dt <= 0) return;
-      for (let k = game.noteIdx; k < notes.length && notes[k].start < t; k++) {
-        const note = notes[k];
-        const from = Math.max(note.start, t - dt), to = Math.min(note.end, t);
-        if (to <= from) continue;
-        const hit = note.kind === "talk" ? r.loud : r.voiced && chromaDistance(r.midi, note.midi) <= game.tolerance;
-        if (!hit) continue;
-        note.hitTime[pi] += to - from;
-        const spans = note.hits[pi], last = spans[spans.length - 1];
-        if (last && from - last[1] < 0.06) last[1] = to; else spans.push([from, to]);
-      }
-    });
+    scoreFrame(game, t, dt, gate);
     while (game.noteIdx < notes.length && notes[game.noteIdx].end <= t) game.noteIdx++;
     while (game.phraseIdx < phrases.length && phrases[game.phraseIdx].end <= t) finishPhrase(game.phraseIdx++);
     game.lastT = t;
@@ -1336,29 +1614,14 @@ function tick() {
 }
 
 function finishPhrase(index) {
-  const ph = game.chart.phrases[index];
-  game.players.forEach((p, pi) => {
-    const sung = ph.notes.reduce((sum, note) => sum + note.hitTime[pi], 0);
-    // nobody hits every last frame, so a little slack makes 100% reachable
-    const acc = clamp((sung / ph.dur) * 1.12, 0, 1);
-    const rating = ratingFor(acc);
-    const points = Math.round(ph.dur * POINTS_PER_SECOND * acc) * p.mult;
-    p.score += points;
-    p.accSum += acc * ph.dur;
-    p.durSum += ph.dur;
-    p.counts[rating.cls]++;
-    if (acc >= STREAK_MIN) { p.streak++; p.bestStreak = Math.max(p.bestStreak, p.streak); }
-    else p.streak = 0;
-    p.mult = Math.min(4, 1 + p.streak);
-    ph.results[pi] = { acc, rating, points };
-    popRating(p, rating, points);
-  });
+  const results = scorePhrase(game, index);
+  game.players.forEach((p, pi) => popRating(p, results[pi].rating, results[pi].points));
 }
 
 function popRating(p, rating, points) {
   const pop = p.card.querySelector(".pop");
-  pop.textContent = points ? `${rating.text} +${points.toLocaleString()}` : rating.text;
-  pop.className = `pop ${rating.cls}`;
+  pop.textContent = !rating ? "Skipped" : points ? `${rating.text} +${points.toLocaleString()}` : rating.text;
+  pop.className = `pop ${rating ? rating.cls : "skipped"}`;
   void pop.offsetWidth;
   pop.classList.add("show");
 }
@@ -1368,7 +1631,10 @@ function popRating(p, rating, points) {
 function buildStage() {
   const stage = $("#stage");
   $("#stage-title").textContent = game.song.display;
-  $("#stage-diff").textContent = DIFFICULTIES[game.difficulty].label;
+  $("#stage-diff").textContent = DIFFICULTIES[game.difficulty].label + (game.whiteMode
+    ? ` · White people mode · ${game.skips.length ? `${game.skips.length} skip${game.skips.length === 1 ? "" : "s"}${game.skipsEstimated ? " (≈ estimated)" : ""}` : "no skips found"}`
+    : "");
+  $("#mark-skip").hidden = !game.whiteMode;
   $("#stage-volume").value = settings.volume;
   const cards = $("#cards");
   cards.replaceChildren(...game.players.map(p => {
@@ -1467,6 +1733,23 @@ function draw(t) {
     });
   }
 
+  // White people mode: shade the moments you can stay silent through
+  for (const s of game.skips) {
+    if (s.end < tStart || s.start > t + LEAD + 0.2) continue;
+    const x1 = Math.max(0, X(s.start)), x2 = Math.min(w, X(s.end));
+    if (x2 <= x1) continue;
+    g.fillStyle = "rgba(12, 8, 20, 0.6)"; g.fillRect(x1, top, x2 - x1, bottom - top);
+    g.fillStyle = s.exact ? "rgba(255, 196, 107, 0.2)" : "rgba(255, 196, 107, 0.11)"; g.fillRect(x1, top, x2 - x1, bottom - top);
+    g.strokeStyle = "rgba(255, 196, 107, 0.85)"; g.lineWidth = 1.5;
+    g.setLineDash(s.exact ? [] : [5, 5]);
+    g.beginPath(); g.moveTo(x1, top); g.lineTo(x1, bottom); g.moveTo(x2, top); g.lineTo(x2, bottom); g.stroke();
+    g.setLineDash([]);
+    if (x2 - x1 > 34) {
+      g.fillStyle = "#ffc46b"; g.font = "700 11px system-ui, sans-serif"; g.textBaseline = "top";
+      g.fillText(s.exact ? "SKIP" : "≈ SKIP", x1 + 5, top + 6);
+    }
+  }
+
   // now line
   const glow = g.createLinearGradient(nowX - 14, 0, nowX + 14, 0);
   glow.addColorStop(0, "rgba(181,101,224,0)"); glow.addColorStop(0.5, "rgba(181,101,224,0.45)"); glow.addColorStop(1, "rgba(181,101,224,0)");
@@ -1513,7 +1796,18 @@ function updateLyrics(lt) {
     game.shownLine = current;
     const line = lines[current];
     if (!line) nowEl.replaceChildren();
-    else if (line.words) nowEl.replaceChildren(...line.words.map(w => el("span", { class: "w", text: w.text + " " })));
+    else if (line.words) nowEl.replaceChildren(...line.words.map(w => el("span", { class: "w" + (game.whiteMode && skipTokens(w.text).some(x => x.skip) ? " skip" : ""), text: w.text + " " })));
+    else if (game.whiteMode && skipTokens(line.text).some(x => x.skip)) {
+      // keep one sweep span (its gradient fills the whole line) and mark the skipped words inside it
+      const sweep = el("span", { class: "sweep" });
+      let at = 0;
+      skipTokens(line.text).filter(x => x.skip).forEach(x => {
+        sweep.append(line.text.slice(at, x.index), el("span", { class: "skip-word", text: x.text }));
+        at = x.index + x.text.length;
+      });
+      sweep.append(line.text.slice(at));
+      nowEl.replaceChildren(sweep);
+    }
     else nowEl.replaceChildren(el("span", { class: "sweep", text: line.text }));
   }
   const nextText = next >= 0 ? lines[next].text : "";
@@ -1558,7 +1852,7 @@ function updateHud(t) {
       for (const note of ph.notes) {
         if (note.start >= t) break;
         elapsed += Math.min(note.end, t) - note.start;
-        sung += note.hitTime[pi];
+        sung += note.hitTime[pi] + (p.detector ? freeIn(note, note.start, Math.min(note.end, t)) : 0);
       }
       live = elapsed > 0 ? clamp((sung / elapsed) * 1.12, 0, 1) : 0;
     }
@@ -1590,7 +1884,21 @@ function shiftLyrics(delta) {
   game.lyricShift = Math.round((game.lyricShift + delta) * 10) / 10;
   store.set(`yeatle-karaoke-shift:${game.song.id}`, game.lyricShift);
   game.shownLine = -2;
+  // skips found from the lyrics move with them
+  if (game.whiteMode) applySkips(game);
   showToast(`Lyrics ${game.lyricShift > 0 ? "earlier" : game.lyricShift < 0 ? "later" : "timing reset"}${game.lyricShift ? ` by ${Math.abs(game.lyricShift).toFixed(1)}s` : ""}`);
+}
+
+// Saves a skip time for the song from what you hear right now (allowing a moment to react).
+function markSkip() {
+  if (!game || game.ended || !game.whiteMode || game.paused) return;
+  const at = Math.max(0, playbackTime() - 0.25);
+  if (at <= 0) return;
+  const prefs = skipPrefs(game.song.id);
+  prefs.marks.push({ t: Math.round(at * 10) / 10, len: 0.8 });
+  prefs.marks.sort((a, b) => a.t - b.t);
+  store.set(`yeatle-karaoke-skips:${game.song.id}`, prefs);
+  showToast(`Skip marked at ${fmtTime(at)}. It counts from your next round.`);
 }
 
 function showToast(text) {
@@ -1620,8 +1928,8 @@ function showResults() {
   while (game.phraseIdx < phrases.length) finishPhrase(game.phraseIdx++);
   endGame();
   const top = Math.max(...game.players.map(p => p.score));
-  const bestKey = `yeatle-karaoke-best:${game.song.id}:${game.difficulty}`;
-  const previous = store.get(bestKey, null);
+  const key = bestKey(game.song.id, game.difficulty, game.whiteMode);
+  const previous = store.get(key, null);
   let newBest = null;
   const cards = game.players.map(p => {
     const acc = p.durSum ? p.accSum / p.durSum : 0;
@@ -1633,23 +1941,24 @@ function showResults() {
       el("div", { class: "result-score", text: p.score.toLocaleString() }),
       el("div", { class: "result-stats" },
         el("span", { text: `${Math.round(acc * 100)}% notes hit` }),
-        el("span", { text: `Best streak ${p.bestStreak}` })
+        el("span", { text: `Best streak ${p.bestStreak}` }),
+        game.whiteMode ? el("span", { text: p.skipped ? `${p.skipped} phrase${p.skipped === 1 ? "" : "s"} fully skipped` : "No phrases fully skipped" }) : null
       ),
       el("ul", { class: "breakdown" }, ...RATINGS.map(r => el("li", { class: r.cls }, el("span", { text: r.text.replace("!", "") }), el("b", { text: String(p.counts[r.cls]) }))))
     );
   });
-  if (newBest) store.set(bestKey, newBest);
+  if (newBest) store.set(key, newBest);
   $("#results-title").textContent = game.song.display;
-  $("#results-sub").textContent = `${DIFFICULTIES[game.difficulty].label}${newBest ? ` · New best: ${newBest.score.toLocaleString()} by ${newBest.name}` : previous ? ` · Best: ${previous.score.toLocaleString()} by ${previous.name}` : ""}`;
+  $("#results-sub").textContent = `${DIFFICULTIES[game.difficulty].label}${game.whiteMode ? " · White people mode" : ""}${newBest ? ` · New best: ${newBest.score.toLocaleString()} by ${newBest.name}` : previous ? ` · Best: ${previous.score.toLocaleString()} by ${previous.name}` : ""}`;
   $("#results-cards").replaceChildren(...cards);
   showScreen("results");
 }
 
 function restart() {
   if (!game) return;
-  const { song, audio, chart, lyrics } = game;
+  const { song, audio, chart, lyrics, lyricKind } = game;
   endGame();
-  beginGame(song, audio, chart, lyrics);
+  beginGame(song, audio, chart, lyrics, lyricKind);
 }
 
 function backToSetup() {
@@ -1674,7 +1983,7 @@ export function carryFormerIds(songs, storage = globalThis.localStorage) {
     for (const song of songs) {
       for (const old of song.formerIds || []) {
         for (const key of keys) {
-          const m = /^(yeatle-karaoke-(?:best|lrc|shift)):(.+?)(:[^:]*)?$/.exec(key);
+          const m = /^(yeatle-karaoke-(?:best|lrc|shift|skips)):(.+?)(:[^:]*)?$/.exec(key);
           if (!m) continue;
           const [prefix, rest] = [m[1], key.slice(m[1].length + 1)];
           if (rest !== old && !rest.startsWith(`${old}:`)) continue;
@@ -1729,6 +2038,7 @@ function init() {
   $("#restart").addEventListener("click", () => { setPaused(false); restart(); });
   $("#quit").addEventListener("click", () => { setPaused(false); backToSetup(); });
   $("#skip").addEventListener("click", skipAhead);
+  $("#mark-skip").addEventListener("click", markSkip);
   $("#stage-volume").addEventListener("input", e => { settings.volume = Number(e.target.value); saveSettings(); applyVolume(); });
   $("#again").addEventListener("click", restart);
   $("#another").addEventListener("click", backToSetup);
@@ -1738,6 +2048,7 @@ function init() {
     if (!game || game.ended || $("#stage").hidden) return;
     if (e.key === "Escape" || e.key === " ") { e.preventDefault(); setPaused(!game.paused); }
     else if (e.key === "s" || e.key === "S") skipAhead();
+    else if (e.key === "k" || e.key === "K") markSkip();
     else if (e.key === "[") shiftLyrics(-0.1);
     else if (e.key === "]") shiftLyrics(0.1);
   });
