@@ -42,8 +42,9 @@ before(async () => {
   folder("Not Audio", { ...four("n"), "vocals.mp3": Buffer.from("<html>not audio</html>".repeat(1000)) });
   const linked = folder("Linked Stem", four("l"));
   fs.rmSync(path.join(linked, "drums.mp3"));
-  fs.symlinkSync(path.join(hostStems, "Third One", "drums.mp3"), path.join(linked, "drums.mp3"));
-  fs.symlinkSync(path.join(hostStems, "Third One"), path.join(hostStems, "Symlinked Folder"));
+  // Windows without symlink rights: test the rest; the symlinked set just stays incomplete
+  try { fs.symlinkSync(path.join(hostStems, "Third One", "drums.mp3"), path.join(linked, "drums.mp3")); } catch { /* no symlink rights */ }
+  try { fs.symlinkSync(path.join(hostStems, "Third One"), path.join(hostStems, "Symlinked Folder"), "junction"); } catch { /* no symlink rights */ }
   fs.mkdirSync(hostData, { recursive: true });
   fs.writeFileSync(path.join(hostData, "config.json"), JSON.stringify({ stemDownloads: true, refreshMinutes: 0, dailyAuthority: "" }));
   server = spawn(process.execPath, ["server.js"], {

@@ -4,6 +4,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 
 const root = path.join(__dirname, "..");
 const fixtures = path.join(__dirname, "fixtures", "tracker");
@@ -33,7 +34,7 @@ async function trackerServer(t, files = {}) {
 
 // The suggestion popup, with just enough DOM to read what it shows.
 async function suggestionsFor(t, songs, text) {
-  const { attachSongSuggestions } = await import(path.join(root, "build/assets/song-suggestions.mjs"));
+  const { attachSongSuggestions } = await import(pathToFileURL(path.join(root, "build/assets/song-suggestions.mjs")).href);
   const box = { hidden: true, id: "s", children: [], replaceChildren(...items) { this.children = items; }, setAttribute() {}, scrollTop: 0, clientHeight: 300 };
   const input = { value: text, disabled: false, addEventListener() {}, setAttribute() {}, removeAttribute() {}, focus() {} };
   globalThis.document = { activeElement: input, createElement: () => ({ children: [], textContent: "", offsetTop: 0, offsetHeight: 20, append(...kids) { this.children.push(...kids); }, setAttribute() {}, addEventListener() {}, classList: { toggle() {} } }) };
@@ -86,7 +87,7 @@ test("one recording listed under two spellings becomes one song; separate versio
   assert.deepEqual([coste.era, coste.recordedIn, coste.eraYear], ["LYFESTYLE", "LYFESTYLE [V2]", 2024]);
   assert.ok(coste.keys.includes("thecoste") && coste.keys.includes("thecostes"));
   assert.deepEqual(coste.formerIds, ["thecoste"], "progress saved under the old id can follow it");
-  const { matchesSong } = await import(path.join(root, "build/assets/snippet-rules.mjs"));
+  const { matchesSong } = await import(pathToFileURL(path.join(root, "build/assets/snippet-rules.mjs")).href);
   for (const guess of ["The Coste", "THE COSTËS", "the costes", "THE COSTES!", "costes"]) assert.ok(matchesSong(coste, guess), guess);
   assert.equal(matchesSong(coste, "The Cost"), false, "no prefix matches");
   assert.deepEqual(await suggestionsFor(t, list.songs, "The cos"), [["THE COSTËS", "LYFESTYLE · 2024"]]);
@@ -106,7 +107,7 @@ test("one recording listed under two spellings becomes one song; separate versio
 });
 
 test("Karaoke best scores and lyrics follow a song whose id changed when it was merged", async () => {
-  const { carryFormerIds } = await import(path.join(root, "build/assets/karaoke.js"));
+  const { carryFormerIds } = await import(pathToFileURL(path.join(root, "build/assets/karaoke.js")).href);
   const data = new Map(Object.entries({
     "yeatle-karaoke-best:thecoste:hard": "{\"score\":900,\"name\":\"M\"}",
     "yeatle-karaoke-best:thecostes:hard": "{\"score\":1200,\"name\":\"M\"}",
