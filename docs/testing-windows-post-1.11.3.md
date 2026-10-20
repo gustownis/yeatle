@@ -119,9 +119,26 @@ verified stem relationships; a shared beat alone never grants an answer.
 
 ## Delivery
 
-Source changes are prepared for the repository's existing automatic website
-deployment. Public deployment and independent public-client verification are
-recorded after the push. No subsequent desktop release has been published;
-the installed 1.11.3 app requires a later build to receive desktop-only changes.
-Private host settings, music, models, caches and the pinned Daily store have
-not been overwritten.
+Runtime changes were committed and pushed as `f16bcbb`. GitHub Checks passed
+on Windows, macOS and Linux for that exact commit. The existing external
+automatic deployment then updated the public website; no separate hosting
+credentials or configuration replacement were needed.
+
+Public /daily and /karaoke return 200. Their legacy .html and trailing-slash
+paths return 308 with query strings intact. All nine checked entry pages and
+runtime modules match the pushed source after line-ending normalization.
+The public catalog includes the corrected Addicted metadata and excludes
+AMG C63 from future selection.
+
+The public Daily remained `v1:2026-10-20:comengo`, with the same seed, 6.53 s
+clip start, UTC reset and byte-identical audio before and after deployment
+(1,848,547 bytes; SHA-256
+`fd681e8da78e005d249fcafdaca1512ac8fef466ab987d91c21f97f44d33d93f`).
+Two independent local clients using the public authority received the same
+challenge, clip, reset and audio bytes. The host now advertises the clean
+public /daily share URL while accepting its existing private setting.
+
+No subsequent desktop release has been published; a separately installed
+1.11.3 executable requires a later build to receive desktop-only changes.
+The updated desktop can be run from this source folder. Private host settings,
+music, models, caches and the pinned Daily store have not been overwritten.
