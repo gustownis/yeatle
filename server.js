@@ -38,6 +38,8 @@ const WEB_DIR = path.join(ROOT, "build");
 const DATA_DIR = process.env.YEATLE_DATA_DIR ? path.resolve(process.env.YEATLE_DATA_DIR) : ROOT;
 const STEMS_DIR = process.env.YEATLE_STEMS_DIR ? path.resolve(process.env.YEATLE_STEMS_DIR) : process.env.YEATLE_DATA_DIR ? path.join(DATA_DIR, "Songs") : path.join(WEB_DIR, "Songs");
 const CACHE_FILE = path.join(DATA_DIR, "songs-cache.json");
+// Bump when saved song metadata changes meaning, so older saved lists are corrected on load.
+const SONG_CACHE_FORMAT = 2;
 const PREVIEW_CACHE_FILE = path.join(DATA_DIR, "preview-cache.json");
 const dailyChallenge = createDailyChallenges(path.join(DATA_DIR, "daily-challenges.json"));
 try {
@@ -60,7 +62,10 @@ const DEFAULT_CONFIG = {
     { name: "Unreleased", gid: "1241081326" }
   ],
   // optional - only needed for sheets that hide links behind "Download" text
-  googleApiKey: ""
+  googleApiKey: "",
+  // With the admin panel on, "Play in game" switches every open game to the chosen
+  // song. Public websites set this to false so visitors' games are never steered.
+  liveControl: true
 };
 
 function loadJson(file, fallback) {
@@ -86,7 +91,7 @@ if (process.env.YEATLE_DESKTOP === "1") CONFIG.openBrowser = false;
 if (!Number.isInteger(CONFIG.port) || CONFIG.port < 0 || CONFIG.port > 65535 ||
     !Number.isFinite(CONFIG.refreshMinutes) || CONFIG.refreshMinutes < 0 ||
     !Array.isArray(CONFIG.tabs) || CONFIG.tabs.some(tab => !tab || typeof tab.name !== "string" || !/^[0-9]+$/.test(String(tab.gid))) ||
-    typeof CONFIG.sheetId !== "string" || typeof CONFIG.artist !== "string" || typeof CONFIG.openBrowser !== "boolean") {
+    typeof CONFIG.sheetId !== "string" || typeof CONFIG.artist !== "string" || typeof CONFIG.openBrowser !== "boolean" || typeof CONFIG.liveControl !== "boolean") {
   console.error("Invalid Yeatle settings. Use a port from 0 to 65535, a non-negative refreshMinutes number, and the format shown in config.example.json.");
   process.exit(1);
 }
@@ -551,7 +556,10 @@ async function loadTab(tab) {
   let linkRows = null;
   let imageRows = [];
 
-  try {
+  // Tests only: read "<gid>.csv" from a folder instead of the live tracker.
+  if (process.env.YEATLE_TRACKER_FIXTURES) {
+    rows = parseCsv(fs.readFileSync(path.join(process.env.YEATLE_TRACKER_FIXTURES, `${String(tab.gid).replace(/[^\w-]/g, "")}.csv`), "utf8"));
+  } else try {
     const grid = parseSheetHtml(await sheetHtml(tab.gid, { fresh: true }));
     if (grid.rows.length > 5) ({ rows, linkRows, imageRows } = grid);
   } catch (err) {
@@ -790,9 +798,46 @@ function guessKeys(entry) {
   return [...keys];
 }
 
+// Tracker "Type" values such as "Hosted Throwaway", "SoundCloud Throwaway" and
+// "Yeat Archive Throwaway": songs that surfaced in an era without being part of it.
+function isThrowaway(row) {
+  return /\bthrowaway\b/i.test(String(row && row.type || ""));
+}
+
+// "2:33" -> 153 seconds
+function trackSeconds(length) {
+  const m = /^(\d+):(\d{2})$/.exec(String(length || "").trim());
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+// "feat. Lil Uzi Vert" and "with Lil Uzi Vert" name the same guest.
+const guestKey = features => (features || []).map(f => norm(String(f).replace(/^(feat|ft|with)\b\.?\s*/i, ""))).filter(Boolean).sort().join("+");
+
+// Exact, normalised names only (accents, case and punctuation): no prefix or
+// trailing-letter matching. Both entries must name each other, share an era, have
+// the same guests, and agree in length within 3 seconds. The tracker also lists
+// earlier versions as other names (a 2:58 leak of a 1:17 release, or a leak
+// without a later guest verse); those stay separate songs. Two released rows are
+// separate releases (an EP version of an earlier single). A hidden entry stays
+// separate so the curator's choice holds.
+function aliasMatch(row, titleKey, rowEras, groupsByAlias) {
+  const seconds = trackSeconds(row.length);
+  if (!rowEras.length || seconds == null) return null;
+  const display = row.features.length ? `${row.title} (${row.features[0]})` : row.title;
+  if ([row.era, row.releasedOn].some(era => era && HIDDEN_KEYS.has(`${norm(display)}|${norm(era)}`))) return null;
+  const rowAliases = new Set(row.aliases.map(norm).filter(Boolean));
+  const guests = guestKey(row.features), released = row.tab === "Released";
+  const candidates = (groupsByAlias.get(titleKey) || []).filter(group =>
+    rowEras.some(e => group.eras.has(e)) && [...group.titles].some(title => rowAliases.has(title)) &&
+    group.guests === guests && !(released && group.released) && group.lengths.some(other => Math.abs(other - seconds) <= 3));
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 function buildSongList(sheetRows, stemFolders) {
   const byKey = new Map();
   const groupsByTitle = new Map(); // norm(title) -> the separate songs that share it
+  const groupsByAlias = new Map(); // norm(other name) -> songs whose tracker rows give that name
+  const allGroups = [];
 
   sheetRows.forEach(rawRow => {
     const trackerKey = trackerRowKey(rawRow);
@@ -815,9 +860,11 @@ function buildSongList(sheetRows, stemFolders) {
     let key = titleKey;
 
     // the era shown in the game: a released song shows the era it came OUT in,
-    // and the era it was recorded in is kept next to it
+    // and the era it was recorded in is kept next to it. A throwaway (posted by
+    // Yeat, a producer, or the archive) belongs to no project of that release
+    // era, so it keeps the era it was recorded in; releasedOn still records when.
     const released = row.tab === "Released";
-    row.displayEra = edit ? (edit.era || row.era || "") : (released && row.releasedOn ? row.releasedOn : (row.era || ""));
+    row.displayEra = edit ? (edit.era || row.era || "") : (released && row.releasedOn && !isThrowaway(row) ? row.releasedOn : (row.era || ""));
     row.recordedIn = !edit && released ? (row.era || "") : "";
 
     const recKey = eraBaseKey(row.era);
@@ -838,16 +885,35 @@ function buildSongList(sheetRows, stemFolders) {
       const groups = groupsByTitle.get(titleKey) || [];
       let group = groups.find(g => !rowEras.length || !g.eras.size || rowEras.some(e => g.eras.has(e)));
 
+      // A differently spelled title joins only when the tracker names the two as one song.
+      if (!group) {
+        group = aliasMatch(row, titleKey, rowEras, groupsByAlias);
+        // Saved progress, scores and lyrics used the separate entry's id.
+        if (group) group.formerIds.add(groups.length ? `${titleKey}@${recKey || relKey || "other"}` : titleKey);
+      }
+      if (group && !groups.includes(group)) { groups.push(group); groupsByTitle.set(titleKey, groups); }
+
       if (!group) {
         // the first group keeps the plain id, so saved renames / hidden songs still line up
         let id = groups.length ? `${titleKey}@${recKey || relKey || "other"}` : titleKey;
         for (let n = 2; byKey.has(id) || groups.some(g => g.id === id); n++) id = `${titleKey}@${recKey || relKey || "other"}-${n}`;
-        group = { id, eras: new Set() };
+        group = { id, eras: new Set(), titles: new Set(), lengths: [], guests: guestKey(row.features), formerIds: new Set() };
+        allGroups.push(group);
         groups.push(group);
         groupsByTitle.set(titleKey, groups);
       }
 
       rowEras.forEach(e => group.eras.add(e));
+      group.titles.add(titleKey);
+      if (row.tab === "Released") group.released = true;
+      if (trackSeconds(row.length) != null) group.lengths.push(trackSeconds(row.length));
+      row.aliases.forEach(alias => {
+        const k = norm(alias);
+        if (!k || k === titleKey) return;
+        const list = groupsByAlias.get(k) || [];
+        if (!list.includes(group)) list.push(group);
+        groupsByAlias.set(k, list);
+      });
       key = group.id;
     }
 
@@ -928,6 +994,7 @@ function buildSongList(sheetRows, stemFolders) {
     });
   });
 
+  const formerIds = new Map(allGroups.filter(group => group.formerIds.size).map(group => [group.id, [...group.formerIds].filter(id => !byKey.has(id))]));
   const songs = [];
   byKey.forEach((song, key) => {
     const era = song.displayEra != null ? song.displayEra : (song.era || "");
@@ -956,7 +1023,8 @@ function buildSongList(sheetRows, stemFolders) {
       folder: song.source.folder || null,
       mergedFrom: song.mergedFrom || [],
       source: song.source,
-      fallback: song.fallback || null
+      fallback: song.fallback || null,
+      ...(formerIds.get(key)?.length ? { formerIds: formerIds.get(key) } : {})
     });
   });
 
@@ -972,6 +1040,19 @@ let ACTIVE_SONG = { id: "", seq: 0, epoch: ACTIVE_SONG_EPOCH };
 let LAST_UPDATE = 0;
 let LAST_SOURCE = "none";
 let LAST_ERROR = "";
+
+// Saved lists from before format 2 showed a released throwaway under the era it
+// surfaced in. Apply the current rule without needing the tracker; the next
+// tracker read also applies the identity rules.
+function upgradeCachedSongs(cached) {
+  if (cached.format >= SONG_CACHE_FORMAT) return cached.songs;
+  const eras = new Map((Array.isArray(cached.eras) ? cached.eras : []).map(era => [era.name, era]));
+  return cached.songs.map(song => {
+    if (song.tab !== "Released" || !isThrowaway(song) || !song.recordedIn) return song;
+    const era = song.recordedIn, info = eras.get(era);
+    return { ...song, era, recordedIn: "", eraYear: (info && info.year) || null, cover: (info && info.cover) || coverForEra(era) || song.cover };
+  });
+}
 
 function setSongs(songs, source) {
   SONGS = songs.map(song => {
@@ -993,7 +1074,7 @@ function rebuildFromLast() {
   songs.forEach(x => { if (!x.cover && oldSongCover.has(x.era)) x.cover = oldSongCover.get(x.era); });
   setSongs(songs, "sheet");
   try {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify({ updated: LAST_UPDATE, songs, eras: ERAS }));
+    fs.writeFileSync(CACHE_FILE, JSON.stringify({ format: SONG_CACHE_FORMAT, updated: LAST_UPDATE, songs, eras: ERAS }));
   } catch (err) { /* read-only folder is fine */ }
   return true;
 }
@@ -1022,7 +1103,7 @@ async function refreshSongs() {
     } else if (!SONGS.length) {
       const cached = loadJson(CACHE_FILE, null);
       if (cached && Array.isArray(cached.songs) && cached.songs.length) {
-        setSongs(cached.songs, "cache");
+        setSongs(upgradeCachedSongs(cached), "cache");
         ERAS = Array.isArray(cached.eras) ? cached.eras : [];
         LAST_UPDATE = cached.updated || 0;
         console.log(`Couldn't reach the sheet - using the saved list (${SONGS.length} songs).`);
@@ -1046,7 +1127,7 @@ async function refreshSongs() {
   LAST_ERROR = errors.join("; ");
 
   try {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify({ updated: LAST_UPDATE, songs, eras: ERAS }));
+    fs.writeFileSync(CACHE_FILE, JSON.stringify({ format: SONG_CACHE_FORMAT, updated: LAST_UPDATE, songs, eras: ERAS }));
   } catch (err) { /* read-only folder is fine */ }
 
   const stemCount = songs.filter(s => s.mode === "stems").length;
@@ -1878,7 +1959,7 @@ function songListJson() {
   if (preparedSongList && key.every((value, index) => value === preparedSongList.key[index])) return preparedSongList.json;
   // Rebuild immediately after tracker/admin changes or an edited photo file.
   const songs = attachJokes(SONGS.filter(s => !isHidden(s)).map(({ source, fallback, mergedFrom, ...rest }) => ({ ...rest, hasFull: Boolean(rest.mode === "filter" || fallback) })));
-  const json = JSON.stringify({ songs, eras: ERAS, updated: LAST_UPDATE, source: LAST_SOURCE, error: LAST_ERROR, artist: CONFIG.artist, liveControl: Boolean(ADMIN) });
+  const json = JSON.stringify({ songs, eras: ERAS, updated: LAST_UPDATE, source: LAST_SOURCE, error: LAST_ERROR, artist: CONFIG.artist, liveControl: LIVE_CONTROL });
   preparedSongList = { key, json };
   return json;
 }
@@ -1951,7 +2032,9 @@ rebuildHidden();
 
 function isHidden(song) {
   return HIDDEN_IDS.has(song.id) || HIDDEN_KEYS.has(hiddenKey(song)) ||
-    Boolean(song.recordedIn && HIDDEN_KEYS.has(hiddenKey({ ...song, era: song.recordedIn })));
+    Boolean(song.recordedIn && HIDDEN_KEYS.has(hiddenKey({ ...song, era: song.recordedIn }))) ||
+    // a throwaway hidden while it was still shown under its release era
+    Boolean(song.releasedOn && HIDDEN_KEYS.has(hiddenKey({ ...song, era: song.releasedOn })));
 }
 
 function saveHidden() {
@@ -1976,6 +2059,7 @@ function loadAdmin() {
   return saved.salt && saved.hash ? saved : null;
 }
 const ADMIN = loadAdmin();
+const LIVE_CONTROL = Boolean(ADMIN && CONFIG.liveControl);
 
 const adminSessions = new Map(); // token -> expires
 let adminFails = 0;
@@ -2026,7 +2110,7 @@ function adminSongList() {
   const ids = new Set(SONGS.map(s => s.id));
   const keys = new Set(SONGS.map(hiddenKey));
   const stale = HIDDEN.filter(h => !ids.has(h.id) && !keys.has(h.key)).map(h => ({ id: h.id, name: h.name, era: h.era }));
-  return { songs, stale, splits: SPLITS };
+  return { songs, stale, splits: SPLITS, liveControl: LIVE_CONTROL };
 }
 
 const ADMIN_HTML = String.raw`<!doctype html>
@@ -2176,6 +2260,7 @@ function load() {
     state.songs = data.songs;
     state.stale = data.stale;
     state.splits = data.splits || [];
+    state.liveControl = data.liveControl !== false;
     markDuplicates();
     if (!listBox) buildScreen();
     updateEraOptions();
@@ -2226,7 +2311,7 @@ function buildScreen() {
     });
   }
   testInput.addEventListener("input", renderTestResults);
-  var testToggle = el("button", { class: "btn", text: "Song test search", onclick: function () {
+  var testToggle = el("button", { class: "btn", text: "Song test search", style: state.liveControl ? "" : "display:none", onclick: function () {
     var open = testPanel.style.display === "none";
     testPanel.style.display = open ? "block" : "none";
     testToggle.textContent = open ? "Hide song test search" : "Song test search";
@@ -2545,6 +2630,7 @@ async function handleAdmin(req, res, pathname) {
   }
 
   if (pathname === "/api/admin/activate" && req.method === "POST") {
+    if (!LIVE_CONTROL) { sendJson(res, 403, { error: "Play in game is off on this server (liveControl is false in config.json)." }); return true; }
     if (!/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
     const body = await readJsonBody(req);
     const id = String(body.id || "");
@@ -2590,7 +2676,7 @@ async function handleAdmin(req, res, pathname) {
     // Update display only; canonical title/id and spreadsheet mapping remain untouched.
     SONGS = SONGS.map(s => s.id === id ? { ...s, display: name || s.title } : s);
     SONG_INDEX = new Map(SONGS.map(s => [s.id, s]));
-    try { fs.writeFileSync(CACHE_FILE, JSON.stringify({ updated: LAST_UPDATE, songs: SONGS, eras: ERAS })); } catch (err) { /* cache is optional */ }
+    try { fs.writeFileSync(CACHE_FILE, JSON.stringify({ format: SONG_CACHE_FORMAT, updated: LAST_UPDATE, songs: SONGS, eras: ERAS })); } catch (err) { /* cache is optional */ }
     sendJson(res, 200, adminSongList());
     return true;
   }
@@ -2662,7 +2748,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/active-song") return sendJson(res, 200, ACTIVE_SONG);
     if (pathname === "/api/separator-revision") return sendJson(res, 200, { revision: await separatorRevision() });
     if (pathname === "/api/active-song/events") {
-      if (!ADMIN) return sendJson(res, 404, { enabled: false });
+      if (!LIVE_CONTROL) return sendJson(res, 404, { enabled: false });
       if (req.method !== "GET") return sendJson(res, 405, { error: "Use GET for the song event stream." });
       return activeSongFeed.subscribe(req, res, ACTIVE_SONG);
     }
@@ -2758,7 +2844,7 @@ server.listen(CONFIG.port, "127.0.0.1", async () => {
   // Show the game immediately while the tracker refresh runs.
   const cached = loadJson(CACHE_FILE, null);
   if (cached && Array.isArray(cached.songs)) {
-    setSongs(cached.songs, "cache");
+    setSongs(upgradeCachedSongs(cached), "cache");
     ERAS = Array.isArray(cached.eras) ? cached.eras : [];
     LAST_UPDATE = cached.updated || 0;
   }

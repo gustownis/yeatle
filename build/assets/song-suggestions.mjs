@@ -33,8 +33,9 @@ export function attachSongSuggestions(input, list) {
     if (!key || input.disabled || document.activeElement !== input) return close();
     const first = [], rest = [];
     for (const song of songs) {
-      if (song.title.startsWith(key) || song.key.startsWith(key)) first.push(song);
-      else if (song.key.includes(key)) rest.push(song);
+      // Other names the tracker gives a song are searchable too ("The Coste" finds THE COSTËS).
+      if (song.title.startsWith(key) || song.key.startsWith(key) || song.alts.some(alt => alt.startsWith(key))) first.push(song);
+      else if (song.key.includes(key) || song.alts.some(alt => alt.includes(key))) rest.push(song);
     }
     matches = [...first, ...rest].slice(0, 40);
     if (!matches.length) return close();
@@ -98,7 +99,7 @@ export function attachSongSuggestions(input, list) {
       for (const song of entries) {
         const label = song?.display || song?.title;
         if (typeof label !== "string" || !label.trim() || unique.has(label)) continue;
-        unique.set(label, { label, key: normalizeGuess(label), title: normalizeGuess(song.title), era: song.era || "", year: song.year || song.eraYear || null });
+        unique.set(label, { label, key: normalizeGuess(label), title: normalizeGuess(song.title), alts: (song.keys || []).map(normalizeGuess).filter(Boolean), era: song.era || "", year: song.eraYear || song.year || null });
       }
       songs = [...unique.values()].sort((a, b) => a.label.localeCompare(b.label));
       show();

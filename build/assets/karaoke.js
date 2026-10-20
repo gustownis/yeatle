@@ -1663,6 +1663,30 @@ function backToSetup() {
 
 /* ---------- start up ---------- */
 
+// Songs the tracker lists under two names became one entry. Keep best scores,
+// pasted lyrics and lyric timing saved under an old id; the newer id wins.
+export function carryFormerIds(songs, storage = globalThis.localStorage) {
+  if (!storage) return 0;
+  let moved = 0;
+  try {
+    const keys = [];
+    for (let i = 0; i < storage.length; i++) keys.push(storage.key(i));
+    for (const song of songs) {
+      for (const old of song.formerIds || []) {
+        for (const key of keys) {
+          const m = /^(yeatle-karaoke-(?:best|lrc|shift)):(.+?)(:[^:]*)?$/.exec(key);
+          if (!m) continue;
+          const [prefix, rest] = [m[1], key.slice(m[1].length + 1)];
+          if (rest !== old && !rest.startsWith(`${old}:`)) continue;
+          const next = `${prefix}:${song.id}${rest.slice(old.length)}`;
+          if (storage.getItem(next) == null) { storage.setItem(next, storage.getItem(key)); moved++; }
+        }
+      }
+    }
+  } catch { /* storage unavailable */ }
+  return moved;
+}
+
 async function loadSongs() {
   const list = $("#song-list");
   list.replaceChildren(el("p", { class: "muted", text: "Loading songs…" }));
@@ -1670,6 +1694,7 @@ async function loadSongs() {
     const res = await fetch("api/songs");
     const data = await res.json();
     state.songs = (data.songs || []).slice().sort((a, b) => a.display.localeCompare(b.display));
+    carryFormerIds(state.songs);
     state.artist = data.artist || "Yeat";
     renderSongList();
   } catch (err) {

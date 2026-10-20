@@ -11,5 +11,6 @@
     { "name": "Released", "gid": "1617341558" },
     { "name": "Unreleased", "gid": "1241081326" }
   ],
-  "googleApiKey": ""
+  "googleApiKey": "",
+  "liveControl": true
 }
