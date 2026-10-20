@@ -1,4 +1,10 @@
 /* App windows opt in through navigation-runtime.js. Browsers use normal navigation. */
+/* Reserve the scrollbar's space on every page, so a page that grows past the window
+   does not shift its tabs sideways during or after a transition. */
+html { scrollbar-gutter: stable; }
+/* The main game scrolls inside .App instead of the page. */
+html:has(> body > #root > .App) { scrollbar-gutter: auto; }
+.App { scrollbar-gutter: stable; }
 @view-transition { navigation: none; }
 
 .background, .bg { view-transition-name: yeatle-background; }

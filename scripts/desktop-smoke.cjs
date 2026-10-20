@@ -88,14 +88,19 @@ app.on("browser-window-created", (_event, created) => {
     addEventListener('error', event => smoke.errors.push(event.message));
     addEventListener('unhandledrejection', event => smoke.errors.push(String(event.reason)));
     const start = AudioBufferSourceNode.prototype.start;
+    const layout = () => {
+      const tabs = document.querySelector('.tabs')?.getBoundingClientRect(), shell = document.querySelector('.shell, .daily-shell')?.getBoundingClientRect();
+      return { tabs: tabs && [tabs.x, tabs.y, tabs.width, tabs.height], shell: shell && shell.height };
+    };
     addEventListener('pagereveal', event => {
+      smoke.revealLayout = layout();
       if (!event.viewTransition) return;
       event.viewTransition.ready.then(() => {
         smoke.tabFrames = document.getAnimations()
           .filter(animation => animation.animationName?.includes('group-anim-yeatle-tabs'))
           .flatMap(animation => animation.effect.getKeyframes());
       }).catch(() => {});
-      event.viewTransition.finished.then(() => { smoke.navigationDone = true; }).catch(() => {});
+      event.viewTransition.finished.then(() => { smoke.finishedLayout = layout(); smoke.navigationDone = true; }).catch(() => {});
     });
     AudioBufferSourceNode.prototype.start = function(when, offset) {
       window.smokeContext = this.context;
@@ -140,11 +145,18 @@ async function runWindow() {
       assert.ok(frames.length >= 2, "Missing native tab animation frames");
       assert.ok(Math.abs(parseFloat(frames[0][dimension]) - parseFloat(frames.at(-1)[dimension])) < 1, `Animated tab ${dimension} stretches`);
     }
+    const dailyTabs = await evaluate('smoke.finishedLayout.tabs');
     await evaluate(`document.querySelector('.tabs a[href="./?mode=${mode === "Stems" ? "stems" : "snippet"}"]').click()`);
     await until('document.querySelector("[role=tab]") && smoke.navigationDone', "return from Daily");
     const returned = await evaluate(geometry);
     assert.ok(Math.abs(returned.width - after.width) < 1 && Math.abs(returned.height - after.height) < 1);
-    result.checks.dailyTabGeometry.push({ mode, before, after, returned, frames });
+    // Returning must look like entering: the game appears at its finished size, in its
+    // finished mode, with the tabs exactly where Daily drew them (no late list or scrollbar shift).
+    const revealed = await evaluate('({ reveal: smoke.revealLayout, finished: smoke.finishedLayout, selected: document.querySelector("[role=tab][aria-selected=true]")?.textContent })');
+    assert.equal(revealed.selected, mode);
+    assert.ok(Math.abs(revealed.reveal.shell - revealed.finished.shell) < 2, `${mode} appeared at ${revealed.reveal.shell}px and grew to ${revealed.finished.shell}px`);
+    revealed.reveal.tabs.forEach((value, i) => assert.ok(Math.abs(value - dailyTabs[i]) < 1, `${mode} tabs moved from Daily's position: ${revealed.reveal.tabs} vs ${dailyTabs}`));
+    result.checks.dailyTabGeometry.push({ mode, before, after, returned, frames, revealed, dailyTabs });
   }
   const arrived = new Promise(resolve => window.webContents.once("did-finish-load", resolve));
   await evaluate('[...document.querySelectorAll("[role=tab]")].find(tab => tab.textContent === "Karaoke").click()');
