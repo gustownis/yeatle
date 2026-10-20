@@ -1,5 +1,5 @@
-import { normalizeGuess } from "./snippet-rules.mjs?v=1.11.3-followup";
-import { songsForPool } from "./song-pools.mjs?v=1.11.3-followup";
+import { normalizeGuess } from "./snippet-rules.mjs?v=1.11.4";
+import { songsForPool } from "./song-pools.mjs?v=1.11.4";
 
 // Daily shares the game's suggestion markup and styles without rebuilding React.
 export function attachSongSuggestions(input, list) {
