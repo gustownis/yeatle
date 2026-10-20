@@ -71,6 +71,12 @@ private notes intact throughout synchronization.
   local changes, committed changes, and changes actually pushed to GitHub.
   Release publication and deployments must stay within the user's request.
 
+## Markdown and release-note formatting
+
+- Let prose wrap naturally to the reader's available page width. Keep each paragraph on one source line instead of manually wrapping at a fixed column count or putting each sentence on a new line. Apply this to release notes, README text, documentation, shared instructions, and release or pull-request descriptions.
+- Keep each list item on one source line unless it contains a real nested list, separate paragraph, or code block. Use blank lines for actual paragraph breaks and preserve meaningful structure such as headings, tables, and code; do not add forced line breaks just to shorten a line.
+- GitHub release descriptions can display source newlines as visible line breaks. When copying notes from Markdown files, join wrapped paragraph and list-continuation lines before publishing, and check the rendered notes for unnecessary breaks.
+
 ## Important project constraints
 
 - New game tabs/pages must resemble the existing Stems and Snippets tabs as
