@@ -32,6 +32,12 @@ Version **1.11** adds **Daily** and a new **Base** Snippets difficulty.
   still switch immediately, and reduced motion disables desktop animation.
 - Karaoke's **No mic (just watch)** option works before microphone permission.
 
+Version **1.11.3** adds Karaoke's optional **White people mode** and lets the
+desktop app download just the HQ stem songs you pick from the server
+(**Help → Optional HQ Stems → Download from server…**). Returning from Daily to
+Stems or Snippets is now as smooth as entering it, Daily plays on iPhones with
+the silent switch on, and a few song eras and duplicate spellings are fixed.
+
 See the [release notes](https://github.com/gustownis/yeatle/releases) for
 individual fixes and updates.
 
@@ -43,7 +49,9 @@ individual fixes and updates.
 - **Local browser version:** [download Yeatle as a ZIP](https://github.com/gustownis/yeatle/archive/refs/heads/main.zip),
   install [Node.js LTS](https://nodejs.org/en/download), then follow the
   [browser setup instructions](#download-the-browser-version).
-- **Optional higher-quality stems:** [download from MEGA](https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g)
+- **Optional higher-quality stems:** in the desktop app, choose **Help →
+  Optional HQ Stems → Download from server…** and pick songs, or
+  [download from MEGA](https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g)
   and follow the [stem setup instructions](#optional-hq-stems).
 
 You can play without the optional stems. The built-in audio separation files download automatically when Real stems mode prepares the AI worker.
@@ -52,14 +60,14 @@ You can play without the optional stems. The built-in audio separation files dow
 
 | Computer | Downloads |
 | --- | --- |
-| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.11.2/Yeatle-Setup-1.11.2-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.11.2/Yeatle-1.11.2-windows-x64-portable.exe) |
-| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.11.2/Yeatle-1.11.2-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.11.2/Yeatle-1.11.2-mac-arm64.zip) |
-| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.11.2/Yeatle-1.11.2-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.11.2/Yeatle-1.11.2-mac-x64.zip) |
-| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.11.2/Yeatle-1.11.2-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.11.2/Yeatle-1.11.2-linux-x64.deb) |
-| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.11.2/Yeatle-1.11.2-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.11.2/Yeatle-1.11.2-linux-arm64.deb) |
+| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.11.3/Yeatle-Setup-1.11.3-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.11.3/Yeatle-1.11.3-windows-x64-portable.exe) |
+| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.11.3/Yeatle-1.11.3-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.11.3/Yeatle-1.11.3-mac-arm64.zip) |
+| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.11.3/Yeatle-1.11.3-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.11.3/Yeatle-1.11.3-mac-x64.zip) |
+| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.11.3/Yeatle-1.11.3-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.11.3/Yeatle-1.11.3-linux-x64.deb) |
+| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.11.3/Yeatle-1.11.3-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.11.3/Yeatle-1.11.3-linux-arm64.deb) |
 
 Installation steps for each OS are below.
-[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.11.2/SHA256SUMS.txt)
+[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.11.3/SHA256SUMS.txt)
 are provided with the release.
 
 ## Requirements
@@ -107,7 +115,7 @@ Cloning this public repository does not require authentication.
 
 ### Desktop app
 
-1. Download the Windows **x64 installer** (`Yeatle-Setup-1.11.2-windows-x64.exe`) for a usual
+1. Download the Windows **x64 installer** (`Yeatle-Setup-1.11.3-windows-x64.exe`) for a usual
    Intel/AMD Windows PC, or the matching portable `.exe` if offered.
 2. Run the installer, choose the installation folder if prompted, and open
    **Yeatle** from Start. The portable app runs directly without installation.
@@ -197,7 +205,7 @@ use the matching `.deb` on Debian/Ubuntu or the browser version.
 For a Debian/Ubuntu package, install the exact downloaded filename:
 
 ```sh
-sudo apt install ./Yeatle-1.11.2-linux-x64.deb
+sudo apt install ./Yeatle-1.11.3-linux-x64.deb
 ```
 
 For ARM64, use the package ending in `-arm64.deb`. Open Yeatle from your desktop
@@ -304,6 +312,30 @@ shows up as a coloured arrow on the note lane.
   isn't picked up, raise **Mic sensitivity**.
 - Browsers only allow microphones on `https://` addresses or `localhost`.
 
+### White people mode
+
+Tick **White people mode** under Options (before or without turning on a mic)
+to stay silent for the n-word and its spellings, including in guest verses,
+without it costing you. Karaoke scores your pitch and voice rather than the
+words, so the mode works out *when* each of those words is sung and scores
+that moment as if you sang it, whatever the mic hears. Every other missed note
+counts as usual. The lane shades each skip and the word is struck through in
+the lyrics.
+
+- How exact a skip is depends on the lyrics. Word-timed lyrics give exact
+  skips. Most online lyrics are only timed per line, so the word's position is
+  estimated from the singing in that line; those skips are a bit wider and
+  marked **≈ SKIP**. Lyrics without timing give rough guesses, and songs with no
+  lyrics skip nothing until you add times.
+- **Skip timing** (next to the lyrics button) lets you add your own skip times,
+  copy the ones found from the lyrics to correct them, or turn the found ones
+  off. Press **K** or **Mark skip** while singing to save a time; it counts from
+  your next round. Skips found from the lyrics follow `[` / `]` nudges; your
+  own times don't move.
+- The setting applies to everyone in the round and can't change mid-song. The
+  stage and results say when it was on, and it keeps its own best scores;
+  your normal best scores are untouched. **No mic** singers still don't score.
+
 For Android testing against this PC, use USB port reversal so the phone opens
 the local server at `http://localhost:3095/karaoke.html`. A plain HTTP Wi-Fi IP
 address cannot provide microphone access. The server normally listens only on
@@ -311,7 +343,18 @@ loopback; see the [test checklist](docs/testing-1.10.1.md) for the USB setup.
 
 ## Optional HQ stems
 
-Open the [separate MEGA folder](https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g),
+**Desktop app, easiest:** choose **Help → Optional HQ Stems → Download from
+server…**. Search or scroll, then press **Download** on a song or tick a few and
+press **Download selected**. Nothing downloads until you choose, and you never
+need the whole collection. Each song is checked against the server's checksums
+and appears in the game as soon as it finishes, without a restart. Cancelled or
+failed downloads leave nothing behind; **Retry** starts them again. If your
+Songs folder already has a different folder with the same name, it is kept;
+**Replace mine** moves it into `.yeatle-replaced` inside the Songs folder. The
+downloads come from the server in `stemsHost` (see
+[Settings](#settings-saved-files-and-privacy)).
+
+**By hand:** open the [separate MEGA folder](https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g),
 download the songs you want, and extract them. Keep **one folder per song**;
 do not put a second `Songs` directory inside the destination `Songs` directory.
 
@@ -416,7 +459,7 @@ admin password, downloaded models, or stems. Game progress stays in the same
 desktop profile. If GitHub or your connection is unavailable, you can keep
 playing and try again later.
 
-**Upgrading from 1.9.0:** download and install 1.11.2 once using the links above.
+**Upgrading from 1.9.0:** download and install 1.11.3 once using the links above.
 The updater is available from 1.9.1 onward. The browser version has no desktop
 menu or installer updater; download the new browser ZIP or update your Git
 checkout, keeping your local settings and song folders.
@@ -452,6 +495,14 @@ text editor, and restart. For example:
 | `artist` | Artist used for preview searches |
 | `sheetId`, `tabs` | Google tracker sheet and tab identifiers |
 | `googleApiKey` | Optional key for sheets with links hidden behind display text; keep it private |
+| `liveControl` | With the admin panel on, lets **Play in game** switch open games to a song; public sites set `false` |
+| `stemsHost` | Desktop app: the server **Download from server…** gets HQ stems from; default `https://playyeatle.duckdns.org`. Separate from Daily's `dailyAuthority` |
+| `stemDownloads` | Server: offer this server's complete HQ stem folders for download; default `false` |
+
+A server with `stemDownloads` on lists only folders holding all four stems as
+real files inside its Songs folder (symlinks are skipped), hashes them once in
+the background into `stems-hashes.json`, and sends at most four files at a time
+so downloads don't crowd out Daily.
 
 The desktop app creates its own settings on first launch. Select **Game →
 Open Settings and Logs Folder** to find them. Typical locations are:
@@ -571,10 +622,10 @@ After all five desktop builds finish, download their artifacts into a folder
 and prepare the checksums and updater metadata:
 
 ```sh
-npm run prepare:release -- 1.11.2 release/github-builds-1.11.2 release/update-metadata-1.11.2
+npm run prepare:release -- 1.11.3 release/github-builds-1.11.3 release/update-metadata-1.11.3
 ```
 
-For a future release, replace `1.11.2` in the version and folder names. The script
+For a future release, replace `1.11.3` in the version and folder names. The script
 requires all ten installers/archive files and fails if any are missing. It
 copies them into the output folder with consistent download names, including
 normalizing Linux's `amd64`/`x86_64` names to `x64`. Attach all fourteen files

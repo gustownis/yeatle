@@ -126,7 +126,9 @@ outputs go in ignored `release/`; use ignored `.tmp/` for temporary checks.
 
 Run checks appropriate to the change. For browser or desktop behavior, consult
 `scripts/browser-smoke.cjs`, `scripts/desktop-smoke.cjs`, and the relevant reports
-under `docs/` for prerequisites and limits. Verify platform-specific behavior
+under `docs/` for prerequisites and limits. `scripts/desktop-stems-smoke.cjs`
+covers HQ stem downloads in the desktop app, and `scripts/karaoke-skip-smoke.cjs`
+covers Karaoke White people mode with a synthetic microphone. Verify platform-specific behavior
 on that platform, and report anything not exercised. Do not call an unrun check
 passed or present a package build as proof of device behavior.
 
