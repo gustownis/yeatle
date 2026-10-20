@@ -59,3 +59,22 @@ The HQ Check all/menu regression checks from the preceding report remain
 applicable; this change additionally excludes non-vocal records at download
 catalog validation. Physical microphone behavior, macOS and Linux were not
 exercised locally in this follow-up.
+
+## Delivery
+
+Runtime changes were pushed as `ec44d1c`. GitHub Checks passed on Windows,
+macOS and Linux for that commit. The existing automatic deployment updated
+the public website, where all ten checked pages/modules match the pushed
+source after line-ending normalization. Both Fleek records and Kankan's solo
+Zaza are absent from the normal catalog; YEET and GOONIE's Zaza with Yeat
+remain. Searching a retained title alias can still find YEET, without
+reintroducing either excluded recording.
+
+Live Cant See entries are labeled LS V2 and Alivë. Only LS V2 owns the HQ
+pack, including the download catalog's id and era. The public Daily stayed
+`v1:2026-10-20:comengo`, with clip start 6.53 s, the same reset and byte-identical
+audio (1,848,547 bytes; SHA-256
+`fd681e8da78e005d249fcafdaca1512ac8fef466ab987d91c21f97f44d33d93f`).
+Two independent local clients using the public authority confirmed that same
+Daily and audio. Separately installed desktop executables still require a
+later build; this checkout contains the desktop fixes.

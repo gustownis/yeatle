@@ -24,7 +24,7 @@ const songs = [
   plain("genuinefeature", "Other artist - Vocal feature", { display: "Other artist - Vocal feature (feat. Yeat)", features: ["feat. Yeat"], type: "Feature", tab: "Released" }),
   plain("yungkayofleek", "Yung Kayo - fleek'", { era: "Hold Ön" }),
   plain("yungkayofleek@2alive", "Yung Kayo - fleek", { features: ["feat. Yeat"] }),
-  plain("yungkayoyeet", "Yung Kayo - YEET", { features: ["feat. Yeat"], display: "Yung Kayo - YEET (feat. Yeat)" }),
+  plain("yungkayoyeet", "Yung Kayo - YEET", { features: ["feat. Yeat"], display: "Yung Kayo - YEET (feat. Yeat)", keys: ["yungkayoyeet", "yeet", "fleek"] }),
   plain("kankanzaza", "Kankan - Zaza", { features: ["feat. GOONIE"] }),
   plain("gooniezaza", "GOONIE - Zaza", { features: ["feat. YEAT & Kankan"] }),
   cantLs,
@@ -124,7 +124,8 @@ const result = { platform: process.platform, output: out, checks: {}, errors: []
   result.checks.cantSeeBindingLabelsAndSavedRound = true;
   await round("yungkayoyeet");
   await page.getByRole("textbox", { name: "Your guess" }).fill("fleek");
-  assert.equal(await page.locator('.suggestions [role="option"]').count(), 0);
+  assert.equal(await page.locator('.suggestions [role="option"]').count(), 1, "the verified title alias may find YEET, but neither Fleek recording is suggested");
+  assert.match(await page.locator('.suggestions [role="option"]').textContent(), /YEET \(feat\. Yeat\)/);
   await page.getByRole("textbox", { name: "Your guess" }).fill("yeet");
   assert.equal(await page.locator('.suggestions [role="option"]').count(), 1);
   await page.locator('.suggestions [role="option"]').click();
