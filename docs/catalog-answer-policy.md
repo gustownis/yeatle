@@ -14,7 +14,7 @@ selects the installed pack. All songs retains the existing source quality
 ranking; it does not globally prioritize releases.
 
 `catalog-policy.cjs` handles eligibility. Explicit Production/producer-only
-credits are excluded from future normal rounds, suggestions and the stem
+credits and confirmed recordings without Yeat vocals are excluded from future normal rounds, suggestions and the stem
 download catalog. Yeat features remain eligible even when another artist is
 the primary artist. Missing credits remain unknown and eligible for further
 investigation. Unmatched stem folders are not automatically classified as
@@ -22,7 +22,7 @@ released. Optional `Status: Released` or `Status: Unreleased` in verified pack
 metadata can supply that fact.
 
 `catalog-metadata.json` holds narrowly scoped, evidence-described corrections.
-It changes neither audio nor tracker fingerprints. Administrator display-name
+It preserves audio files and tracker fingerprints. Administrator display-name
 overrides are applied afterward. Now LS remains separate from the released Now
 on AftërLyfe; its LYFESTYLE [V2] era and 2024 era year follow the supplied
 identification and tracker metadata. Both existing LS source ids are retained.
@@ -37,6 +37,29 @@ deduplicate future pools and suggestions, preferring installed stems while
 respecting each source's own release status. `answerKeys` accepts either spelling.
 `equivalentIds` carries completion, Karaoke scores, lyrics and timing to the
 preferred playable source without deleting the original saved references.
+
+Cant See has two distinct recordings: the 2:49 Synthetic & Perdu LS V2 song
+and the 2:17 Curesful Alivë remix. Both keep their existing tracker ids and
+have explicit version labels in suggestions and results. The unqualified
+title remains a valid answer to either, but one version label does not answer
+the other. The public Cant See pack has no era metadata: its decoded four-stem
+sum matches LS V2 at zero lag (169.0905 s, 0.995234 correlation), while Alivë
+does not match (0.01085). `stemBindings` binds that folder to its verified
+tracker source before title matching. An old cache moves the pack to LS V2
+and restores Alivë's original source. A saved practice snapshot using the
+pack follows the same files, keeping attempts and clip start. Pinned Daily
+snapshots are excluded from this source repair.
+
+The solo Kankan Zaza V1 and solo Yung Kayo Fleek V1 lack Yeat vocals and are
+excluded; GOONIE's Zaza V2 with Yeat remains eligible. At the maintainer's
+request, the separate Fleek V2 tracker entry is also excluded, retaining only
+Yung Kayo's YEET featuring Yeat. This explicit eligibility decision does not
+change Fleek V2's tracker credits or declare two recordings interchangeable.
+
+Audio preparation caches use `audioId` when supplied, falling back to `id`
+for older records. Pool projections with different playable sources cannot
+share a preparation job merely because their progress id is the same. All
+songs and a pool selecting the very same source can reuse that job.
 
 The public The Coste V2 and V5 files align throughout (0.96201 correlation);
 the released THE COSTËS pack aligns with V2 (0.96429), and the official Apple

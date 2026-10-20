@@ -202,9 +202,14 @@ async function runWindow() {
   fs.writeFileSync(path.join(output, "karaoke-playing.png"), (await window.webContents.capturePage()).toPNG());
   await evaluate('document.querySelector("#pause-btn").click()');
   await until('!document.querySelector("#pause").hidden', "pause");
-  await wait(250);
+  await until('smokeContext.state === "suspended"', "suspended playback clock");
+  // A hidden compositor can draw its final progress frame after suspension.
+  // Sample once that frame has rendered, rather than racing a fixed delay.
+  await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  const pausedTime = await evaluate('smokeContext.currentTime');
   const paused = await evaluate('document.querySelector("#progress").style.width');
   await wait(500);
+  assert.equal(await evaluate('smokeContext.currentTime'), pausedTime);
   assert.equal(await evaluate('document.querySelector("#progress").style.width'), paused);
   await evaluate('document.querySelector("#resume").click()');
   await until(`document.querySelector("#progress").style.width !== ${JSON.stringify(paused)}`, "resume");

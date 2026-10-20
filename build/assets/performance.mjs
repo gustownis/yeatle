@@ -16,6 +16,12 @@ export function performancePolicy(device = globalThis.navigator) {
 
 export const audioPerformancePolicy = performancePolicy();
 
+// Saved progress uses the answer id; decoded/separated audio belongs to the
+// actual playable source. A release and a leak can share only the first.
+export function audioCacheKey(song) {
+  return song.audioId || song.id;
+}
+
 export function audioBytes(job) {
   if (job.buffers) return Object.values(job.buffers).reduce((bytes, buffer) => bytes + (buffer?.length || 0) * (buffer?.numberOfChannels || 0) * 4, 0);
   // Reserve room before allocating the stereo original and three mono stems.

@@ -1,9 +1,22 @@
 export function inSongPool(song, pool = "all") {
-  if (song.guessingEligible === false || song.artistRole === "producer-only" || (!song.artistRole && /^production$/i.test(song.type || ""))) return false;
+  if (song.guessingEligible === false || ["producer-only", "non-vocal"].includes(song.artistRole) || (!song.artistRole && /^production$/i.test(song.type || ""))) return false;
   if (song.poolVariants && pool !== "all") return Boolean(song.poolVariants[pool]);
   return pool === "released" ? song.tab === "Released"
     : pool === "unreleased" ? song.tab === "Unreleased"
     : pool === "stems" ? song.mode === "stems" && Boolean(song.folder) : true;
+}
+
+export function restorePracticeSong(saved, songs) {
+  if (!saved) return null;
+  const current = songs.find(song => song.id === saved.songId);
+  const snapshot = saved.song;
+  // A verified pack correction can move its files to a different recording.
+  // Keep the same audible round and attempts while correcting its metadata.
+  const pack = snapshot?.mode === "stems" && snapshot.folder
+    ? songs.find(song => song.mode === "stems" && song.folder === snapshot.folder) : null;
+  if (pack && pack.id !== saved.songId) return pack;
+  return current && snapshot?.id === current.id
+    ? { ...snapshot, keys: current.keys, answerKeys: current.answerKeys } : current;
 }
 
 // A released row and a leak can share an answer while keeping their own

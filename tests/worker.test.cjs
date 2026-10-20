@@ -13,6 +13,28 @@ test('the standalone worker parses without optional helper modules', () => {
   assert.doesNotMatch(worker, /(?:model-download|worker-lifecycle)\.mjs/);
 });
 
+test('audio jobs distinguish playable sources while reusing the same source', async () => {
+  const first = bundle.indexOf('function vd('), last = bundle.indexOf('function km(', first);
+  const jobs = new Map();
+  let protectedKey;
+  const { audioCacheKey } = await import('../build/assets/performance.mjs');
+  const getJob = vm.runInNewContext(bundle.slice(first, last) + ';vd', {
+    yt: jobs, YeatleAudioKey: audioCacheKey, Date, Em(key) { protectedKey = key; },
+    xm: class { constructor(song, ctx) { this.song = song; this.ctx = ctx; this.listeners = new Set(); } }
+  });
+  const released = { id: 'same-answer', audioId: 'same-answer@audio-release', mode: 'filter' };
+  const leak = { id: 'same-answer', audioId: 'same-answer@audio-leak', mode: 'filter' };
+  const firstJob = getJob(released, {}), secondJob = getJob(leak, {});
+  assert.notEqual(firstJob, secondJob, 'a different recording must not reuse the first source buffers');
+  assert.equal(secondJob.song.audioId, leak.audioId);
+  assert.equal(getJob({ ...leak }, {}), secondJob, 'the same recording reuses its existing work');
+  assert.equal(firstJob.song.id, secondJob.song.id, 'the progress identity stays unchanged');
+  assert.equal(protectedKey, leak.audioId, 'memory trimming protects the actual requested source');
+  firstJob.error = new Error('failed release');
+  assert.notEqual(getJob(released, {}), firstJob, 'a failed source can be retried');
+  assert.equal(getJob(leak, {}), secondJob, 'retrying one source keeps the other source cache');
+});
+
 test('detaching and reattaching an unfinished round keeps its job alive', () => {
   const first = bundle.indexOf('class xm{'), last = bundle.indexOf('function Em(', first);
   const jobs = new Map();

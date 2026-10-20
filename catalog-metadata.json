@@ -1,5 +1,43 @@
 {
+  "stemBindings": [
+    {
+      "folder": "Cant See",
+      "source": { "kind": "pillows", "id": "f0fd44d52cec82b3006ee68200dd4342" },
+      "metadata": {
+        "title": "Cant see", "display": "Cant see (LS V2)", "era": "LYFESTYLE [V2]", "eraYear": 2024,
+        "tab": "Unreleased", "recordedIn": "", "releasedOn": "", "artist": "Yeat", "artistRole": "vocalist",
+        "producers": ["Synthetic & Perdu"], "length": "2:49", "answerId": "cant-see-lsv2",
+        "keys": ["cantsee", "cantseelsv2", "lightson", "brightson", "diamondsonme"]
+      },
+      "basis": "2026-10-20: all four public Cant See stems sum to the 169.0905 s tracker LS V2 recording at zero lag, correlation 0.995234. The distinct 137.273 s Alivë recording has correlation 0.01085. The pack has no info.txt; title-order matching had attached it to Alivë."
+    }
+  ],
   "corrections": [
+    {
+      "match": { "id": "yungkayofleek@2alive" },
+      "set": { "artist": "Yung Kayo", "guessingEligible": false },
+      "basis": "Maintainer request, 2026-10-20: exclude the separate tracker Fleek V2 entry as well as the solo demo; retain only Yung Kayo - YEET (feat. Yeat). This selection decision does not merge their recordings or change the tracker's credits."
+    },
+    {
+      "match": { "id": "yungkayofleek", "era": "Hold Ön" },
+      "set": { "artist": "Yung Kayo", "artistRole": "non-vocal", "guessingEligible": false },
+      "basis": "The tracker identifies the 1:46 fleek' V1 (pillows c4ec06e5ff5c7d1240444aee6bd78ced, April 24, 2020) as Yung Kayo's original solo version prior to the Yeat feature. The released 2:37 YEET featuring Yeat remains eligible; Fleek V2 is separately excluded at the maintainer's request."
+    },
+    {
+      "match": { "titleKey": "cantsee", "era": "LYFESTYLE [V2]" },
+      "set": { "display": "Cant see (LS V2)", "answerId": "cant-see-lsv2" },
+      "basis": "Distinguish the Synthetic & Perdu recording from the Curesful Alivë remix without changing either tracker id."
+    },
+    {
+      "match": { "titleKey": "cantsee", "era": "Alivë" },
+      "set": { "display": "Cant See (Alivë)", "answerId": "cant-see-alive" },
+      "basis": "The 2:17 Curesful hook/open-verse remix is a separate recording from the 2:49 LS V2 song; neither version label answers the other."
+    },
+    {
+      "match": { "id": "kankanzaza" },
+      "set": { "artist": "Kankan", "artistRole": "non-vocal", "guessingEligible": false },
+      "basis": "Both tracker rows explicitly identify the 2:12 original Zaza featuring GOONIE as lacking the additional Yeat feature. The separate GOONIE - zaza V2 featuring Yeat and Kankan remains eligible."
+    },
     {
       "match": {
         "id": "addicited",

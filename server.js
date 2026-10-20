@@ -28,7 +28,7 @@ const { createActiveSongFeed } = require("./live-control.cjs");
 const { createStemCatalog } = require("./stem-catalog.cjs");
 const { createDailyChallenges } = require("./daily-challenge.cjs");
 const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs");
-const { creditFor, isGuessingEligible, applyCatalogMetadata } = require("./catalog-policy.cjs");
+const { creditFor, isGuessingEligible, applyCatalogMetadata, stemBindingFor, reconcileStemSources } = require("./catalog-policy.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
 const APP_VERSION = require("./package.json").version;
@@ -959,7 +959,9 @@ function buildSongList(sheetRows, stemFolders) {
   // put the friend's stems onto the matching sheet song, or add them as-is
   stemFolders.forEach(stem => {
     const keys = [norm(stem.title), norm(stem.title.replace(/\s*\(.*?\)\s*/g, " "))];
-    let match = null;
+    const binding = stemBindingFor(stem.folder);
+    const boundRow = row => binding && row.source.kind === binding.source.kind && row.source.id === binding.source.id;
+    let match = binding ? [...byKey.values()].find(entry => (entry.variants || [entry]).some(boundRow)) : null;
 
     // the song with this title - or, if the admin split two apart, the one whose
     // era matches the album written in the folder's info.txt
@@ -969,8 +971,8 @@ function buildSongList(sheetRows, stemFolders) {
       const album = eraBaseKey(stem.info.album);
       return (album && list.find(entry => eraBaseKey(entry.era) === album || eraBaseKey(entry.releasedOn) === album)) || list[0];
     };
-    for (const k of keys) { const found = pickByAlbum(sameTitle(k)); if (found) { match = found; break; } }
-    if (!match) for (const k of keys) {
+    if (!binding) for (const k of keys) { const found = pickByAlbum(sameTitle(k)); if (found) { match = found; break; } }
+    if (!binding && !match) for (const k of keys) {
       const candidates = byAlias.get(k) || [];
       const album = eraBaseKey(stem.info.album);
       const inAlbum = album ? candidates.filter(entry => [entry.era, entry.releasedOn].some(era => eraBaseKey(era) === album)) : [];
@@ -994,7 +996,7 @@ function buildSongList(sheetRows, stemFolders) {
       const exact = variants.filter(row => norm(row.title) === norm(stem.title));
       const candidates = exact.length ? exact : variants;
       const album = eraBaseKey(stem.info.album);
-      const origin = candidates.find(row => album && [row.era, row.releasedOn].some(era => eraBaseKey(era) === album)) || candidates[0];
+      const origin = variants.find(boundRow) || candidates.find(row => album && [row.era, row.releasedOn].some(era => eraBaseKey(era) === album)) || candidates[0];
       match.fallback = origin.source;
       match.source = stemSource;
       match.variants = [...variants, { ...origin, source: stemSource, fallback: origin.source }];
@@ -1078,7 +1080,13 @@ function buildSongList(sheetRows, stemFolders) {
       if (!row) continue;
       forPool[pool] = { ...row, keys: entry.keys };
     }
-    if (variants.length > 1) { entry.poolVariants = forPool; entry.sourceVariants = sources; }
+    if (variants.length > 1) {
+      // All songs and a matching source-specific pool reuse the same audio
+      // work, while genuinely different sources keep distinct cache keys.
+      entry.audioId = sources[variants.indexOf(primary)].audioId;
+      entry.poolVariants = forPool;
+      entry.sourceVariants = sources;
+    }
     songs.push(entry);
   });
 
@@ -1115,6 +1123,7 @@ function upgradeCachedSongs(cached) {
 }
 
 function setSongs(songs, source) {
+  songs = reconcileStemSources(songs);
   const covers = new Map(songs.filter(song => song.cover).map(song => [song.era, song.cover]));
   SONGS = songs.map(song => {
     const override = RENAMES[song.id];

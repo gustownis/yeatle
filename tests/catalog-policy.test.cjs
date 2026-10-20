@@ -99,13 +99,14 @@ test("the download catalog preserves credits and release status and excludes pro
   const files = ["drums", "bass", "other", "vocals"].map(stem => ({ name: `${stem}.mp3`, size: 20000, sha256: "a".repeat(64) }));
   const result = validateCatalog({ songs: [
     { id: "feature", folder: "Feature", display: "Other artist - Feature", title: "Feature", artist: "Other artist", artistRole: "featured", tab: "Unreleased", files },
-    { id: "production", folder: "Production", artistRole: "producer-only", files }
+    { id: "production", folder: "Production", artistRole: "producer-only", files },
+    { id: "solo", folder: "Solo", artistRole: "non-vocal", files }
   ] });
   assert.equal(result.songs.length, 1);
   assert.equal(result.songs[0].artist, "Other artist");
   assert.equal(result.songs[0].artistRole, "featured");
   assert.equal(result.songs[0].tab, "Unreleased");
-  assert.equal(result.skipped, 1);
+  assert.equal(result.skipped, 2);
 });
 
 test("a merged title preserves source-specific pools, metadata, stems and stable audio mappings", async t => {
@@ -120,6 +121,7 @@ test("a merged title preserves source-specific pools, metadata, stems and stable
   assert.equal(coste.poolVariants.released.source.kind, "apple");
   assert.equal(coste.poolVariants.unreleased.source.kind, "pillows");
   assert.notEqual(coste.poolVariants.released.audioId, coste.poolVariants.unreleased.audioId);
+  assert.equal(coste.audioId, coste.poolVariants.unreleased.audioId, "All songs shares the cache identity of the actual selected source");
   assert.equal(coste.sourceVariants.length, 3, "both leaks and the release keep their individual source metadata");
   catalog.setSongs(songs, "test");
   for (const variant of coste.sourceVariants) assert.equal(catalog.index().get(variant.audioId).source.id, variant.source.id);
@@ -133,6 +135,7 @@ test("a merged title preserves source-specific pools, metadata, stems and stable
   const withStems = catalog.buildSongList([...released, ...unreleased], [{ folder: "THE COSTËS", title: "THE COSTËS", features: [], producers: [], aliases: [], info: {} }]);
   const installed = withStems.find(song => song.id === "thecostes");
   assert.equal(installed.poolVariants.stems.folder, "THE COSTËS");
+  assert.equal(installed.audioId, installed.poolVariants.stems.audioId);
   assert.equal(installed.poolVariants.released.mode, "stems");
   assert.equal(installed.poolVariants.unreleased.mode, "filter", "installed released stems never make a leaked source eligible as released");
 });
@@ -210,6 +213,82 @@ test("open-verse labels use verified sources and keep the completed feature sepa
   assert.equal(songs[1].recordingVersion, undefined);
   assert.equal(songs[2].artistRole, "featured");
   assert.equal(songs[2].tab, "Released");
+});
+
+const cantSee = (id, era, source) => ({ id, title: "Cant See", display: "Cant See", features: [], producers: [], aliases: [], keys: ["cantsee"], era, eraYear: era === "Alivë" ? 2021 : 2024, tab: "Unreleased", mode: "filter", source: { kind: "pillows", id: source }, folder: null });
+const aliveSource = "dcbb2d15f736cda5bee6758e8ce26ca5", lsSource = "f0fd44d52cec82b3006ee68200dd4342";
+
+test("Cant See stems bind to the verified LS V2 source rather than the first same-title song", async t => {
+  const { catalog } = setup(t);
+  const rows = [cantSee("", "Alivë", aliveSource), cantSee("", "LYFESTYLE [V2]", lsSource)];
+  catalog.setSongs(catalog.buildSongList(rows, [{ folder: "Cant See", title: "Cant See", features: [], producers: [], aliases: [], info: {} }]), "test");
+  const songs = JSON.parse(catalog.songListJson()).songs;
+  const ls = songs.find(song => song.era === "LYFESTYLE [V2]"), alive = songs.find(song => song.era === "Alivë");
+  assert.equal(ls.display, "Cant see (LS V2)");
+  assert.equal(ls.folder, "Cant See");
+  assert.equal(ls.mode, "stems");
+  assert.equal(catalog.index().get(ls.id).fallback.id, lsSource);
+  assert.equal(alive.display, "Cant See (Alivë)");
+  assert.equal(alive.mode, "filter");
+  assert.equal(catalog.index().get(alive.id).source.id, aliveSource);
+  const { songsForPool } = await import(pathToFileURL(path.join(root, "build/assets/song-pools.mjs")));
+  assert.deepEqual(songsForPool(songs, "stems").map(song => song.id), [ls.id]);
+  assert.equal(songsForPool(songs, "unreleased").length, 2);
+  const { matchesSong } = await import(pathToFileURL(path.join(root, "build/assets/snippet-rules.mjs")));
+  for (const song of [ls, alive]) assert.equal(matchesSong(song, "Cant See"), true);
+  assert.equal(matchesSong(ls, "Cant See (Alivë)"), false);
+  assert.equal(matchesSong(alive, "Cant See (LS V2)"), false);
+  assert.equal(matchesSong(ls, ls.display), true);
+  assert.equal(matchesSong(alive, alive.display), true);
+});
+
+test("a cached Cant See misbinding restores both recordings without changing pinned Daily audio", async t => {
+  const alive = cantSee("cantsee@edit-826ed631203a", "Alivë", aliveSource), ls = cantSee("cantsee@edit-40e9276af71a", "LYFESTYLE [V2]", lsSource);
+  alive.cover = "alive-cover";
+  ls.cover = "ls-cover";
+  const stem = { ...alive, source: { kind: "stems", folder: "Cant See" }, fallback: alive.source, mode: "stems", folder: "Cant See", audioId: "old-stem-audio" };
+  const old = { ...stem, poolVariants: { unreleased: stem, stems: stem }, sourceVariants: [alive, stem] };
+  const date = new Date().toISOString().slice(0, 10);
+  const pinned = { [date]: { id: `v1:${date}:${alive.id}`, song: old, seed: 23, clipAt: 6.5 } };
+  const { catalog, folder } = setup(t, { "daily-challenges.json": pinned });
+  const before = JSON.parse((await catalog.request("/api/daily")).body);
+  catalog.setSongs([ls, old], "cache");
+  const songs = JSON.parse(catalog.songListJson()).songs;
+  assert.equal(songs.find(song => song.id === alive.id).mode, "filter");
+  assert.equal(catalog.index().get(alive.id).source.id, aliveSource);
+  assert.equal(songs.find(song => song.id === ls.id).mode, "stems");
+  assert.equal(catalog.index().get(ls.id).fallback.id, lsSource);
+  assert.equal(catalog.index().get(ls.id).cover, "ls-cover", "the unrelated Alivë cover is not copied to LS V2");
+  const after = JSON.parse((await catalog.request("/api/daily")).body);
+  assert.deepEqual([after.id, after.audio, after.clipAt, after.resetsAt], [before.id, before.audio, before.clipAt, before.resetsAt]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(folder, "daily-challenges.json"))), pinned);
+  const { restorePracticeSong } = await import(pathToFileURL(path.join(root, "build/assets/song-pools.mjs")));
+  assert.equal(restorePracticeSong({ songId: alive.id, song: stem }, songs).id, ls.id, "a saved HQ round follows the same playable pack to its correct recording");
+  assert.equal(restorePracticeSong({ songId: alive.id }, songs).id, alive.id, "an older round with no source snapshot retains its original id");
+  const released = { ...ls, id: "different", audioId: "release", keys: ["updated"] };
+  assert.equal(restorePracticeSong({ songId: released.id, song: { ...released, audioId: "saved-leak" } }, [released]).audioId, "saved-leak");
+  catalog.setSongs([ls, stem], "older-cache");
+  assert.equal(catalog.index().get(alive.id).source.id, aliveSource);
+  assert.equal(catalog.index().get(alive.id).audioId, undefined, "an older cache cannot reuse the moved pack's audio identity for the Alivë recording");
+  assert.equal(catalog.index().get(ls.id).fallback.id, lsSource);
+});
+
+test("only YEET with Yeat and Zaza with Yeat remain eligible among these versions", async t => {
+  const { catalog } = setup(t);
+  const feature = { features: ["feat. Yeat"], type: "Feature", mode: "filter", tab: "Released" };
+  catalog.setSongs([
+    { ...feature, id: "yungkayofleek", title: "Yung Kayo - fleek'", era: "Hold Ön", features: [], type: "Demo", tab: "Unreleased" },
+    { ...feature, id: "yungkayofleek@2alive", title: "Yung Kayo - fleek", era: "2 Alivë", tab: "Unreleased" },
+    { ...feature, id: "yungkayoyeet", title: "Yung Kayo - YEET" },
+    { ...feature, id: "kankanzaza", title: "Kankan - Zaza", features: ["feat. GOONIE"] },
+    { ...feature, id: "gooniezaza", title: "GOONIE - Zaza", features: ["feat. YEAT & Kankan"] }
+  ], "test");
+  const list = JSON.parse(catalog.songListJson());
+  assert.deepEqual(list.songs.map(song => song.id), ["yungkayoyeet", "gooniezaza"]);
+  assert.equal(list.retiredSongs.length, 3);
+  const { songsForPool } = await import(pathToFileURL(path.join(root, "build/assets/song-pools.mjs")));
+  for (const pool of ["all", "released", "unreleased", "stems"]) assert.equal(songsForPool(list.retiredSongs, pool).length, 0);
+  assert.equal(isGuessingEligible({ artistRole: "non-vocal" }), false);
 });
 
 test("legacy and trailing slash routes redirect with queries before any audio or catalog work", async t => {

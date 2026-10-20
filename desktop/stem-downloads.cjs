@@ -45,7 +45,7 @@ function validateCatalog(json) {
   const songs = [], seen = new Set(), folders = new Set();
   let skipped = 0;
   for (const raw of json.songs.slice(0, 5000)) {
-    if (raw?.artistRole === "producer-only" || raw?.guessingEligible === false) { skipped++; continue; }
+    if (["producer-only", "non-vocal"].includes(raw?.artistRole) || raw?.guessingEligible === false) { skipped++; continue; }
     const id = typeof raw?.id === "string" && /^[\p{L}\p{N}@._-]{1,160}$/u.test(raw.id) ? raw.id : null;
     const folder = safeFolderName(raw?.folder);
     const files = Array.isArray(raw?.files) ? raw.files : [];
