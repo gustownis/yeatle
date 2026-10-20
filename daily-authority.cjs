@@ -1,5 +1,13 @@
 const { performance } = require("node:perf_hooks");
 
+function cleanDailyUrl(value) {
+  try {
+    const url = new URL(value);
+    if (/^\/daily(?:\.html\/?|\/)$/.test(url.pathname)) url.pathname = "/daily";
+    return url.href;
+  } catch { return value; }
+}
+
 function createDailyAuthority(origin, fetchJson) {
   const url = new URL(origin);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) throw new Error("dailyAuthority must be an http(s) origin, or an empty string for the authoritative host.");
@@ -22,6 +30,6 @@ function createDailyAuthority(origin, fetchJson) {
     })().finally(() => { pending = null; });
     return pending;
   };
-  return { get, audioUrl: audio => new URL(audio, url).href, shareUrl: new URL("/daily.html", url).href };
+  return { get, audioUrl: audio => new URL(audio, url).href, shareUrl: new URL("/daily", url).href };
 }
-module.exports = { createDailyAuthority };
+module.exports = { createDailyAuthority, cleanDailyUrl };

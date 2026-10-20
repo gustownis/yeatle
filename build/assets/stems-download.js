@@ -29,11 +29,24 @@ function el(tag, props = {}, ...kids) {
 
 function statusOf(id) { return (state.items[id] || { status: "idle" }); }
 
+function canSelect(song) {
+  const status = statusOf(song.id).status;
+  return status !== "installed" && status !== "conflict" && !busyStates.has(status);
+}
+
+function shownSongs() {
+  const query = norm($("#search").value);
+  const hide = $("#hide-installed").checked;
+  return state.catalog.songs.filter(song => (!hide || statusOf(song.id).status !== "installed") &&
+    (!query || norm(`${song.display} ${song.title} ${song.era} ${song.year || ""} ${song.features.join(" ")}`).includes(query)));
+}
+
 function rowFor(song) {
   const item = statusOf(song.id);
   const installed = item.status === "installed";
   const busy = busyStates.has(item.status);
-  const meta = [song.era || "No era", song.year, song.features.length ? `feat. ${song.features.join(", ")}` : ""].filter(Boolean).join(" · ");
+  const guests = song.features.map(name => name.replace(/^(?:feat\.?|ft\.?|with)\s+/i, ""));
+  const meta = [song.era || "No era", song.year, song.tab && song.tab !== "Unknown" ? song.tab : "", guests.length ? `feat. ${guests.join(", ")}` : ""].filter(Boolean).join(" · ");
   const check = el("input", {
     type: "checkbox", checked: picked.has(song.id), disabled: installed || busy || item.status === "conflict",
     "aria-label": `Select ${song.display}`,
@@ -74,6 +87,10 @@ function rowFor(song) {
 function render() {
   if (!state) return;
   const { catalog } = state;
+  // Drop completed, queued, conflicting or removed entries before drawing the
+  // checkboxes, so a progress update never leaves a disabled row checked.
+  const available = new Set(catalog.songs.filter(canSelect).map(song => song.id));
+  for (const id of picked) if (!available.has(id)) picked.delete(id);
   $("#host").textContent = `From ${state.host.replace(/^https?:\/\//, "")}`;
   $("#dest").textContent = state.songsDir;
   const status = $("#status");
@@ -83,9 +100,7 @@ function render() {
     status.replaceChildren(catalog.error + " ", el("button", { class: "linkish", text: "Try again", onclick: () => api.refresh() }));
   } else {
     const query = norm($("#search").value);
-    const hide = $("#hide-installed").checked;
-    const shown = catalog.songs.filter(song => (!hide || statusOf(song.id).status !== "installed") &&
-      (!query || norm(`${song.display} ${song.title} ${song.era} ${song.year || ""} ${song.features.join(" ")}`).includes(query)));
+    const shown = shownSongs();
     const installed = catalog.songs.filter(song => statusOf(song.id).status === "installed").length;
     const extra = [catalog.pending ? `${catalog.pending} more are still being prepared on the server` : "", catalog.skipped ? `${catalog.skipped} couldn't be offered` : ""].filter(Boolean).join(" · ");
     status.textContent = `${catalog.songs.length} song${catalog.songs.length === 1 ? "" : "s"} available · ${installed} installed${extra ? ` · ${extra}` : ""}. Pick the ones you want; nothing downloads until you do.`;
@@ -93,7 +108,7 @@ function render() {
     // so buttons keep working while progress updates arrive.
     const rows = shown.map(song => {
       const item = statusOf(song.id);
-      const key = JSON.stringify([item.status, item.note, item.error, picked.has(song.id)]);
+      const key = JSON.stringify([item.status, item.note, item.error, picked.has(song.id), song.display, song.era, song.year, song.features, song.tab, song.cover, song.size]);
       const old = rowCache.get(song.id);
       if (old && old.key === key) {
         if (item.status === "downloading") {
@@ -110,7 +125,12 @@ function render() {
     if (rows.length !== list.children.length || rows.some((row, i) => list.children[i] !== row)) list.replaceChildren(...rows);
     if (!shown.length) list.replaceChildren(el("p", { class: "muted", text: query ? "No songs match that search." : "Nothing to show." }));
   }
-  for (const id of [...picked]) { const s = statusOf(id).status; if (s === "installed" || busyStates.has(s)) picked.delete(id); }
+  const selectable = shownSongs().filter(canSelect);
+  const checked = selectable.filter(song => picked.has(song.id)).length;
+  const all = $("#check-all");
+  all.disabled = Boolean(catalog.loading || catalog.error) || !selectable.length;
+  all.checked = selectable.length > 0 && checked === selectable.length;
+  all.indeterminate = checked > 0 && checked < selectable.length;
   const chosen = catalog.songs.filter(song => picked.has(song.id));
   $("#picked").textContent = chosen.length ? `${chosen.length} selected · ${mb(chosen.reduce((sum, s) => sum + s.size, 0))}` : "Nothing selected";
   $("#get-picked").disabled = !chosen.length;
@@ -126,6 +146,12 @@ if (!api) {
   api.onChange(update);
   $("#search").addEventListener("input", render);
   $("#hide-installed").addEventListener("change", render);
+  $("#check-all").addEventListener("change", event => {
+    for (const song of shownSongs()) if (canSelect(song)) {
+      if (event.target.checked) picked.add(song.id); else picked.delete(song.id);
+    }
+    render();
+  });
   $("#clear").addEventListener("click", () => { picked.clear(); render(); });
   $("#get-picked").addEventListener("click", () => { const ids = [...picked]; picked.clear(); api.download(ids).then(update); });
   $("#open-folder").addEventListener("click", () => api.openFolder());

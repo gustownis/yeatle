@@ -1,4 +1,5 @@
-import { normalizeGuess } from "./snippet-rules.mjs?v=1.11.0";
+import { normalizeGuess } from "./snippet-rules.mjs?v=1.11.3-followup";
+import { songsForPool } from "./song-pools.mjs?v=1.11.3-followup";
 
 // Daily shares the game's suggestion markup and styles without rebuilding React.
 export function attachSongSuggestions(input, list) {
@@ -53,7 +54,7 @@ export function attachSongSuggestions(input, list) {
       if (song.era || song.year) {
         const meta = document.createElement("span");
         meta.className = "suggestion-meta";
-        meta.textContent = [song.era, song.year].filter(Boolean).join(" · ");
+        meta.textContent = [song.era, song.year, song.status].filter(Boolean).join(" · ");
         copy.append(meta);
       }
       option.append(copy);
@@ -96,10 +97,10 @@ export function attachSongSuggestions(input, list) {
     close,
     setSongs(entries) {
       const unique = new Map();
-      for (const song of entries) {
+      for (const song of songsForPool(entries)) {
         const label = song?.display || song?.title;
         if (typeof label !== "string" || !label.trim() || unique.has(label)) continue;
-        unique.set(label, { label, key: normalizeGuess(label), title: normalizeGuess(song.title), alts: (song.keys || []).map(normalizeGuess).filter(Boolean), era: song.era || "", year: song.eraYear || song.year || null });
+        unique.set(label, { label, key: normalizeGuess(label), title: normalizeGuess(song.title), alts: [...song.keys || [], ...song.answerKeys || []].map(normalizeGuess).filter(Boolean), era: song.era || "", year: song.eraYear || song.year || null, status: song.tab === "Unreleased" ? song.tab : "" });
       }
       songs = [...unique.values()].sort((a, b) => a.label.localeCompare(b.label));
       show();

@@ -8,8 +8,27 @@ export function normalizeGuess(text) {
 
 export function matchesSong(song, text) {
   const key = normalizeGuess(text);
-  return Boolean(key && [...(song.keys || []), song.title, song.display]
-    .some(value => normalizeGuess(value) === key));
+  if (!key) return false;
+  const keys = new Set([...(song.keys || []), ...(song.answerKeys || []), song.title, song.display]
+    .map(normalizeGuess).filter(Boolean));
+  // Expand a maintained alias with this recording's actual guests. Selecting
+  // "Watchu Said? (feat. UnoTheActivist)" must work when the same title is
+  // spelled "Whatchu said" in its tracker row. Do not strip arbitrary suffixes
+  // or use fuzzy/prefix matching: version and unrelated artist names matter.
+  const guests = [...(song.features || [])];
+  const inline = /\((?:feat\.?|ft\.?|with)\s+([^)]*)\)/ig;
+  for (const value of [song.title, song.display]) {
+    for (const match of String(value || "").matchAll(inline)) guests.push(match[1]);
+  }
+  const titles = [...keys];
+  for (const guest of guests) {
+    const name = normalizeGuess(String(guest).replace(/^(?:feat\.?|ft\.?|with)\s+/i, ""));
+    if (!name) continue;
+    for (const title of titles) {
+      for (const prefix of ["feat", "ft", "with"]) keys.add(`${title}${prefix}${name}`);
+    }
+  }
+  return keys.has(key);
 }
 
 export function restoreRound(saved, id) {
@@ -25,6 +44,13 @@ export function restoreRound(saved, id) {
 }
 
 export function shareResult(date, round, url) {
+  // Hosts may still advertise their older dailyPublicUrl during a rollout.
+  // New copied results use the canonical page without changing host settings.
+  try {
+    const target = new URL(url);
+    if (/^\/daily(?:\.html\/?|\/)$/.test(target.pathname)) target.pathname = "/daily";
+    url = target.href;
+  } catch { /* retain an unavailable or non-URL value */ }
   const won = round.status === "won";
   const blocks = BASE_LENGTHS.map((_, i) => {
     const kind = round.attempts[i]?.kind;

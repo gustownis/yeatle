@@ -154,7 +154,7 @@ test("different local libraries and clocks receive the same authoritative song, 
     assert.equal(daily.clipAt, canonical.clipAt);
     assert.ok(daily.clipAt >= 5 && daily.clipAt <= 10);
     assert.equal(daily.song.title, canonical.song.title);
-    assert.equal(daily.shareUrl, `${host}/daily.html`);
+    assert.equal(daily.shareUrl, `${host}/daily`);
     for (const audio of daily.audio) assert.equal(await (await fetch(`${client}/${audio}`)).text(), "global audio bytes");
     assert.equal(fs.existsSync(path.join(dir, "daily-challenges.json")), false);
     assert.equal((await fetch(`${client}/api/daily/audio/0?challenge=yesterday`)).status, 409);

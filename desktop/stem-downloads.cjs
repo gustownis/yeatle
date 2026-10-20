@@ -45,6 +45,7 @@ function validateCatalog(json) {
   const songs = [], seen = new Set(), folders = new Set();
   let skipped = 0;
   for (const raw of json.songs.slice(0, 5000)) {
+    if (raw?.artistRole === "producer-only" || raw?.guessingEligible === false) { skipped++; continue; }
     const id = typeof raw?.id === "string" && /^[\p{L}\p{N}@._-]{1,160}$/u.test(raw.id) ? raw.id : null;
     const folder = safeFolderName(raw?.folder);
     const files = Array.isArray(raw?.files) ? raw.files : [];
@@ -58,6 +59,8 @@ function validateCatalog(json) {
     songs.push({
       id, folder, files: clean, size: clean.reduce((sum, f) => sum + f.size, 0),
       display: text(raw.display) || folder, title: text(raw.title), era: text(raw.era),
+      artist: text(raw.artist), artistRole: ["vocalist", "co-lead", "featured", "unknown"].includes(raw.artistRole) ? raw.artistRole : "unknown",
+      tab: ["Released", "Unreleased"].includes(raw.tab) ? raw.tab : "Unknown",
       year: Number.isInteger(raw.year) ? raw.year : null,
       features: Array.isArray(raw.features) ? raw.features.filter(f => typeof f === "string").slice(0, 8).map(text) : [],
       cover: typeof raw.cover === "string" && /^api\/cover\?[\w=&%.-]*$/.test(raw.cover) ? raw.cover : ""

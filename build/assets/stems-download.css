@@ -8,6 +8,8 @@
 .dl-bar #search { flex: 1; }
 .dl-bar .check { margin: 0; white-space: nowrap; }
 .dl-list { min-height: 0; }
+.dl-check-all { align-self: flex-start; margin: 0 0 8px 8px; }
+.dl-check-all input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
 .dl-row { display: grid; grid-template-columns: 22px 40px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid transparent; border-radius: 10px; }
 .dl-row:hover { background: rgba(255, 255, 255, 0.06); }
 .dl-row.on { background: rgba(181, 101, 224, 0.2); border-color: var(--accent); }

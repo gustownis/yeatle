@@ -110,7 +110,7 @@ async function load(context, daily, songs) {
   await page.locator("#share").click();
   const copied = await page.evaluate(() => uiAudit.copied);
   assert.ok(copied.startsWith(`Yeatle Daily ${daily.date}\n0.1s · 1/6\n🟩⬜⬜⬜⬜⬜\n`));
-  assert.ok(copied.endsWith(daily.shareUrl || `${origin}/daily.html`));
+  assert.ok(copied.endsWith((daily.shareUrl || `${origin}/daily`).replace(/\/daily\.html(?=$|[?#])/, "/daily")));
   assert.ok(!copied.toLowerCase().includes(daily.song.title.toLowerCase()));
   assert.equal(await page.evaluate(() => uiAudit.shareCalls), 0);
   await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("Denied"); } } }));

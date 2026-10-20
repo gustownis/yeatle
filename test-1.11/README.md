@@ -42,7 +42,7 @@ to the host's private `config.json`, and restart its single server process:
 ```json
 {
   "dailyAuthority": "",
-  "dailyPublicUrl": "https://playyeatle.duckdns.org/daily.html"
+  "dailyPublicUrl": "https://playyeatle.duckdns.org/daily"
 }
 ```
 
@@ -174,7 +174,7 @@ adb devices
 adb reverse tcp:3193 tcp:3193
 ```
 
-Open **http://127.0.0.1:3193/daily.html** in Android Chrome (then your preferred
+Open **http://127.0.0.1:3193/daily** in Android Chrome (then your preferred
 browser). The PC serves the same pinned daily challenge to the phone. There is
 no Android APK in this project. Desktop's Open in Browser uses 3194 instead;
 reverse that port if comparing against its server. Keep the PC/server awake.

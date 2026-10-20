@@ -93,6 +93,21 @@ async function runGame() {
   assert.equal(result.checks.sandbox.process, "undefined");
   assert.deepEqual(result.checks.sandbox.bridge, ["cancel", "download", "onChange", "openFolder", "refresh", "replace", "state"]);
   assert.equal(result.checks.sandbox.selected, 0, "nothing is selected at first");
+  assert.equal(picker.isMenuBarVisible(), false);
+  // Updater status changes rebuild the application menu after launch.
+  const checkUpdates = help.submenu.items.find(item => item.label.includes("Check for Updates"));
+  checkUpdates?.click();
+  await wait(12000);
+  assert.equal(picker.isMenuBarVisible(), false, "the update check must not restore the utility menu");
+  picker.webContents.sendInputEvent({ type: "keyDown", keyCode: "Alt" });
+  picker.webContents.sendInputEvent({ type: "keyUp", keyCode: "Alt" });
+  assert.equal(picker.isMenuBarVisible(), false, "Alt cannot restore a removed menu");
+  result.checks.menuStaysHidden = true;
+  await run(picker, 'document.querySelector("#check-all").click()');
+  assert.equal(await run(picker, 'document.querySelectorAll(".dl-row input:checked").length'), 3);
+  await run(picker, 'document.querySelector("#check-all").click()');
+  assert.equal(await run(picker, 'document.querySelectorAll(".dl-row input:checked").length'), 0);
+  result.checks.checkAll = true;
   assert.equal(await run(picker, 'document.querySelector("#get-picked").disabled'), true);
   fs.writeFileSync(path.join(output, "picker-start.png"), (await picker.webContents.capturePage()).toPNG());
 

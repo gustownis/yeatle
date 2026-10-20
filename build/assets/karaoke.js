@@ -777,7 +777,7 @@ function renderSongList() {
       onclick: () => pickSong(song)
     },
       song.cover ? el("img", { src: song.cover, alt: "", loading: "lazy" }) : el("span", { class: "nocover" }),
-      el("span", { class: "song-text" }, el("b", { text: song.display }), el("small", { text: song.era || "No era" })),
+      el("span", { class: "song-text" }, el("b", { text: song.display }), el("small", { text: [song.era || "No era", song.eraYear || song.year, song.tab, song.relatedRecording].filter(Boolean).join(" · ") })),
       el("span", { class: "tag " + tag.cls, text: tag.text })
     );
   }));
@@ -858,7 +858,7 @@ async function findLyrics(song, duration, signal) {
 
   // a preview starts mid-song, so full-song lyrics wouldn't line up
   if (song.preview) return { lines: [], source: "" };
-  return searchLyricsOnline(song.title, state.artist || "Yeat", duration, signal);
+  return searchLyricsOnline(song.title.replace(/^.*?\s+[-–—]\s+/, ""), song.artist || state.artist || "Yeat", duration, signal);
 }
 
 const titleVariants = title => {
@@ -1366,7 +1366,7 @@ function runSplitter(left, right, stems, job) {
 async function loadSplitSong(song, job) {
   job.check();
   job.status("Downloading the song…", null);
-  const bytes = await fetchBytes(`api/audio/${encodeURIComponent(song.id)}`, job);
+  const bytes = await fetchBytes(`api/audio/${encodeURIComponent(song.audioId || song.id)}`, job);
   const ctx = audioCtx();
   let cache = null, hash = null;
   try {
@@ -1981,7 +1981,7 @@ export function carryFormerIds(songs, storage = globalThis.localStorage) {
     const keys = [];
     for (let i = 0; i < storage.length; i++) keys.push(storage.key(i));
     for (const song of songs) {
-      for (const old of song.formerIds || []) {
+      for (const old of [...song.formerIds || [], ...song.equivalentIds || []]) {
         for (const key of keys) {
           const m = /^(yeatle-karaoke-(?:best|lrc|shift|skips)):(.+?)(:[^:]*)?$/.exec(key);
           if (!m) continue;
@@ -2002,7 +2002,8 @@ async function loadSongs() {
   try {
     const res = await fetch("api/songs");
     const data = await res.json();
-    state.songs = (data.songs || []).slice().sort((a, b) => a.display.localeCompare(b.display));
+    const { songsForPool } = await import("./song-pools.mjs?v=1.11.3-followup");
+    state.songs = songsForPool(data.songs || []).slice().sort((a, b) => a.display.localeCompare(b.display));
     carryFormerIds(state.songs);
     state.artist = data.artist || "Yeat";
     renderSongList();

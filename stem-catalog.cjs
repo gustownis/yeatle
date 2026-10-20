@@ -109,6 +109,7 @@ function createStemCatalog({ stemsDir, cacheFile, getSongs, maxActive = 4, log =
       songs.push({
         id: song.id, title: song.title, display: song.display, era: song.era || "",
         year: song.eraYear || song.year || null, features: song.features || [], cover: song.cover || "",
+        artist: song.artist || "", artistRole: song.artistRole || "", tab: song.tab || "Unknown",
         folder: set.folder, size: files.reduce((sum, f) => sum + f.size, 0), files
       });
     }

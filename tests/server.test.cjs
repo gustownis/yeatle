@@ -49,6 +49,34 @@ async function launch(t, folder) {
   return { child, url: `http://127.0.0.1:${port}` };
 }
 
+test("clean game pages preserve legacy URLs, queries and relative resources", async t => {
+  const folder = dataFolder(t);
+  config(folder);
+  const { url } = await launch(t, folder);
+  for (const page of ["daily", "karaoke"]) {
+    const direct = await fetch(`${url}/${page}?mode=test`);
+    assert.equal(direct.status, 200);
+    assert.match(direct.headers.get("content-type"), /^text\/html/);
+    assert.match(await direct.text(), /Yeatle/);
+    const head = await fetch(`${url}/${page}`, { method: "HEAD" });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), "");
+    for (const suffix of [".html", "/", ".html/"]) {
+      const old = await fetch(`${url}/${page}${suffix}?x=one%20two&x=3`, { redirect: "manual" });
+      assert.equal(old.status, 308);
+      assert.equal(old.headers.get("location"), `/${page}?x=one%20two&x=3`);
+      const followed = await fetch(`${url}/${page}${suffix}?x=one%20two&x=3`);
+      assert.equal(followed.url, `${url}/${page}?x=one%20two&x=3`);
+      assert.equal(followed.status, 200);
+    }
+    const fakeAsset = await fetch(`${url}/${page}/assets/yeatle.js`);
+    assert.equal(fakeAsset.status, 404, "only the exact page is routed; nested assets do not become HTML");
+  }
+  for (const asset of ["/assets/yeatle.js", "/assets/karaoke.js", "/assets/daily.mjs", "/favicon.png", "/api/songs"]) {
+    assert.equal((await fetch(`${url}${asset}`)).status, 200, asset);
+  }
+});
+
 test("desktop server serves compiled game, runtime, and external stems; admin defaults off", async t => {
   const folder = dataFolder(t);
   config(folder);

@@ -1,0 +1,123 @@
+{
+  "corrections": [
+    {
+      "match": {
+        "id": "addicited",
+        "folder": "Addicited"
+      },
+      "set": {
+        "title": "Addicted",
+        "display": "Addicted",
+        "keys": [
+          "addicted",
+          "addicited"
+        ],
+        "answerId": "addicted-v2",
+        "answerKeys": [
+          "addicted",
+          "addicited"
+        ],
+        "era": "LYFESTYLE [V2]",
+        "eraYear": 2024,
+        "tab": "Unreleased",
+        "recordedIn": "",
+        "releasedOn": "",
+        "equivalentIds": [
+          "addicted"
+        ]
+      },
+      "basis": "2026-10-20: the public Addicited stem sum and tracker addicted V2 decode to 163.213 s with zero lag and 0.99545 normalized waveform correlation across the full recording. Preserve the original folder and both source ids."
+    },
+    {
+      "match": {
+        "id": "addicted",
+        "era": "LYFESTYLE [V2]"
+      },
+      "set": {
+        "answerId": "addicted-v2",
+        "answerKeys": [
+          "addicted",
+          "addicited"
+        ],
+        "equivalentIds": [
+          "addicited"
+        ]
+      },
+      "basis": "Verified against the Addicited pack by full-length decoded audio comparison; no other addicted version is included."
+    },
+    {
+      "match": {
+        "id": "nowls",
+        "folder": "Now LS"
+      },
+      "set": {
+        "title": "Now LS",
+        "display": "Now LS",
+        "keys": [
+          "nowls"
+        ],
+        "answerId": "now-ls",
+        "era": "LYFESTYLE [V2]",
+        "eraYear": 2024,
+        "tab": "Unreleased",
+        "recordedIn": "",
+        "releasedOn": "",
+        "equivalentIds": [
+          "now@lyfestyle"
+        ]
+      },
+      "basis": "User identification and 2026-10-20 full audio comparison: Now LS pack vs tracker Now prod synthetic, 166.452 s, zero lag, 0.99660 correlation. Separate from released AftërLyfe Now."
+    },
+    {
+      "match": {
+        "id": "now@lyfestyle",
+        "era": "LYFESTYLE [V2]"
+      },
+      "set": {
+        "title": "Now LS",
+        "display": "Now LS",
+        "keys": [
+          "nowls"
+        ],
+        "answerId": "now-ls",
+        "equivalentIds": [
+          "nowls"
+        ]
+      },
+      "basis": "Same verified recording as Now LS pack. Retain both source ids; neither accepts the bare title Now belonging to AftërLyfe."
+    },
+    {
+      "match": {
+        "id": "popout",
+        "source": {
+          "kind": "pillows",
+          "id": "097bbbef1c6c196877f2815f57cb2706"
+        }
+      },
+      "set": {
+        "display": "Popout (open verse)",
+        "recordingVersion": "Open verse",
+        "relatedRecording": "KillBunk — Pop Out (feat. Yeat)",
+        "artist": "Yeat",
+        "artistRole": "vocalist",
+        "answerKeys": [
+          "popout",
+          "popoutopenverse",
+          "popoutopenverseversion"
+        ]
+      },
+      "basis": "Tracker OG filename Popout OPEN prod juju, 2021-05-09, 3:01 demo with open verse for KillBunk. The unrelated SUBZEROSWIZ Popout is excluded by exact source matching. Released KillBunk feature has additional vocals and stays separate."
+    },
+    {
+      "match": {
+        "id": "kankanamgc63"
+      },
+      "set": {
+        "artist": "Kankan",
+        "artistRole": "producer-only",
+        "guessingEligible": false
+      },
+      "basis": "Released tracker Type=Production and both tracker notes identify Yeat and Rio Leyva as producers, with Kankan performing. Applies to the retained OG File source too; sharing the Expensive taste instrumental does not make it the same vocal recording."
+    }
+  ]
+}

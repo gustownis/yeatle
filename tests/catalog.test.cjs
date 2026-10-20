@@ -82,18 +82,20 @@ test("one recording listed under two spellings becomes one song; separate versio
   const { list } = await trackerServer(t, { "hidden-songs.json": { hidden: [{ id: "cantstopthis", name: "Cant stop this", era: "Lyfë", key: "cantstopthis|lyfe" }] } });
   const named = text => list.songs.filter(song => song.title === text);
   // "The Coste" [V2]/[V5] leaks and the released "THE COSTËS" name each other and match in length.
-  assert.equal(named("The Coste").length, 0);
-  const [coste] = named("THE COSTËS");
-  assert.deepEqual([coste.era, coste.recordedIn, coste.eraYear], ["LYFESTYLE", "LYFESTYLE [V2]", 2024]);
+  const coste = list.songs.find(song => song.id === "thecostes");
+  assert.deepEqual([coste.era, coste.eraYear, coste.tab], ["LYFESTYLE [V2]", 2024, "Unreleased"], "the all-songs entry describes the full leaked source it actually plays");
+  assert.deepEqual([coste.poolVariants.released.era, coste.poolVariants.released.recordedIn, coste.poolVariants.released.eraYear], ["LYFESTYLE", "LYFESTYLE [V2]", 2024]);
   assert.ok(coste.keys.includes("thecoste") && coste.keys.includes("thecostes"));
   assert.deepEqual(coste.formerIds, ["thecoste"], "progress saved under the old id can follow it");
   const { matchesSong } = await import(pathToFileURL(path.join(root, "build/assets/snippet-rules.mjs")).href);
   for (const guess of ["The Coste", "THE COSTËS", "the costes", "THE COSTES!", "costes"]) assert.ok(matchesSong(coste, guess), guess);
   assert.equal(matchesSong(coste, "The Cost"), false, "no prefix matches");
-  assert.deepEqual(await suggestionsFor(t, list.songs, "The cos"), [["THE COSTËS", "LYFESTYLE · 2024"]]);
+  assert.deepEqual(await suggestionsFor(t, list.songs, "The cos"), [["The Coste", "LYFESTYLE [V2] · 2024 · Unreleased"]]);
   // An ordinary spelling difference ("Tru 2 U" leaks of "Tru to U").
-  assert.equal(named("Tru 2 U").length, 0);
-  assert.equal(named("Tru to U").length, 1);
+  const tru = list.songs.filter(song => song.keys.includes("tru2u"));
+  assert.equal(tru.length, 1);
+  assert.equal(tru[0].poolVariants.released.title, "Tru to U");
+  assert.ok(matchesSong(tru[0], "Tru 2 U") && matchesSong(tru[0], "Tru to U"));
   // A genuinely different version: the 2:58/1:46 "nother league" leaks of the 1:17 "EveryTime".
   assert.equal(named("nother league").length, 1);
   assert.equal(named("EveryTime").length, 1);
@@ -121,4 +123,10 @@ test("Karaoke best scores and lyrics follow a song whose id changed when it was 
   assert.equal(data.get("yeatle-karaoke-best:thecostes:easy"), "{\"score\":400,\"name\":\"M\"}");
   assert.equal(data.get("yeatle-karaoke-lrc:thecostes"), "[00:01.00]line");
   assert.equal(data.has("yeatle-karaoke-best:thecostes:other:easy"), false, "a different song with a longer id is untouched");
+  data.set("yeatle-karaoke-best:addicted:hard", "{\"score\":900}");
+  data.set("yeatle-karaoke-shift:addicted", "0.25");
+  assert.equal(carryFormerIds([{ id: "addicited", equivalentIds: ["addicted"] }], storage), 2);
+  assert.equal(data.get("yeatle-karaoke-best:addicited:hard"), "{\"score\":900}");
+  assert.equal(data.get("yeatle-karaoke-shift:addicited"), "0.25");
+  assert.equal(data.get("yeatle-karaoke-best:addicted:hard"), "{\"score\":900}", "the original saved reference remains");
 });

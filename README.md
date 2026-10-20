@@ -252,6 +252,15 @@ manual opening works when that utility is absent. Press **Ctrl+C** to stop.
 Choose which eras and song categories you want, then select a game mode.
 The tracker supplies released and unreleased songs; available links can vary.
 
+The choices remain **All songs**, **Released**, **Unreleased**, and **Stems
+only**. They include Yeat's vocal features and exclude confirmed producer-only
+credits. Grouped answers retain separate playable sources: Released and
+Unreleased use that category's audio and metadata, and Stems only keeps the
+installed stems. Packs without verified release metadata remain available in
+All songs and Stems only until their metadata is established.
+
+Direct links use **`/daily`** and **`/karaoke`**. Older `.html` links redirect.
+
 ### Stems and filtered audio
 
 Stem mode gradually reveals **drums → bass → other instruments → song
@@ -287,7 +296,7 @@ the versions with different runtimes.
 ## Karaoke mode
 
 Click the **Karaoke** tab next to Stems and Snippets (or open
-`/karaoke.html`) to sing along Rock Band / Fortnite Festival style. Up to four
+`/karaoke`) to sing along Rock Band / Fortnite Festival style. Up to four
 people can sing at once, each on their own microphone, and each singer's pitch
 shows up as a coloured arrow on the note lane.
 
@@ -337,7 +346,7 @@ the lyrics.
   your normal best scores are untouched. **No mic** singers still don't score.
 
 For Android testing against this PC, use USB port reversal so the phone opens
-the local server at `http://localhost:3095/karaoke.html`. A plain HTTP Wi-Fi IP
+the local server at `http://localhost:3095/karaoke`. A plain HTTP Wi-Fi IP
 address cannot provide microphone access. The server normally listens only on
 loopback; see the [test checklist](docs/testing-1.10.1.md) for the USB setup.
 
@@ -345,8 +354,10 @@ loopback; see the [test checklist](docs/testing-1.10.1.md) for the USB setup.
 
 **Desktop app, easiest:** choose **Help → Optional HQ Stems → Download from
 server…**. Search or scroll, then press **Download** on a song or tick a few and
-press **Download selected**. Nothing downloads until you choose, and you never
-need the whole collection. Each song is checked against the server's checksums
+press **Download selected**. **Check all** selects every available song matching
+the current search; **Clear** removes the selection. Selecting songs starts no
+download. Installed, queued, downloading and conflicting songs are skipped.
+Each song is checked against the server's checksums
 and appears in the game as soon as it finishes, without a restart. Cancelled or
 failed downloads leave nothing behind; **Retry** starts them again. If your
 Songs folder already has a different folder with the same name, it is kept;

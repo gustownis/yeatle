@@ -7,8 +7,8 @@
     <meta name="theme-color" content="#000000" />
     <title>Download HQ stems</title>
     <link rel="stylesheet" href="./assets/karaoke.css?v=1.11.3">
-    <link rel="stylesheet" href="./assets/stems-download.css?v=1.11.3">
-    <script type="module" src="./assets/stems-download.js?v=1.11.3"></script>
+    <link rel="stylesheet" href="./assets/stems-download.css?v=1.11.3-followup">
+    <script type="module" src="./assets/stems-download.js?v=1.11.3-followup"></script>
   </head>
   <body>
     <div id="stems-app">
@@ -24,6 +24,7 @@
             <label class="check"><input id="hide-installed" type="checkbox"> Hide installed</label>
           </div>
           <p id="status" class="muted" aria-live="polite"></p>
+          <label class="check dl-check-all" title="Select all available songs matching the search"><input id="check-all" type="checkbox" disabled> Check all</label>
           <div id="list" class="song-list dl-list"></div>
           <footer class="dl-foot">
             <span id="picked" class="muted">Nothing selected</span>

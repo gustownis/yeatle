@@ -169,7 +169,14 @@ function refreshMenu() {
     updateStatus: updates.status,
     updating: updates.busy
   })));
-  if (adminWindow && !adminWindow.isDestroyed()) adminWindow.setMenu(null);
+  // setApplicationMenu also reapplies the menu to existing Windows/Linux
+  // windows. The launch-time update check must not restore it in utilities.
+  for (const window of [adminWindow, stemsWindow]) {
+    if (window && !window.isDestroyed()) {
+      window.setMenu(null);
+      window.setMenuBarVisibility(false);
+    }
+  }
 }
 
 function openAdmin() {
@@ -249,12 +256,13 @@ ipcMain.handle("stems:open-folder", event => { if (fromStemsWindow(event)) shell
 function openStemsServer() {
   if (stemsWindow && !stemsWindow.isDestroyed()) { stemsWindow.show(); stemsWindow.focus(); return; }
   const window = new BrowserWindow({
-    title: "Download HQ stems", width: 980, height: 760, minWidth: 520, minHeight: 480,
+    title: "Download HQ stems", width: 980, height: 760, minWidth: 520, minHeight: 480, autoHideMenuBar: true,
     backgroundColor: "#000000", show: false, icon: path.join(PROJECT_DIR, "build", "favicon.png"),
     webPreferences: { preload: path.join(__dirname, "stems-preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true }
   });
   stemsWindow = window;
   window.setMenu(null);
+  window.setMenuBarVisibility(false);
   window.once("ready-to-show", () => { if (!window.isDestroyed()) window.show(); });
   window.on("close", event => {
     if (quitting || !stemDownloader || !stemDownloader.busy) return;

@@ -103,6 +103,13 @@ private notes intact throughout synchronization.
   explicit local test) sets `dailyAuthority` to an empty string. Preserve its
   ignored `daily-challenges.json` during updates; clients must not fall back
   to locally selected songs when the shared host is unavailable.
+- Keep playable sources, release status and answer identities separate. Use
+  `catalog-policy.cjs`, `catalog-metadata.json` and the documented rules in
+  `docs/catalog-answer-policy.md` for verified equivalents and artist credits.
+  Yeat vocal features are eligible; confirmed producer-only tracks are excluded
+  from future rounds, including Stems only. Preserve existing ids, files and
+  pinned challenges when correcting metadata. Shared instrumentals alone do
+  not establish equivalent vocal recordings.
 
 ## Run and verify
 

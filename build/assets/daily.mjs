@@ -1,5 +1,5 @@
-import { BASE_LENGTHS, matchesSong, restoreRound, shareResult } from "./snippet-rules.mjs?v=1.11.0";
-import { attachSongSuggestions } from "./song-suggestions.mjs?v=1.11.3";
+import { BASE_LENGTHS, matchesSong, restoreRound, shareResult } from "./snippet-rules.mjs?v=1.11.3-followup";
+import { attachSongSuggestions } from "./song-suggestions.mjs?v=1.11.3-followup";
 
 const $ = selector => document.querySelector(selector);
 const suggestions = attachSongSuggestions($("#guess"), $("#song-suggestions"));
@@ -69,7 +69,7 @@ function render() {
     $("#result-label").textContent = round.status === "won" ? "The song is" : "The song was";
     $("#answer").textContent = challenge.song.display || challenge.song.title;
     const solvedSeconds = BASE_LENGTHS[round.attempts.length - 1];
-    $("#result-detail").textContent = round.status === "won" ? `You found it in ${solvedSeconds} second${solvedSeconds === 1 ? "" : "s"}.` : "Tomorrow brings another song.";
+    $("#result-detail").textContent = [round.status === "won" ? `You found it in ${solvedSeconds} second${solvedSeconds === 1 ? "" : "s"}.` : "Tomorrow brings another song.", challenge.song.era, challenge.song.eraYear || challenge.song.year, challenge.song.tab, challenge.song.relatedRecording && `Related recording: ${challenge.song.relatedRecording}`].filter(Boolean).join(" · ");
   }
 }
 
@@ -209,7 +209,7 @@ $("#guess-form").onsubmit = event => { event.preventDefault(); const text = $("#
 $("#skip").onclick = () => attempt("", true);
 $("#volume").oninput = () => { if (master) master.gain.value = Number($("#volume").value) ** 2; };
 $("#share").onclick = async () => {
-  const text = shareResult(challenge.date, round, challenge.shareUrl || new URL("daily.html", location.href).href);
+  const text = shareResult(challenge.date, round, challenge.shareUrl || new URL("daily", location.href).href);
   try {
     if (!navigator.clipboard?.writeText) throw new Error("Copy manually");
     await navigator.clipboard.writeText(text);

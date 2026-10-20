@@ -27,7 +27,8 @@ const { staticCacheHeaders, isNotModified, rangeAllowed, createCompressedCache, 
 const { createActiveSongFeed } = require("./live-control.cjs");
 const { createStemCatalog } = require("./stem-catalog.cjs");
 const { createDailyChallenges } = require("./daily-challenge.cjs");
-const { createDailyAuthority } = require("./daily-authority.cjs");
+const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs");
+const { creditFor, isGuessingEligible, applyCatalogMetadata } = require("./catalog-policy.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
 const APP_VERSION = require("./package.json").version;
@@ -40,7 +41,7 @@ const DATA_DIR = process.env.YEATLE_DATA_DIR ? path.resolve(process.env.YEATLE_D
 const STEMS_DIR = process.env.YEATLE_STEMS_DIR ? path.resolve(process.env.YEATLE_STEMS_DIR) : process.env.YEATLE_DATA_DIR ? path.join(DATA_DIR, "Songs") : path.join(WEB_DIR, "Songs");
 const CACHE_FILE = path.join(DATA_DIR, "songs-cache.json");
 // Bump when saved song metadata changes meaning, so older saved lists are corrected on load.
-const SONG_CACHE_FORMAT = 2;
+const SONG_CACHE_FORMAT = 3;
 const PREVIEW_CACHE_FILE = path.join(DATA_DIR, "preview-cache.json");
 const dailyChallenge = createDailyChallenges(path.join(DATA_DIR, "daily-challenges.json"));
 try {
@@ -652,9 +653,9 @@ async function loadTab(tab) {
     const parsed = parseNameCell(nameCell);
     if (!parsed.title) return;
 
-    // a song by someone else that Yeat is only featured on isn't a Yeat song
-    if (parsed.features.some(f => /\byeat\b/i.test(f))) return;
-    if (/^feature$/i.test(cell(row, "type"))) return;
+    // Features are Yeat vocal performances too. Producer-only tracker rows are
+    // retained for attribution and saved references, then excluded from new
+    // guessing pools by the maintained credit policy.
 
     let source = null;
     for (const link of links) {
@@ -931,7 +932,7 @@ function buildSongList(sheetRows, stemFolders) {
 
     const held = byKey.get(key);
     if (!held) {
-      byKey.set(key, { ...row, aliases: [...row.aliases], mergedFrom: [piece] });
+      byKey.set(key, { ...row, aliases: [...row.aliases], mergedFrom: [piece], variants: [row] });
       return;
     }
 
@@ -942,13 +943,17 @@ function buildSongList(sheetRows, stemFolders) {
 
     const betterSource = SOURCE_RANK[row.source.kind] < SOURCE_RANK[held.source.kind] ? row.source : held.source;
     const infoRow = held.tab !== "Released" && row.tab === "Released" ? row : held;
-    byKey.set(key, { ...infoRow, aliases, source: betterSource, mergedFrom: [...held.mergedFrom, piece] });
+    byKey.set(key, { ...infoRow, aliases, source: betterSource, mergedFrom: [...held.mergedFrom, piece], variants: [...held.variants, row] });
   });
 
   // other names the sheet gives a song ("Pychocainë" for "Psychocainë")
   const byAlias = new Map();
   byKey.forEach(entry => {
-    entry.aliases.forEach(alias => { const k = norm(alias); if (k && !byAlias.has(k)) byAlias.set(k, entry); });
+    for (const k of guessKeys(entry)) {
+      const entries = byAlias.get(k) || [];
+      if (!entries.includes(entry)) entries.push(entry);
+      byAlias.set(k, entries);
+    }
   });
 
   // put the friend's stems onto the matching sheet song, or add them as-is
@@ -965,7 +970,13 @@ function buildSongList(sheetRows, stemFolders) {
       return (album && list.find(entry => eraBaseKey(entry.era) === album || eraBaseKey(entry.releasedOn) === album)) || list[0];
     };
     for (const k of keys) { const found = pickByAlbum(sameTitle(k)); if (found) { match = found; break; } }
-    if (!match) for (const k of keys) { if (byAlias.has(k)) { match = byAlias.get(k); break; } }
+    if (!match) for (const k of keys) {
+      const candidates = byAlias.get(k) || [];
+      const album = eraBaseKey(stem.info.album);
+      const inAlbum = album ? candidates.filter(entry => [entry.era, entry.releasedOn].some(era => eraBaseKey(era) === album)) : [];
+      const unique = inAlbum.length ? inAlbum : candidates;
+      if (unique.length === 1) { match = unique[0]; break; }
+    }
 
     const stemSource = { kind: "stems", folder: stem.folder };
 
@@ -976,8 +987,17 @@ function buildSongList(sheetRows, stemFolders) {
     if (!match && byKey.has(id)) id = `${id}-${norm(stem.features.join(" ")) || norm(stem.folder)}`;
 
     if (match) {
-      match.fallback = match.source;
+      // A merged answer can contain released and leaked sources. Attribute the
+      // installed pack to its own title/album, rather than giving a leaked file
+      // the released row's eligibility (or replacing the playable pack).
+      const variants = match.variants || [match];
+      const exact = variants.filter(row => norm(row.title) === norm(stem.title));
+      const candidates = exact.length ? exact : variants;
+      const album = eraBaseKey(stem.info.album);
+      const origin = candidates.find(row => album && [row.era, row.releasedOn].some(era => eraBaseKey(era) === album)) || candidates[0];
+      match.fallback = origin.source;
       match.source = stemSource;
+      match.variants = [...variants, { ...origin, source: stemSource, fallback: origin.source }];
       if (!match.producers.length && stem.info["producer(s)"]) match.producers = [stem.info["producer(s)"]];
       return;
     }
@@ -994,22 +1014,22 @@ function buildSongList(sheetRows, stemFolders) {
       length: "",
       type: "",
       availability: "",
-      tab: "Released",
+      tab: /^(?:released|unreleased)$/i.test(stem.info.status || "") ? stem.info.status[0].toUpperCase() + stem.info.status.slice(1).toLowerCase() : "Unknown",
       source: stemSource
     });
   });
 
   const formerIds = new Map(allGroups.filter(group => group.formerIds.size).map(group => [group.id, [...group.formerIds].filter(id => !byKey.has(id))]));
-  const songs = [];
-  byKey.forEach((song, key) => {
+  const toGameSong = (song, key) => {
     const era = song.displayEra != null ? song.displayEra : (song.era || "");
     const recordedIn = song.recordedIn && looseEraKey(song.recordedIn) !== looseEraKey(era) ? song.recordedIn : "";
-    songs.push({
+    return {
       id: key,
       title: song.title,
       display: song.features.length ? `${song.title} (${song.features[0]})` : song.title,
       features: song.features,
       producers: song.producers,
+      ...creditFor(song, CONFIG.artist),
       keys: guessKeys(song),
       era,
       recordedIn,
@@ -1030,7 +1050,36 @@ function buildSongList(sheetRows, stemFolders) {
       source: song.source,
       fallback: song.fallback || null,
       ...(formerIds.get(key)?.length ? { formerIds: formerIds.get(key) } : {})
-    });
+    };
+  };
+  const songs = [];
+  byKey.forEach((song, key) => {
+    let variants = song.variants || [song];
+    // An OG File row does not erase the linked recording's production credit.
+    // Actual guest vocals take precedence over a production-only relationship.
+    if (variants.some(row => creditFor(row).artistRole === "producer-only") && !variants.some(row => creditFor(row).artistRole === "featured")) {
+      variants = variants.map(row => ({ ...row, artistRole: "producer-only" }));
+    }
+    const eligible = variants.filter(isGuessingEligible);
+    const primary = eligible.find(row => row.source === song.source) || eligible[0] || variants.find(row => row.source === song.source) || variants[0];
+    const entry = { ...toGameSong(primary, key), keys: guessKeys(song), mergedFrom: song.mergedFrom || [] };
+    const sources = variants.map(row => ({
+      ...toGameSong(row, key), trackerKey: row._trackerKey || null,
+      audioId: `${key}@audio-${crypto.createHash("sha256").update(JSON.stringify([row._trackerKey, row.source])).digest("hex").slice(0, 16)}`
+    }));
+    const forPool = {};
+    for (const [pool, accepts] of Object.entries({
+      released: row => row.tab === "Released",
+      unreleased: row => row.tab === "Unreleased",
+      stems: row => row.source.kind === "stems"
+    })) {
+      const row = sources.filter(row => accepts(row) && isGuessingEligible(row))
+        .sort((a, b) => SOURCE_RANK[a.source.kind] - SOURCE_RANK[b.source.kind])[0];
+      if (!row) continue;
+      forPool[pool] = { ...row, keys: entry.keys };
+    }
+    if (variants.length > 1) { entry.poolVariants = forPool; entry.sourceVariants = sources; }
+    songs.push(entry);
   });
 
   songs.sort((a, b) => a.title.localeCompare(b.title));
@@ -1053,6 +1102,12 @@ function upgradeCachedSongs(cached) {
   if (cached.format >= SONG_CACHE_FORMAT) return cached.songs;
   const eras = new Map((Array.isArray(cached.eras) ? cached.eras : []).map(era => [era.name, era]));
   return cached.songs.map(song => {
+    // Old merged lists discarded source provenance. Keep their audio and ids,
+    // but don't pretend their best file is a verified released or leaked source.
+    // A normal tracker refresh reconstructs the per-source pool choices.
+    if (!song.poolVariants && new Set((song.mergedFrom || []).map(row => row.tab)).size > 1) {
+      return { ...song, tab: "Unknown", poolVariants: song.mode === "stems" ? { stems: { ...song, tab: "Unknown" } } : {} };
+    }
     if (song.tab !== "Released" || !isThrowaway(song) || !song.recordedIn) return song;
     const era = song.recordedIn, info = eras.get(era);
     return { ...song, era, recordedIn: "", eraYear: (info && info.year) || null, cover: (info && info.cover) || coverForEra(era) || song.cover };
@@ -1060,11 +1115,19 @@ function upgradeCachedSongs(cached) {
 }
 
 function setSongs(songs, source) {
+  const covers = new Map(songs.filter(song => song.cover).map(song => [song.era, song.cover]));
   SONGS = songs.map(song => {
     const override = RENAMES[song.id];
-    return override ? { ...song, display: override } : song;
+    song = applyCatalogMetadata(song);
+    if (!song.cover) song = { ...song, cover: covers.get(song.era) || coverForEra(song.era) };
+    const entry = { ...song, ...creditFor(song, CONFIG.artist) };
+    return override ? { ...entry, display: override } : entry;
   });
-  SONG_INDEX = new Map(songs.map(s => [s.id, s]));
+  SONG_INDEX = new Map(SONGS.map(s => [s.id, s]));
+  for (const song of SONGS) {
+    for (const variant of song.sourceVariants || Object.values(song.poolVariants || {})) if (variant.audioId) SONG_INDEX.set(variant.audioId, variant);
+    for (const id of song.formerIds || []) if (!SONG_INDEX.has(id)) SONG_INDEX.set(id, song);
+  }
   LAST_SOURCE = source;
 }
 
@@ -1171,7 +1234,9 @@ async function findPreview(song) {
   const cacheKey = previewKey(song);
   if (previewCache[cacheKey]) return previewCache[cacheKey];
 
-  const artist = norm(CONFIG.artist);
+  const artistName = song.artist || creditFor(song, CONFIG.artist).artist || CONFIG.artist;
+  const artist = norm(artistName);
+  const searchTitle = song.title.replace(/^.*?\s+[-–—]\s+/, "");
   let url = null;
 
   if (song.source.kind === "apple") {
@@ -1184,18 +1249,18 @@ async function findPreview(song) {
 
   if (!url) {
     try {
-      const term = encodeURIComponent(`${CONFIG.artist} ${song.title}`);
+      const term = encodeURIComponent(`${artistName} ${searchTitle}`);
       const data = await fetchJson(`https://itunes.apple.com/search?term=${term}&entity=song&limit=25`);
-      const hit = (data.results || []).find(r => r.previewUrl && norm(r.artistName).includes(artist) && titleMatches(song, r.trackName));
+      const hit = (data.results || []).find(r => r.previewUrl && norm(r.artistName).includes(artist) && titleMatches({ ...song, title: searchTitle }, r.trackName));
       if (hit) url = hit.previewUrl;
     } catch (err) { /* try deezer */ }
   }
 
   if (!url) {
     try {
-      const q = encodeURIComponent(`artist:"${CONFIG.artist}" track:"${song.title.replace(/"/g, "")}"`);
+      const q = encodeURIComponent(`artist:"${artistName}" track:"${searchTitle.replace(/"/g, "")}"`);
       const data = await fetchJson(`https://api.deezer.com/search?q=${q}`);
-      const hit = (data.data || []).find(r => r.preview && norm(r.artist && r.artist.name).includes(artist) && titleMatches(song, r.title));
+      const hit = (data.data || []).find(r => r.preview && norm(r.artist && r.artist.name).includes(artist) && titleMatches({ ...song, title: searchTitle }, r.title));
       if (hit) url = hit.preview;
     } catch (err) { /* nothing found */ }
   }
@@ -1640,7 +1705,7 @@ async function resolveSource(song, source) {
       case "exoshare": url = await resolveExoshare(source.id); break;
       case "exofile": { const [s, f] = source.id.split("/"); url = await resolveExoshare(s, f); break; }
       case "apple":
-      case "search": url = await findPreview(song); break;
+      case "search": url = await findPreview({ ...song, source }); break;
       default: url = null;
     }
 
@@ -1766,6 +1831,7 @@ function serveStatic(req, res, pathname) {
   let rel;
   try { rel = decodeURIComponent(pathname); } catch (err) { rel = pathname; }
   if (rel === "/") rel = "/index.html";
+  if (rel === "/daily" || rel === "/karaoke") rel += ".html";
 
   const base = rel.startsWith("/Songs/") ? STEMS_DIR : WEB_DIR;
   const requested = rel.startsWith("/Songs/") ? rel.slice("/Songs/".length) : rel.slice(1);
@@ -1962,7 +2028,7 @@ async function rescanStems() {
 const stemCatalog = createStemCatalog({
   stemsDir: STEMS_DIR,
   cacheFile: path.join(DATA_DIR, "stems-hashes.json"),
-  getSongs: () => SONGS.filter(s => !isHidden(s)),
+  getSongs: () => SONGS.filter(s => !isHidden(s) && isGuessingEligible(s)),
   maxActive: 4
 });
 
@@ -1994,6 +2060,15 @@ function serveStemFile(req, res, searchParams) {
 const JOKES_FILE = path.join(DATA_DIR, "joke-photos.json");
 let preparedSongList;
 
+function publicSong(song) {
+  // Correct names/answers on a pinned challenge without changing its stored
+  // recording, identity, clip start or source selection.
+  song = applyCatalogMetadata(song);
+  const { source, fallback, mergedFrom, sourceVariants, poolVariants, ...rest } = song;
+  return { ...rest, hasFull: Boolean(song.mode === "filter" || fallback),
+    ...(poolVariants ? { poolVariants: Object.fromEntries(Object.entries(poolVariants).map(([pool, variant]) => [pool, publicSong(variant)])) } : {}) };
+}
+
 function songListJson() {
   let jokesStamp = "missing";
   try {
@@ -2003,8 +2078,12 @@ function songListJson() {
   const key = [SONGS, ERAS, HIDDEN_IDS, LAST_UPDATE, LAST_SOURCE, LAST_ERROR, CONFIG.artist, jokesStamp];
   if (preparedSongList && key.every((value, index) => value === preparedSongList.key[index])) return preparedSongList.json;
   // Rebuild immediately after tracker/admin changes or an edited photo file.
-  const songs = attachJokes(SONGS.filter(s => !isHidden(s)).map(({ source, fallback, mergedFrom, ...rest }) => ({ ...rest, hasFull: Boolean(rest.mode === "filter" || fallback) })));
-  const json = JSON.stringify({ songs, eras: ERAS, updated: LAST_UPDATE, source: LAST_SOURCE, error: LAST_ERROR, artist: CONFIG.artist, liveControl: LIVE_CONTROL });
+  const songs = attachJokes(SONGS.filter(s => !isHidden(s) && isGuessingEligible(s)).map(publicSong));
+  // Retained only to restore an already-started round. Normal pools and song
+  // suggestions consume songs; an eligibility correction must not reroll an
+  // existing round or make its answer/audio unreachable.
+  const retiredSongs = SONGS.filter(s => !isHidden(s) && !isGuessingEligible(s)).map(publicSong);
+  const json = JSON.stringify({ songs, retiredSongs, eras: ERAS, updated: LAST_UPDATE, source: LAST_SOURCE, error: LAST_ERROR, artist: CONFIG.artist, liveControl: LIVE_CONTROL });
   preparedSongList = { key, json };
   return json;
 }
@@ -2778,13 +2857,22 @@ async function handleAdmin(req, res, pathname) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const { pathname, searchParams } = new URL(req.url, "http://localhost");
+  const { pathname, searchParams, search } = new URL(req.url, "http://localhost");
 
   // lets the song splitter use every CPU core (shared memory needs these)
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
 
   try {
+    // Canonical pages stay at the root so relative API, asset and audio URLs
+    // resolve exactly as they did on the old .html pages. Browsers retain the
+    // original fragment when Location does not specify one.
+    const legacyPage = /^\/(daily|karaoke)(?:\.html\/?|\/)$/.exec(pathname);
+    if (legacyPage) {
+      res.writeHead(308, { Location: `/${legacyPage[1]}${search}`, "Cache-Control": "no-cache" });
+      res.end();
+      return;
+    }
     if (await handleAdmin(req, res, pathname)) return;
 
     const model = /^\/models\/(\w+)\.fp16\.onnx$/.exec(pathname);
@@ -2830,7 +2918,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
       if (!SONGS.length) await refreshOnce();
-      const daily = dailyChallenge(SONGS.filter(s => !isHidden(s)));
+      const daily = dailyChallenge(SONGS.filter(s => !isHidden(s) && isGuessingEligible(s)));
       if (!daily) return sendJson(res, 503, { error: "No daily songs are available yet. Sync the tracker or add a local stem pack, then try again." });
       // A withdrawn song is unavailable for the rest of the day; never give
       // different players a replacement challenge under the same date.
@@ -2839,12 +2927,12 @@ const server = http.createServer(async (req, res) => {
         if (searchParams.get("challenge") !== daily.id) return sendJson(res, 409, { error: "A new daily challenge is available. Reload Daily." });
         return serveSongAudio(req, res, daily.song.id, daily.song);
       }
-      const { source, fallback, mergedFrom, ...song } = daily.song;
-      const audio = song.mode === "stems" && !fallback
+      const song = publicSong(daily.song);
+      const audio = song.mode === "stems" && !daily.song.fallback
         ? ["drums", "bass", "other", "vocals"].map(stem => `Songs/${song.folder.split("/").map(encodeURIComponent).join("/")}/${stem}.mp3`)
         : [`api/daily/audio?challenge=${encodeURIComponent(daily.id)}`];
       return sendJson(res, 200, { id: daily.id, date: daily.date, seed: daily.seed, clipAt: daily.clipAt, resetsAt: daily.resetsAt, serverTime: daily.serverTime,
-        scope: CONFIG.dailyPublicUrl ? "global" : "local", shareUrl: CONFIG.dailyPublicUrl || undefined, song, audio });
+        scope: CONFIG.dailyPublicUrl ? "global" : "local", shareUrl: cleanDailyUrl(CONFIG.dailyPublicUrl) || undefined, song, audio });
     }
 
     if (pathname === "/api/cover") return serveCover(res, searchParams.get("era") || "");

@@ -162,7 +162,7 @@ async function play(page, length) {
   }
   await page.setViewportSize({ width: 1100, height: 950 });
   await page.screenshot({ path: path.join(output, "daily-desktop.png") });
-  await page.locator('a.tab[href="./karaoke.html"]').click();
+  await page.locator('a.tab[href="./karaoke"]').click();
   await page.locator("#song-list button").first().waitFor();
   await page.getByRole("tab", { name: "Daily", exact: true }).click();
   await page.locator("#result").waitFor({ state: "visible" });
@@ -238,7 +238,7 @@ async function play(page, length) {
   await page.route(audioPattern, holdAudio);
   await page.locator("#play").click();
   await requestedAudio;
-  await page.locator('a.tab[href="./karaoke.html"]').click();
+  await page.locator('a.tab[href="./karaoke"]').click();
   await page.locator("#song-list button").first().waitFor();
   releaseAudio();
   await page.unroute(audioPattern, holdAudio);
