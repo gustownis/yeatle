@@ -6,6 +6,7 @@ const { menuTemplate } = require("./menu.cjs");
 const { createUpdateController } = require("./updates.cjs");
 const { installMicrophonePermissions } = require("./permissions.cjs");
 const { createStemDownloader, stemsHostUrl } = require("./stem-downloads.cjs");
+const { loadWindowPage } = require("./window-load.cjs");
 app.setName("Yeatle");
 // Match the installed shortcut so Windows uses Yeatle's taskbar identity.
 if (process.platform === "win32") app.setAppUserModelId("io.github.gustownis.yeatle");
@@ -151,7 +152,7 @@ function createWindow() {
     const timer = setTimeout(() => { if (!quitting) updates.check(false).catch(console.warn); }, 10000);
     timer.unref();
   });
-  window.loadURL(serverUrl).catch(failStartup);
+  loadWindowPage(window, serverUrl, failStartup);
 }
 
 function refreshMenu() {
@@ -194,7 +195,7 @@ function openAdmin() {
     if (new URL(url).origin !== serverUrl) { event.preventDefault(); openExternal(url); }
   });
   window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
-  window.loadURL(`${serverUrl}/admin`).catch(error => dialog.showErrorBox("Admin panel could not open", error.message));
+  loadWindowPage(window, `${serverUrl}/admin`, error => dialog.showErrorBox("Admin panel could not open", error.message));
 }
 
 // The game's Songs folder: the desktop data folder's "Songs", or YEATLE_STEMS_DIR when set.
@@ -278,7 +279,7 @@ function openStemsServer() {
     if (new URL(url).origin !== serverUrl) { event.preventDefault(); openExternal(url); }
   });
   window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
-  window.loadURL(`${serverUrl}/stems-download.html`).catch(error => dialog.showErrorBox("Download window could not open", error.message));
+  loadWindowPage(window, `${serverUrl}/stems-download.html`, error => dialog.showErrorBox("Download window could not open", error.message));
 }
 
 function openExternal(url) {
