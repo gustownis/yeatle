@@ -12,5 +12,7 @@
     { "name": "Unreleased", "gid": "1241081326" }
   ],
   "googleApiKey": "",
-  "liveControl": true
+  "liveControl": true,
+  "stemsHost": "https://playyeatle.duckdns.org",
+  "stemDownloads": false
 }

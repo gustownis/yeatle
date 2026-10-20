@@ -1,10 +1,11 @@
-const { app, BrowserWindow, Menu, dialog, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, shell, ipcMain, net } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { menuTemplate } = require("./menu.cjs");
 const { createUpdateController } = require("./updates.cjs");
 const { installMicrophonePermissions } = require("./permissions.cjs");
+const { createStemDownloader, stemsHostUrl } = require("./stem-downloads.cjs");
 app.setName("Yeatle");
 // Match the installed shortcut so Windows uses Yeatle's taskbar identity.
 if (process.platform === "win32") app.setAppUserModelId("io.github.gustownis.yeatle");
@@ -13,6 +14,11 @@ if (process.env.YEATLE_TEST_PROFILE) app.setPath("userData", path.resolve(proces
 
 const PROJECT_DIR = path.join(__dirname, "..");
 const STEMS_URL = "https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g";
+// Where "Download from server" gets HQ stems: config.json "stemsHost", separate from Daily's server.
+const DEFAULT_STEMS_HOST = "https://playyeatle.duckdns.org";
+let stemsHost = DEFAULT_STEMS_HOST;
+let stemsWindow;
+let stemDownloader;
 let serverProcess;
 let gameWindow;
 let adminWindow;
@@ -41,6 +47,8 @@ else {
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
   app.on("before-quit", () => {
     quitting = true;
+    // unfinished downloads are removed; nothing half-downloaded is left behind
+    if (stemDownloader) stemDownloader.cancelAll().catch(() => {});
     if (serverProcess) serverProcess.kill();
   });
 }
@@ -55,7 +63,7 @@ async function startGame() {
   starting = true;
   try {
     const dataDir = app.getPath("userData");
-    fs.mkdirSync(path.join(dataDir, "Songs"), { recursive: true });
+    fs.mkdirSync(songsDir(), { recursive: true });
     // Seed defaults once, so updates never overwrite the player's settings.
     const defaults = ["era-covers.json", "hidden-songs.json", "song-edits.json", "song-renames.json", "song-splits.json"];
     for (const file of defaults) {
@@ -70,6 +78,9 @@ async function startGame() {
     // A stable origin preserves the game's browser storage between launches.
     const settings = JSON.parse(fs.readFileSync(configFile, "utf8"));
     const desktopPort = settings.desktopPort ?? 3094;
+    const host = stemsHostUrl(process.env.YEATLE_STEMS_HOST || settings.stemsHost || DEFAULT_STEMS_HOST);
+    if (!host) throw new Error('Set "stemsHost" in config.json to an https:// address.');
+    stemsHost = host;
     if (!Number.isInteger(desktopPort) || desktopPort < 1 || desktopPort > 65535) {
       throw new Error('Set "desktopPort" in config.json to a number from 1 to 65535.');
     }
@@ -148,11 +159,12 @@ function refreshMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
     platform: process.platform,
     openBrowser: () => shell.openExternal(serverUrl).catch(failStartup),
-    openSongs: () => shell.openPath(path.join(app.getPath("userData"), "Songs")),
+    openSongs: () => shell.openPath(songsDir()),
     openSettings: () => shell.openPath(app.getPath("userData")),
     openAdmin,
     openGuide: () => openExternal("https://github.com/gustownis/yeatle#readme"),
-    openStems: () => openExternal(STEMS_URL),
+    openStemsMega: () => openExternal(STEMS_URL),
+    openStemsServer,
     checkUpdates: () => updates.check(true).catch(console.warn),
     updateStatus: updates.status,
     updating: updates.busy
@@ -176,6 +188,89 @@ function openAdmin() {
   });
   window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
   window.loadURL(`${serverUrl}/admin`).catch(error => dialog.showErrorBox("Admin panel could not open", error.message));
+}
+
+// The game's Songs folder: the desktop data folder's "Songs", or YEATLE_STEMS_DIR when set.
+function songsDir() {
+  return process.env.YEATLE_STEMS_DIR ? path.resolve(process.env.YEATLE_STEMS_DIR) : path.join(app.getPath("userData"), "Songs");
+}
+
+/* ---------- HQ stems from the server ---------- */
+
+async function localSongs() {
+  const res = await fetch(`${serverUrl}/api/songs`);
+  const data = await res.json();
+  return new Map((data.songs || []).map(song => [song.id, { mode: song.mode, folder: song.folder }]));
+}
+
+// Asks the local game server to look at the Songs folder again.
+function rescanServer() {
+  return new Promise(resolve => {
+    const child = serverProcess;
+    if (!child || !child.connected) { resolve(null); return; }
+    const id = Date.now() + Math.random();
+    const done = message => { clearTimeout(timer); child.off("message", onMessage); resolve(message); };
+    const onMessage = message => { if (message?.type === "stems-rescanned" && message.id === id) done(message); };
+    const timer = setTimeout(() => done(null), 30000);
+    child.on("message", onMessage);
+    child.send({ type: "rescan-stems", id });
+  });
+}
+
+function getStemDownloader() {
+  if (!stemDownloader) {
+    stemDownloader = createStemDownloader({
+      songsDir: songsDir(), host: stemsHost,
+      fetch: (url, options) => net.fetch(url, options),
+      localSongs, rescan: rescanServer,
+      onChange: state => { if (stemsWindow && !stemsWindow.isDestroyed()) stemsWindow.webContents.send("stems:changed", state); }
+    });
+    stemDownloader.cleanupStale();
+  }
+  return stemDownloader;
+}
+
+// Only the picker window, showing the game's own page, may use these.
+function fromStemsWindow(event) {
+  if (!stemsWindow || stemsWindow.isDestroyed() || event.sender !== stemsWindow.webContents) return false;
+  try { return new URL(event.senderFrame.url).origin === serverUrl; } catch (_) { return false; }
+}
+const validId = id => typeof id === "string" && id.length > 0 && id.length <= 160;
+ipcMain.handle("stems:state", event => (fromStemsWindow(event) ? getStemDownloader().snapshot() : null));
+ipcMain.handle("stems:refresh", event => (fromStemsWindow(event) ? getStemDownloader().loadCatalog() : null));
+ipcMain.handle("stems:download", (event, ids) => {
+  if (!fromStemsWindow(event) || !Array.isArray(ids)) return null;
+  return getStemDownloader().download(ids.filter(validId).slice(0, 500));
+});
+ipcMain.handle("stems:cancel", (event, id) => (fromStemsWindow(event) && validId(id) ? getStemDownloader().cancel(id) : null));
+ipcMain.handle("stems:replace", (event, id) => (fromStemsWindow(event) && validId(id) ? getStemDownloader().replace(id) : null));
+ipcMain.handle("stems:open-folder", event => { if (fromStemsWindow(event)) shell.openPath(songsDir()); return null; });
+
+function openStemsServer() {
+  if (stemsWindow && !stemsWindow.isDestroyed()) { stemsWindow.show(); stemsWindow.focus(); return; }
+  const window = new BrowserWindow({
+    title: "Download HQ stems", width: 980, height: 760, minWidth: 520, minHeight: 480,
+    backgroundColor: "#000000", show: false, icon: path.join(PROJECT_DIR, "build", "favicon.png"),
+    webPreferences: { preload: path.join(__dirname, "stems-preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true }
+  });
+  stemsWindow = window;
+  window.setMenu(null);
+  window.once("ready-to-show", () => { if (!window.isDestroyed()) window.show(); });
+  window.on("close", event => {
+    if (quitting || !stemDownloader || !stemDownloader.busy) return;
+    const choice = dialog.showMessageBoxSync(window, {
+      type: "question", buttons: ["Keep downloading", "Cancel downloads and close"], defaultId: 0, cancelId: 0,
+      message: "Songs are still downloading.", detail: "Closing cancels them. Songs that already finished stay installed."
+    });
+    if (choice === 0) event.preventDefault();
+    else stemDownloader.cancelAll().catch(() => {});
+  });
+  window.on("closed", () => { if (stemsWindow === window) stemsWindow = null; });
+  window.webContents.on("will-navigate", (event, url) => {
+    if (new URL(url).origin !== serverUrl) { event.preventDefault(); openExternal(url); }
+  });
+  window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
+  window.loadURL(`${serverUrl}/stems-download.html`).catch(error => dialog.showErrorBox("Download window could not open", error.message));
 }
 
 function openExternal(url) {

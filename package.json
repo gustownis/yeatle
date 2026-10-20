@@ -57,6 +57,7 @@
       "licenses/**/*",
       "static-cache.cjs",
       "live-control.cjs",
+      "stem-catalog.cjs",
       "daily-challenge.cjs",
       "daily-authority.cjs"
     ],

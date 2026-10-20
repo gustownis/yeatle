@@ -1,4 +1,4 @@
-function menuTemplate({ platform, openBrowser, openSongs, openSettings, openAdmin, openGuide, openStems, checkUpdates, updateStatus, updating }) {
+function menuTemplate({ platform, openBrowser, openSongs, openSettings, openAdmin, openGuide, openStemsMega, openStemsServer, checkUpdates, updateStatus, updating }) {
   return [
     ...(platform === "darwin" ? [{ role: "appMenu" }] : []),
     { label: "Game", submenu: [
@@ -20,7 +20,10 @@ function menuTemplate({ platform, openBrowser, openSongs, openSettings, openAdmi
       { label: updateStatus, enabled: !updating, click: checkUpdates },
       { type: "separator" },
       { label: "Setup Guide", click: openGuide },
-      { label: "Optional HQ Stems", click: openStems }
+      { label: "Optional HQ Stems", submenu: [
+        { label: "Download from MEGA", click: openStemsMega },
+        { label: "Download from server…", click: openStemsServer }
+      ] }
     ] }
   ];
 }

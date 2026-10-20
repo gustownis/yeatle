@@ -12,6 +12,7 @@
 /preview-cache.json
 /daily-challenges.json
 /daily-challenges.json.tmp
+/stems-hashes.json
 /joke-photos.json
 
 # Models download automatically. Songs are distributed separately.

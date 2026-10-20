@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="./favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <title>Download HQ stems</title>
+    <link rel="stylesheet" href="./assets/karaoke.css?v=1.11.3">
+    <link rel="stylesheet" href="./assets/stems-download.css?v=1.11.3">
+    <script type="module" src="./assets/stems-download.js?v=1.11.3"></script>
+  </head>
+  <body>
+    <div id="stems-app">
+      <div class="bg"></div>
+      <main class="screen dl">
+        <header class="top">
+          <img class="logo" src="Images/Yeatle-Logo.png" alt="Yeatle">
+          <div class="dl-title"><b>HQ stems</b><small id="host"></small></div>
+        </header>
+        <section class="panel dl-panel">
+          <div class="dl-bar">
+            <input id="search" type="search" placeholder="Search songs, eras or features" autocomplete="off">
+            <label class="check"><input id="hide-installed" type="checkbox"> Hide installed</label>
+          </div>
+          <p id="status" class="muted" aria-live="polite"></p>
+          <div id="list" class="song-list dl-list"></div>
+          <footer class="dl-foot">
+            <span id="picked" class="muted">Nothing selected</span>
+            <div class="row">
+              <button id="clear" class="btn small" disabled>Clear</button>
+              <button id="get-picked" class="btn primary" disabled>Download selected</button>
+            </div>
+          </footer>
+          <p class="muted dl-dest">Installs into <span id="dest"></span> · <button id="open-folder" class="linkish">Open Songs folder</button></p>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

@@ -25,6 +25,7 @@ const { pipeline } = require("stream/promises");
 const { createGzip, constants: zlibConstants } = require("node:zlib");
 const { staticCacheHeaders, isNotModified, rangeAllowed, createCompressedCache, gzipBuffer } = require("./static-cache.cjs");
 const { createActiveSongFeed } = require("./live-control.cjs");
+const { createStemCatalog } = require("./stem-catalog.cjs");
 const { createDailyChallenges } = require("./daily-challenge.cjs");
 const { createDailyAuthority } = require("./daily-authority.cjs");
 const compressedAssets = createCompressedCache();
@@ -65,7 +66,10 @@ const DEFAULT_CONFIG = {
   googleApiKey: "",
   // With the admin panel on, "Play in game" switches every open game to the chosen
   // song. Public websites set this to false so visitors' games are never steered.
-  liveControl: true
+  liveControl: true,
+  // Offer this server's complete HQ stem folders for download (desktop
+  // Help > Optional HQ Stems > Download from server). Off unless a host turns it on.
+  stemDownloads: false
 };
 
 function loadJson(file, fallback) {
@@ -91,7 +95,7 @@ if (process.env.YEATLE_DESKTOP === "1") CONFIG.openBrowser = false;
 if (!Number.isInteger(CONFIG.port) || CONFIG.port < 0 || CONFIG.port > 65535 ||
     !Number.isFinite(CONFIG.refreshMinutes) || CONFIG.refreshMinutes < 0 ||
     !Array.isArray(CONFIG.tabs) || CONFIG.tabs.some(tab => !tab || typeof tab.name !== "string" || !/^[0-9]+$/.test(String(tab.gid))) ||
-    typeof CONFIG.sheetId !== "string" || typeof CONFIG.artist !== "string" || typeof CONFIG.openBrowser !== "boolean" || typeof CONFIG.liveControl !== "boolean") {
+    typeof CONFIG.sheetId !== "string" || typeof CONFIG.artist !== "string" || typeof CONFIG.openBrowser !== "boolean" || typeof CONFIG.liveControl !== "boolean" || typeof CONFIG.stemDownloads !== "boolean") {
   console.error("Invalid Yeatle settings. Use a port from 0 to 65535, a non-negative refreshMinutes number, and the format shown in config.example.json.");
   process.exit(1);
 }
@@ -703,7 +707,8 @@ const STEM_FILES = ["drums", "bass", "other", "vocals"];
 function readStemFolders() {
   let names = [];
   try {
-    names = fs.readdirSync(STEMS_DIR, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name);
+    // (folders starting with "." hold downloads that aren't finished yet)
+    names = fs.readdirSync(STEMS_DIR, { withFileTypes: true }).filter(d => d.isDirectory() && !d.name.startsWith(".")).map(d => d.name);
   } catch (err) {
     return [];
   }
@@ -1939,6 +1944,46 @@ function refreshOnce() {
   return refreshing;
 }
 
+// Picks up stem folders added while running (the desktop app asks after a download).
+async function rescanStems() {
+  if (refreshing) await refreshing;
+  if (LAST_INPUT) {
+    LAST_INPUT = { ...LAST_INPUT, stemFolders: readStemFolders() };
+    rebuildFromLast();
+  } else await refreshOnce();
+  stemCatalog.invalidate();
+  return SONGS.filter(s => s.mode === "stems").length;
+}
+
+/* ------------------------------------------------------------------ *
+ *  HQ stem downloads (read-only; only when "stemDownloads" is true)
+ * ------------------------------------------------------------------ */
+
+const stemCatalog = createStemCatalog({
+  stemsDir: STEMS_DIR,
+  cacheFile: path.join(DATA_DIR, "stems-hashes.json"),
+  getSongs: () => SONGS.filter(s => !isHidden(s)),
+  maxActive: 4
+});
+
+function serveStemFile(req, res, searchParams) {
+  const found = stemCatalog.resolve(searchParams.get("id") || "", searchParams.get("name") || "");
+  if (found.status !== 200) return sendJson(res, found.status, { error: found.error });
+  const release = stemCatalog.slot();
+  if (!release) {
+    res.writeHead(503, { "Content-Type": "application/json", "Cache-Control": "no-store", "Retry-After": "5" });
+    res.end(JSON.stringify({ error: "The server is busy with other downloads. Trying again shortly." }));
+    return;
+  }
+  res.on("close", release);
+  res.writeHead(200, {
+    "Content-Type": MIME[path.extname(found.name)] || "application/octet-stream",
+    "Content-Length": found.size, "Cache-Control": "no-store", "ETag": `"${found.sha256}"`, "X-Content-SHA256": found.sha256
+  });
+  if (req.method === "HEAD") { res.end(); release(); return; }
+  fs.createReadStream(found.file).on("error", () => res.destroy()).pipe(res);
+}
+
 /* ------------------------------------------------------------------ *
  *  Inside-joke photos: a few songs show a picture when you get them
  *
@@ -2803,6 +2848,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/cover") return serveCover(res, searchParams.get("era") || "");
+    if (pathname === "/api/stems/catalog" || pathname === "/api/stems/file") {
+      if (!CONFIG.stemDownloads) return sendJson(res, 404, { enabled: false, error: "This server doesn't offer HQ stem downloads." });
+      if (req.method !== "GET" && req.method !== "HEAD") return sendJson(res, 405, { error: "Use GET." });
+      if (pathname === "/api/stems/file") return serveStemFile(req, res, searchParams);
+      if (!SONGS.length) await refreshOnce();
+      return sendJson(res, 200, stemCatalog.catalog());
+    }
 
     const audio = /^\/api\/audio\/(.+)$/.exec(pathname);
     if (audio) return serveSongAudio(req, res, decodeURIComponent(audio[1]));
@@ -2848,7 +2900,14 @@ server.listen(CONFIG.port, "127.0.0.1", async () => {
     ERAS = Array.isArray(cached.eras) ? cached.eras : [];
     LAST_UPDATE = cached.updated || 0;
   }
-  if (process.send) process.send({ type: "yeatle-ready", port });
+  if (process.send) {
+    process.send({ type: "yeatle-ready", port });
+    process.on("message", message => {
+      if (message?.type !== "rescan-stems") return;
+      rescanStems().then(count => process.send({ type: "stems-rescanned", id: message.id, count }))
+        .catch(error => process.send({ type: "stems-rescanned", id: message.id, error: error.message }));
+    });
+  }
   openBrowser();
   // Models download only when an AI-split song requests them.
   await refreshOnce();
