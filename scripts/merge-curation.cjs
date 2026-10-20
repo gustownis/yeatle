@@ -41,7 +41,9 @@ function mergeCuration(baseDir, localDir, targetDir) {
       ? mergeLists(pick(base, []), pick(local, []), pick(upstream, []), key)
       : mergeMaps(pick(base, {}), pick(local, {}), pick(upstream, {}));
     const next = { ...upstream, [field]: value };
-    if (!same(next, upstream)) changed.push(name);
+    // leave files without local changes exactly as the repository has them
+    if (same(next, upstream)) continue;
+    changed.push(name);
     const target = path.join(targetDir, name);
     fs.writeFileSync(`${target}.tmp`, JSON.stringify(next, null, 2) + "\n");
     fs.renameSync(`${target}.tmp`, target);
