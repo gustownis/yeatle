@@ -60,6 +60,8 @@ The maintainer's 2026-10-22 exclusion list covers 60 tracker rows, including ear
 
 The parser retains `trackerVersion` separately from answer titles. Excluding a demo never excludes a later Yeat feature just because their titles match. Merged entries and old caches reselect an eligible source for each pool while retaining every original source, audio id and tracker fingerprint. Full recordings keep their existing preference over streaming previews. Birthday V2, Pull Up V2, Dope Sickk V2, Not Da Same V2, Cop My Style V1 and the original Eaters release with Yeat remain eligible. Existing pinned Daily snapshots and practice audio selections retain their original recordings.
 
+Admin uses the same `isGuessingEligible` result as gameplay. Its counts and filters distinguish manual Hidden state from catalog Excluded state, and combined tracker rows show each recording's version and eligibility. An excluded entry cannot be added to the manual hide list or activated through Play in game. Older local duplicate hides can be cleared explicitly without making their recordings eligible. Six redundant default hides for already-excluded Hercules, Rino Hercules, Lil Uzi Vert Hehe/Panic, Ski Mask Look At She and Future/ATL Jacob Millionaire entries have been removed; unrelated hides, including hidden entries that still have eligible recordings, remain unchanged.
+
 Audio preparation caches use `audioId` when supplied, falling back to `id`
 for older records. Pool projections with different playable sources cannot
 share a preparation job merely because their progress id is the same. All

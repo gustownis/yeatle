@@ -69,6 +69,12 @@ function isGuessingEligible(song) {
   return song.guessingEligible !== false && creditFor(song).guessingEligible;
 }
 
+function catalogExclusionReason(song) {
+  if (isGuessingEligible(song)) return "";
+  const role = creditFor(song).artistRole;
+  return role === "producer-only" ? "Production credit only" : role === "non-vocal" ? "No Yeat vocal performance" : "Excluded by catalog rules";
+}
+
 function isExcludedRecording(song) {
   const sameSource = (left, right) => left && right && left.kind === right.kind && left.id === right.id;
   const versionRange = value => /^V(\d+)(?:-V?(\d+))?$/i.exec(value || "");
@@ -119,4 +125,4 @@ function applyCatalogMetadata(song) {
   return result;
 }
 
-module.exports = { creditFor, isGuessingEligible, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility };
+module.exports = { creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility };

@@ -28,7 +28,7 @@ const { createActiveSongFeed } = require("./live-control.cjs");
 const { createStemCatalog } = require("./stem-catalog.cjs");
 const { createDailyChallenges } = require("./daily-challenge.cjs");
 const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs");
-const { creditFor, isGuessingEligible, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
+const { creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
 const APP_VERSION = require("./package.json").version;
@@ -2237,11 +2237,18 @@ function readJsonBody(req) {
 
 // every song, hidden or not, plus hidden entries the tracker no longer has
 function adminSongList() {
-  const songs = SONGS.map(s => ({
-    id: s.id, title: s.title, display: s.display, era: s.era || "", tab: s.tab, date: s.date || "",
-    type: s.type || "", length: s.length || "", preview: Boolean(s.preview), hidden: isHidden(s),
-    rows: s.mergedFrom || [], stems: s.mode === "stems" ? (s.folder || "") : ""
-  }));
+  const songs = SONGS.map(s => {
+    const rows = (s.mergedFrom || []).map(row => {
+      const recording = s.sourceVariants?.find(variant => variant.trackerKey === row.trackerKey) || s;
+      return { ...row, trackerVersion: recording.trackerVersion || "", guessingEligible: isGuessingEligible(recording), exclusionReason: catalogExclusionReason(recording) };
+    });
+    return {
+      id: s.id, title: s.title, display: s.display, era: s.era || "", tab: s.tab, date: s.date || "",
+      type: s.type || "", length: s.length || "", preview: Boolean(s.preview), hidden: isHidden(s),
+      guessingEligible: isGuessingEligible(s), exclusionReason: catalogExclusionReason(s), excludedRows: rows.filter(row => !row.guessingEligible).length,
+      rows, stems: s.mode === "stems" ? (s.folder || "") : ""
+    };
+  });
   const ids = new Set(SONGS.map(s => s.id));
   const keys = new Set(SONGS.map(hiddenKey));
   const stale = HIDDEN.filter(h => !ids.has(h.id) && !keys.has(h.key)).map(h => ({ id: h.id, name: h.name, era: h.era }));
@@ -2280,13 +2287,14 @@ const ADMIN_HTML = String.raw`<!doctype html>
   .bar.sticky { position: sticky; top: 0; background: #000; z-index: 5; border-bottom: 1px solid rgba(255,255,255,.16); }
   .bar .grow { flex: 1 1 200px; }
   .list { margin-top: 4px; }
-  .row { display: grid; grid-template-columns: 24px 74px 1fr auto; gap: 10px; align-items: center; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,.1); }
+  .row { display: grid; grid-template-columns: 24px 64px minmax(0,1fr) auto auto; gap: 10px; align-items: center; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,.1); }
   .row.hidden-song .name { color: rgba(255,255,255,.45); text-decoration: line-through; }
   .row input[type=checkbox] { width: 18px; height: 18px; accent-color: #8901b9; }
   .name { font-weight: 600; word-break: break-word; }
   .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; }
   .tag { padding: 1px 8px; border-radius: 10px; font-size: .72rem; background: rgba(255,255,255,.14); }
   .tag.hid { background: #b8352e; }
+  .tag.exc { background: #68417c; }
   .tag.dup { background: #8901b9; }
   .tag.mix { background: #a35a00; }
   .rowsbox { margin-top: 8px; padding: 10px 12px; border: 1px solid rgba(255,255,255,.2); border-radius: 6px; display: grid; gap: 8px; }
@@ -2298,7 +2306,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
   .rowline { display: flex; gap: 10px; align-items: center; justify-content: space-between; font-size: .85rem; }
   h2 { font-size: 1.05rem; margin: 28px 0 4px; }
   .empty { padding: 24px 0; color: rgba(255,255,255,.6); }
-  @media (max-width: 600px) { .row { grid-template-columns: 24px 1fr auto; } .row .play { display: none; } }
+  @media (max-width: 600px) { .row { grid-template-columns: 24px minmax(0,1fr) auto; } .row .play { display: none; } .list > .row > .btn:last-child { grid-column: 3; } }
 </style>
 </head>
 <body>
@@ -2432,7 +2440,7 @@ function buildScreen() {
     var query = testInput.value.trim().toLowerCase();
     if (!query) return;
     var matches = state.songs.filter(function (song) {
-      return !song.hidden && (song.display + " " + song.title + " " + (song.era || "") + " " + (song.tab || "")).toLowerCase().indexOf(query) >= 0;
+      return song.guessingEligible !== false && !song.hidden && (song.display + " " + song.title + " " + (song.era || "") + " " + (song.tab || "")).toLowerCase().indexOf(query) >= 0;
     }).slice(0, 25);
     if (!matches.length) { testResults.appendChild(el("div", { class: "muted", text: "No matching playable songs." })); return; }
     matches.forEach(function (song) {
@@ -2481,18 +2489,18 @@ function buildScreen() {
     el("div", null, [el("h1", { text: "Yeatle admin" }), summary]),
     el("button", { class: "btn", text: "Log out", onclick: function () { api("/api/admin/logout", {}).then(function () { listBox = null; showLogin(); }); } })
   ]));
-  app.appendChild(el("p", { class: "muted", text: "Hidden songs disappear from the game for everyone using this copy. Entry edits are saved by tracker row in song-edits.json, so tracker updates keep the change attached to its original entry." }));
+  app.appendChild(el("p", { class: "muted", text: "Hide and Show control eligible songs for everyone using this copy. Excluded recordings are already kept out by the catalog rules. Combined songs can keep a version with Yeat while excluding an earlier demo." }));
 
   app.appendChild(el("div", { class: "bar" }, [
     search,
-    select("Show", "show", [["all", "All songs"], ["visible", "Visible only"], ["hidden", "Hidden only"], ["dupes", "Possible duplicates"], ["merged", "Combined songs"]]),
+    select("Show", "show", [["all", "All songs"], ["visible", "Visible only"], ["hidden", "Hidden only"], ["excluded", "Excluded only"], ["dupes", "Possible duplicates"], ["merged", "Combined songs"]]),
     select("Tab", "tab", [["all", "Released and unreleased"], ["Released", "Released"], ["Unreleased", "Unreleased"]]),
     eraSelect,
     testToggle
   ]));
   app.appendChild(testPanel);
   app.appendChild(el("div", { class: "bar sticky" }, [
-    el("button", { class: "btn small", text: "Select all matches", onclick: function () { shown().forEach(function (s) { state.selected[s.id] = true; }); renderList(); } }),
+    el("button", { class: "btn small", text: "Select all matches", onclick: function () { shown().forEach(function (s) { if (s.guessingEligible !== false) state.selected[s.id] = true; }); renderList(); } }),
     el("button", { class: "btn small", text: "Clear", onclick: function () { state.selected = {}; renderList(); } }),
     selectedCount,
     el("span", { class: "grow" }),
@@ -2522,8 +2530,9 @@ function updateEraOptions() {
 
 function shown() {
   var list = state.songs.filter(function (song) {
-    if (state.show === "visible" && song.hidden) return false;
-    if (state.show === "hidden" && !song.hidden) return false;
+    if (state.show === "visible" && (song.hidden || song.guessingEligible === false)) return false;
+    if (state.show === "hidden" && (!song.hidden || song.guessingEligible === false)) return false;
+    if (state.show === "excluded" && song.guessingEligible !== false) return false;
     if (state.show === "dupes" && song.dupes < 2) return false;
     if (state.show === "merged" && !(song.rows && song.rows.length > 1)) return false;
     if (state.tab !== "all" && song.tab !== state.tab) return false;
@@ -2558,14 +2567,14 @@ function togglePlay(song, button) {
 }
 
 function updateBar() {
-  var ids = Object.keys(state.selected).filter(function (id) { return state.selected[id]; });
+  var ids = state.songs.filter(function (song) { return state.selected[song.id] && song.guessingEligible !== false; });
   selectedCount.textContent = ids.length + " selected";
   hideBtn.disabled = !ids.length;
   showBtn.disabled = !ids.length;
 }
 
 function apply(hide, ids) {
-  var chosen = ids || Object.keys(state.selected).filter(function (id) { return state.selected[id]; });
+  var chosen = ids || state.songs.filter(function (song) { return state.selected[song.id] && song.guessingEligible !== false; }).map(function (song) { return song.id; });
   if (!chosen.length) return;
   api("/api/admin/hide", { ids: chosen, hidden: hide }).then(function (data) {
     state.songs = data.songs;
@@ -2622,9 +2631,9 @@ function rowsPanel(song) {
   var toggle = el("button", { class: "btn small", style: "margin-top:6px", text: isOpen ? "Hide the combined rows" : "See the combined rows", onclick: function () { state.open[song.id] = !isOpen; renderList(); } });
   if (!isOpen) return toggle;
   var lines = song.rows.map(function (row) {
-    var info = [row.era, row.tab, row.date, row.length].filter(Boolean).join(", ");
+    var info = [row.trackerVersion, row.era, row.tab, row.date, row.length, row.guessingEligible === false ? "Excluded" : "Eligible"].filter(Boolean).join(", ");
     return el("div", { class: "rowline" }, [
-      el("span", { text: info }),
+      el("span", { text: info, title: row.exclusionReason || "" }),
       el("div", null, [
         el("button", { class: "btn small", text: "Edit tracker entry", onclick: function () { editTrackerEntry(song, row); } }),
         el("button", { class: "btn small", style: "margin-left:6px", text: "This is a different song", onclick: function () { separate(song, row); } })
@@ -2642,8 +2651,9 @@ function renderList() {
   state.page = Math.max(0, Math.min(state.page, pages - 1));
   var start = state.page * PAGE_SIZE;
   var visible = list.slice(start, start + PAGE_SIZE);
-  var hiddenCount = state.songs.filter(function (s) { return s.hidden; }).length;
-  summary.textContent = (state.songs.length - hiddenCount) + " in the game, " + hiddenCount + " hidden. " + list.length + " match your filters.";
+  var excludedCount = state.songs.filter(function (s) { return s.guessingEligible === false; }).length;
+  var hiddenCount = state.songs.filter(function (s) { return s.guessingEligible !== false && s.hidden; }).length;
+  summary.textContent = (state.songs.length - hiddenCount - excludedCount) + " in the game, " + hiddenCount + " hidden, " + excludedCount + " excluded. " + list.length + " match your filters.";
   pageInfo.textContent = "Page " + (state.page + 1) + " of " + pages + " - " + (list.length ? (start + 1) + "-" + (start + visible.length) : "0") + " of " + list.length + " songs";
   previousPage.disabled = state.page === 0;
   nextPage.disabled = state.page === pages - 1;
@@ -2652,23 +2662,27 @@ function renderList() {
   if (!list.length) listBox.appendChild(el("div", { class: "empty", text: "Nothing matches." }));
 
   visible.forEach(function (song) {
-    var box = el("input", { type: "checkbox", "aria-label": "Select " + song.display, checked: Boolean(state.selected[song.id]) });
+    var excluded = song.guessingEligible === false;
+    var box = el("input", { type: "checkbox", "aria-label": "Select " + song.display, checked: !excluded && Boolean(state.selected[song.id]), disabled: excluded });
     box.addEventListener("change", function () { state.selected[song.id] = box.checked; updateBar(); });
 
     var details = [song.era, song.tab, song.date, song.type, song.length].filter(Boolean).join(", ");
     var tags = [];
-    if (song.hidden) tags.push(el("span", { class: "tag hid", text: "Hidden" }));
+    if (excluded) tags.push(el("span", { class: "tag exc", text: "Excluded", title: song.exclusionReason }));
+    else if (song.hidden) tags.push(el("span", { class: "tag hid", text: "Hidden" }));
+    if (!excluded && song.excludedRows) tags.push(el("span", { class: "tag exc", text: song.excludedRows + " excluded recording" + (song.excludedRows === 1 ? "" : "s") }));
     if (song.dupes > 1) tags.push(el("span", { class: "tag dup", text: "Possible duplicate (" + song.dupes + ")" }));
     if (song.preview) tags.push(el("span", { class: "tag", text: "30s preview" }));
     if (song.rows && song.rows.length > 1) tags.push(el("span", { class: "tag mix", text: "Combined from " + song.rows.length + " tracker rows" }));
 
-    listBox.appendChild(el("div", { class: "row" + (song.hidden ? " hidden-song" : "") }, [
+    listBox.appendChild(el("div", { class: "row" + (!excluded && song.hidden ? " hidden-song" : "") }, [
       box,
       el("button", { class: "btn small play", text: playingId === song.id ? "Stop" : "Play", onclick: function () { togglePlay(song); } }),
       el("div", null, [
         el("div", { class: "name", text: song.display }),
         el("div", { class: "muted", text: details }),
         tags.length ? el("div", { class: "tags" }, tags) : null,
+        excluded ? el("div", { class: "muted", text: song.exclusionReason + "." }) : null,
         rowsPanel(song)
       ]),
       song.rows && song.rows.length === 1 ? el("button", { class: "btn small", text: "Edit tracker entry", onclick: function () { editTrackerEntry(song, song.rows[0]); } }) : el("button", { class: "btn small", text: "Rename", onclick: function () {
@@ -2676,7 +2690,7 @@ function renderList() {
         if (next === null) return;
         send("/api/admin/rename", { id: song.id, name: next.trim() });
       } }),
-      el("button", { class: "btn small" + (song.hidden ? "" : " red"), text: song.hidden ? "Show" : "Hide", onclick: function () { apply(!song.hidden, [song.id]); } })
+      el("button", { class: "btn small" + (!excluded && !song.hidden ? " red" : ""), text: excluded ? (song.hidden ? "Clear manual hide" : "Excluded") : song.hidden ? "Show" : "Hide", disabled: excluded && !song.hidden, title: excluded && song.hidden ? "Remove the duplicate manual hide. The catalog still excludes this recording." : "", onclick: function () { apply(excluded ? false : !song.hidden, [song.id]); } })
     ]));
   });
   updateBar();
@@ -2770,7 +2784,7 @@ async function handleAdmin(req, res, pathname) {
     const body = await readJsonBody(req);
     const id = String(body.id || "");
     const song = SONGS.find(s => s.id === id);
-    if (!song || isHidden(song)) { sendJson(res, 404, { error: "Song not found or hidden. Refresh the tracker and try again." }); return true; }
+    if (!song || isHidden(song) || !isGuessingEligible(song)) { sendJson(res, 404, { error: "Song not found, hidden or excluded. Refresh the tracker and try again." }); return true; }
     ACTIVE_SONG = { id, seq: ACTIVE_SONG.seq + 1, epoch: ACTIVE_SONG_EPOCH };
     activeSongFeed.publish(ACTIVE_SONG);
     sendJson(res, 200, { ok: true, seq: ACTIVE_SONG.seq });
@@ -2786,7 +2800,7 @@ async function handleAdmin(req, res, pathname) {
     if (body.hidden) {
       ids.forEach(id => {
         const song = byId.get(id);
-        if (song && !HIDDEN.some(h => h.id === id)) HIDDEN.push({ id, name: song.display, era: song.era || "", key: hiddenKey(song) });
+        if (song && isGuessingEligible(song) && !HIDDEN.some(h => h.id === id)) HIDDEN.push({ id, name: song.display, era: song.era || "", key: hiddenKey(song) });
       });
     } else {
       const wantedKeys = new Set(ids.map(id => byId.get(id)).filter(Boolean).map(hiddenKey));

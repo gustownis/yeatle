@@ -116,6 +116,7 @@ private notes intact throughout synchronization.
   from future rounds, including Stems only. Preserve existing ids, files and
   pinned challenges when correcting metadata. Shared instrumentals alone do
   not establish equivalent vocal recordings.
+- Admin Hide/Show is manual curation of eligible entries. Catalog exclusions use the same eligibility policy in gameplay, admin status and live control; do not duplicate them in default hidden-song settings or bypass them through Play in game. Clearing an old duplicate manual hide must not restore an excluded recording.
 
 ## Run and verify
 

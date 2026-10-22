@@ -1,22 +1,10 @@
 {
   "hidden": [
     {
-      "id": "summrsandplaqueboymaxrinohercules",
-      "name": "Summrs & PlaqueBoyMax - Rino Hercules",
-      "era": "A DANGEROUS LYFE [V1]",
-      "key": "summrsandplaqueboymaxrinohercules|adangerouslyfev1"
-    },
-    {
       "id": "hehe",
       "name": "hehe (with Lil Uzi Vert)",
       "era": "2 Alivë",
       "key": "hehewithliluzivert|2alive"
-    },
-    {
-      "id": "liluziverthehe",
-      "name": "Lil Uzi Vert - Hehe",
-      "era": "2 Alivë",
-      "key": "liluziverthehe|2alive"
     },
     {
       "id": "doubletesla",
@@ -71,12 +59,6 @@
       "name": "Money N Drugs",
       "era": "",
       "key": "moneyndrugs|"
-    },
-    {
-      "id": "summrsandplaqueboymaxhercules",
-      "name": "Summrs & PlaqueBoyMax - Hercules",
-      "era": "A DANGEROUS LYFE [V1]",
-      "key": "summrsandplaqueboymaxhercules|adangerouslyfev1"
     },
     {
       "id": "marching",
@@ -275,12 +257,6 @@
       "name": "Osama",
       "era": "Lyfë",
       "key": "osama|lyfe"
-    },
-    {
-      "id": "skimasktheslumpgodlookatshe",
-      "name": "Ski Mask the Slump God - Look At She",
-      "era": "Lyfë",
-      "key": "skimasktheslumpgodlookatshe|lyfe"
     },
     {
       "id": "stoodtaller",
@@ -649,12 +625,6 @@
       "key": "comedown|2alive"
     },
     {
-      "id": "futureandatljacobmillionaire",
-      "name": "Future & ATL Jacob - Millionaire",
-      "era": "2 Alivë",
-      "key": "futureandatljacobmillionaire|2alive"
-    },
-    {
       "id": "kindakrazy",
       "name": "kinda krazy",
       "era": "2 Alivë",
@@ -677,12 +647,6 @@
       "name": "layup",
       "era": "2 Alivë",
       "key": "layup|2alive"
-    },
-    {
-      "id": "liluzivertpanic",
-      "name": "Lil Uzi Vert - Panic",
-      "era": "2 Alivë",
-      "key": "liluzivertpanic|2alive"
     },
     {
       "id": "realisrare@split-8af99959780a",

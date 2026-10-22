@@ -316,6 +316,60 @@ test("prepared song lists immediately reflect admin changes and edited photo fil
   assert.equal((await list()).songs.length, 1);
 });
 
+test("admin shares catalog eligibility, avoids duplicate hides and keeps excluded recordings out of live control", async t => {
+  const folder = dataFolder(t);
+  config(folder, { liveControl: true });
+  fs.writeFileSync(path.join(folder, "admin.json"), JSON.stringify({ password: "garlic" }));
+  const plain = { features: [], keys: [], era: "Test", tab: "Unreleased", mode: "filter", type: "Demo" };
+  const demo = { ...plain, id: "weilandbirthday", title: "Weiland - birthday", display: "Weiland - birthday", trackerVersion: "V1", source: { kind: "pillows", id: "482dd988e5b609fca34f489356a23c1f" }, audioId: "birthday-demo", trackerKey: "a".repeat(64) };
+  const feature = { ...demo, display: "Weiland - birthday (feat. Yeat)", trackerVersion: "V2", features: ["feat. Yeat"], source: { kind: "pillows", id: "c8ee797edae9dae84b767181709c6c73" }, audioId: "birthday-feature", trackerKey: "b".repeat(64) };
+  const songs = [
+    { ...plain, id: "love-drug", title: "Weiland - Love Drug", display: "Weiland - Love Drug", tab: "Released", source: { kind: "apple", id: "1539817367" } },
+    { ...plain, id: "panic-solo", title: "Lil Uzi Vert - Panic", display: "Lil Uzi Vert - Panic", trackerVersion: "V1", source: { kind: "pillows", id: "c85173c3e46c688edf081f5f73d7cf2f" } },
+    { ...demo, sourceVariants: [demo, feature], poolVariants: { unreleased: demo }, mergedFrom: [demo, feature].map(song => ({ trackerKey: song.trackerKey, title: song.title, era: song.era, tab: song.tab })) },
+    { ...plain, id: "one", title: "One", display: "One", source: { kind: "url", id: "https://audio.test/one" } }
+  ];
+  fs.writeFileSync(path.join(folder, "songs-cache.json"), JSON.stringify({ format: 3, updated: 123, songs, eras: [] }));
+  fs.writeFileSync(path.join(folder, "hidden-songs.json"), JSON.stringify({ hidden: [{ id: "panic-solo", name: "Lil Uzi Vert - Panic" }] }));
+  const { url } = await launch(t, folder);
+  const login = await fetch(`${url}/api/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "garlic" }) });
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  const headers = { Cookie: cookie, "Content-Type": "application/json" };
+  const post = async (route, body, status = 200) => {
+    const response = await fetch(`${url}/api/admin/${route}`, { method: "POST", headers, body: JSON.stringify(body) });
+    assert.equal(response.status, status);
+    return response.json();
+  };
+  const admin = await (await fetch(`${url}/api/admin/songs`, { headers })).json();
+  const excluded = admin.songs.find(song => song.id === "love-drug");
+  assert.equal(excluded.guessingEligible, false);
+  assert.equal(excluded.hidden, false, "manual visibility stays separate from the recording policy");
+  assert.equal(excluded.exclusionReason, "Excluded by catalog rules");
+  const mixed = admin.songs.find(song => song.id === "weilandbirthday");
+  assert.equal(mixed.guessingEligible, true);
+  assert.equal(mixed.excludedRows, 1);
+  assert.deepEqual(mixed.rows.map(row => [row.trackerVersion, row.guessingEligible]), [["V1", false], ["V2", true]]);
+  const hidden = await post("hide", { ids: ["love-drug", "one"], hidden: true });
+  assert.equal(hidden.songs.find(song => song.id === "love-drug").hidden, false);
+  assert.equal(hidden.songs.find(song => song.id === "one").hidden, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(folder, "hidden-songs.json"))).hidden.map(song => song.id).sort(), ["one", "panic-solo"]);
+  await post("activate", { id: "love-drug" }, 404);
+  await post("activate", { id: "one" }, 404);
+  await post("activate", { id: "weilandbirthday" });
+  const cleared = await post("hide", { ids: ["panic-solo"], hidden: false });
+  const panic = cleared.songs.find(song => song.id === "panic-solo");
+  assert.equal(panic.hidden, false);
+  assert.equal(panic.guessingEligible, false, "clearing a duplicate manual hide never restores excluded audio");
+  await post("activate", { id: "panic-solo" }, 404);
+  await post("hide", { ids: ["weilandbirthday"], hidden: true });
+  await post("activate", { id: "weilandbirthday" }, 404);
+  await post("hide", { ids: ["weilandbirthday"], hidden: false });
+  const playable = await (await fetch(`${url}/api/songs`)).json();
+  assert.deepEqual(playable.songs.map(song => song.id), ["weilandbirthday"]);
+  assert.equal(playable.songs[0].audioId, "birthday-feature");
+  assert.equal(playable.retiredSongs.length, 2);
+});
+
 test("live song stream sends the current sequence and authenticated admin changes", async t => {
   const folder = dataFolder(t); config(folder);
   fs.writeFileSync(path.join(folder, "admin.json"), JSON.stringify({ password: "garlic" }));
