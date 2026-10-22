@@ -1,6 +1,6 @@
 # Catalog exclusion verification — Windows, 2026-10-22
 
-The checkout was synchronized with `origin/main` at `4ea0e99`, version 1.11.4. GitHub's latest regular release was also v1.11.4. No dependency refresh was needed. The changes below are local source changes; no release or deployment was performed.
+The checkout was synchronized with `origin/main` at `4ea0e99`, version 1.11.4. GitHub's latest regular release was also v1.11.4. No dependency refresh was needed. These checks were recorded before release preparation; the subsequent deployment and publication are recorded in the [1.11.5 release verification](testing-windows-1.11.5.md).
 
 The maintainer's list contains 60 tracker rows across Released and Unreleased, including producer-only tracks. Both live tracker tabs were read on 2026-10-22. Of those rows, 27 currently have playable sources and 33 are already unavailable to the normal catalog. All 60 now have maintained selection exclusions, so a newly available demo cannot enter future rounds merely by acquiring a playable link. Existing exclusions remain in place.
 
