@@ -1,5 +1,5 @@
-import{inSongPool as YeatleInPool,songsForPool as YeatlePoolSongs,eraCounts as YeatleEraCounts,restorePracticeSong as YeatleRestorePractice}from"./song-pools.mjs?v=1.11.4";
-import{BASE_LENGTHS as YeatleBaseLengths,matchesSong as YeatleMatchesSong}from"./snippet-rules.mjs?v=1.11.4";
+import{inSongPool as YeatleInPool,songsForPool as YeatlePoolSongs,eraCounts as YeatleEraCounts,restorePracticeSong as YeatleRestorePractice}from"./song-pools.mjs?v=1.11.5";
+import{BASE_LENGTHS as YeatleBaseLengths,matchesSong as YeatleMatchesSong}from"./snippet-rules.mjs?v=1.11.5";
 // The last song list, kept for this window's session so returning from Daily or Karaoke
 // draws the full game in its first frame instead of an empty list that fills in later.
 function YeatleSavedList(){try{const v=JSON.parse(sessionStorage.getItem("yeatle:song-list"));if(v&&Array.isArray(v.songs)&&(v.songs.length||v.retiredSongs?.length))return v.songs=[...v.songs,...v.retiredSongs||[]],YeatleLiveControl=v.liveControl,v}catch{}return null}
@@ -7,7 +7,7 @@ function YeatleSaveList(v){try{sessionStorage.setItem("yeatle:song-list",JSON.st
 // Songs the tracker lists under two names became one entry; keep completed songs saved under an old id.
 function YeatleCarryFormerIds(songs,setCompleted){const moved=new Map;songs.forEach(song=>[...song.formerIds||[],...song.equivalentIds||[]].forEach(id=>moved.set(id,song.id)));if(!moved.size)return;setCompleted(all=>{let changed=!1;const next={};for(const mode in all){const ids=new Set(all[mode]);ids.forEach(id=>{moved.has(id)&&!ids.has(moved.get(id))&&(ids.add(moved.get(id)),changed=!0)});next[mode]=ids}return changed?next:all})}
 import{changeMode as YeatleChangeMode}from"./navigation.mjs?v=1.10.3";
-import{audioPerformancePolicy as YeatlePerf,audioCacheKey as YeatleAudioKey,trimAudioCache as YeatleTrim,createWaveformGate as YeatleWaveGate,startVisiblePolling as YeatlePoll,watchActiveSong as YeatleWatchSong,disposeAudioGraph as YeatleDisposeGraph}from"./performance.mjs?v=1.11.4";
+import{audioPerformancePolicy as YeatlePerf,audioCacheKey as YeatleAudioKey,trimAudioCache as YeatleTrim,createWaveformGate as YeatleWaveGate,startVisiblePolling as YeatlePoll,watchActiveSong as YeatleWatchSong,disposeAudioGraph as YeatleDisposeGraph}from"./performance.mjs?v=1.11.5";
 (function(){const t=document.createElement("link").relList;if(t&&t.supports&&t.supports("modulepreload"))return;for(const l of document.querySelectorAll('link[rel="modulepreload"]'))r(l);new MutationObserver(l=>{for(const i of l)if(i.type==="childList")for(const s of i.addedNodes)s.tagName==="LINK"&&s.rel==="modulepreload"&&r(s)}).observe(document,{childList:!0,subtree:!0});function n(l){const i={};return l.integrity&&(i.integrity=l.integrity),l.referrerPolicy&&(i.referrerPolicy=l.referrerPolicy),l.crossOrigin==="use-credentials"?i.credentials="include":l.crossOrigin==="anonymous"?i.credentials="omit":i.credentials="same-origin",i}function r(l){if(l.ep)return;l.ep=!0;const i=n(l);fetch(l.href,i)}})();function Qd(e){return e&&e.__esModule&&Object.prototype.hasOwnProperty.call(e,"default")?e.default:e}var rc={exports:{}},pi={},lc={exports:{}},F={};/**
  * @license React
  * react.production.min.js

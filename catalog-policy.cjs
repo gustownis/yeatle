@@ -1,4 +1,4 @@
-const { corrections, stemBindings = [] } = require("./catalog-metadata.json");
+const { corrections, stemBindings = [], excludedRecordings = [] } = require("./catalog-metadata.json");
 const crypto = require("node:crypto");
 const titleKey = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -69,6 +69,45 @@ function isGuessingEligible(song) {
   return song.guessingEligible !== false && creditFor(song).guessingEligible;
 }
 
+function isExcludedRecording(song) {
+  const sameSource = (left, right) => left && right && left.kind === right.kind && left.id === right.id;
+  const versionRange = value => /^V(\d+)(?:-V?(\d+))?$/i.exec(value || "");
+  return excludedRecordings.some(rule => {
+    // Source ids also identify older caches, which did not retain version labels.
+    if ((rule.sources || []).some(source => sameSource(song.source, source) || sameSource(song.fallback, source))) return true;
+    if (titleKey(song.title) !== rule.titleKey || song.tab !== rule.tab) return false;
+    const aliases = [...song.aliases || [], ...song.keys || []].map(titleKey);
+    if ((rule.aliases || (rule.alias ? [rule.alias] : [])).some(alias => !aliases.includes(titleKey(alias)))) return false;
+    if (!rule.versions) return true;
+    const version = versionRange(song.trackerVersion);
+    return version && rule.versions.some(value => {
+      const range = versionRange(value);
+      return Number(version[1]) >= Number(range[1]) && Number(version[2] || version[1]) <= Number(range[2] || range[1]);
+    });
+  });
+}
+
+// Metadata changes can retire the source previously selected for a merged title.
+// Keep every audio mapping, but choose an eligible recording for future rounds.
+function reconcileCatalogEligibility(song, sourceRank) {
+  if (!song.sourceVariants) return song;
+  const eligible = song.sourceVariants.filter(isGuessingEligible)
+    .sort((a, b) => sourceRank[a.source?.kind] - sourceRank[b.source?.kind]);
+  const poolVariants = {};
+  for (const [pool, accepts] of Object.entries({
+    released: row => row.tab === "Released",
+    unreleased: row => row.tab === "Unreleased",
+    stems: row => row.mode === "stems"
+  })) {
+    const current = song.poolVariants?.[pool];
+    const replacement = current && isGuessingEligible(current) ? current : eligible.find(accepts);
+    if (replacement) poolVariants[pool] = replacement;
+  }
+  const replacement = !isGuessingEligible(song) && eligible[0];
+  return { ...song, ...(replacement ? { ...replacement, id: song.id, keys: song.keys, mergedFrom: song.mergedFrom,
+    guessingEligible: true } : {}), sourceVariants: song.sourceVariants, poolVariants };
+}
+
 function applyCatalogMetadata(song) {
   let result = song;
   for (const rule of corrections) {
@@ -76,7 +115,8 @@ function applyCatalogMetadata(song) {
   }
   if (result.poolVariants) result = { ...result, poolVariants: Object.fromEntries(Object.entries(result.poolVariants).map(([pool, variant]) => [pool, applyCatalogMetadata(variant)])) };
   if (result.sourceVariants) result = { ...result, sourceVariants: result.sourceVariants.map(applyCatalogMetadata) };
+  if (isExcludedRecording(result)) result = { ...result, guessingEligible: false };
   return result;
 }
 
-module.exports = { creditFor, isGuessingEligible, applyCatalogMetadata, stemBindingFor, reconcileStemSources };
+module.exports = { creditFor, isGuessingEligible, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility };

@@ -56,6 +56,10 @@ request, the separate Fleek V2 tracker entry is also excluded, retaining only
 Yung Kayo's YEET featuring Yeat. This explicit eligibility decision does not
 change Fleek V2's tracker credits or declare two recordings interchangeable.
 
+The maintainer's 2026-10-22 exclusion list covers 60 tracker rows, including early solo demos, reference tracks, the released Have You Ever without Yeat's verse, Eaters V2 without Yeat, fuëgo's instrumental, and producer-only AMG C63, ATM and Louder. `excludedRecordings` in `catalog-metadata.json` scopes the rules to the supplied titles, tabs and tracker versions; the two untitled rows additionally require their Firemane or Houston, Texas alias. Known audio source ids also cover older caches and installed packs with those sources as fallbacks. These are selection exclusions and do not rewrite credits: for example, the tracker describes background vocals on No Clout, which is still excluded at the maintainer's request. Unavailable rows are covered if they acquire playable links later.
+
+The parser retains `trackerVersion` separately from answer titles. Excluding a demo never excludes a later Yeat feature just because their titles match. Merged entries and old caches reselect an eligible source for each pool while retaining every original source, audio id and tracker fingerprint. Full recordings keep their existing preference over streaming previews. Birthday V2, Pull Up V2, Dope Sickk V2, Not Da Same V2, Cop My Style V1 and the original Eaters release with Yeat remain eligible. Existing pinned Daily snapshots and practice audio selections retain their original recordings.
+
 Audio preparation caches use `audioId` when supplied, falling back to `id`
 for older records. Pool projections with different playable sources cannot
 share a preparation job merely because their progress id is the same. All

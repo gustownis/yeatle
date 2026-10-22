@@ -28,7 +28,7 @@ const { createActiveSongFeed } = require("./live-control.cjs");
 const { createStemCatalog } = require("./stem-catalog.cjs");
 const { createDailyChallenges } = require("./daily-challenge.cjs");
 const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs");
-const { creditFor, isGuessingEligible, applyCatalogMetadata, stemBindingFor, reconcileStemSources } = require("./catalog-policy.cjs");
+const { creditFor, isGuessingEligible, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
 const APP_VERSION = require("./package.json").version;
@@ -676,6 +676,7 @@ async function loadTab(tab) {
 
     songs.push({
       title: parsed.title,
+      trackerVersion: /\[(V\d+(?:-V?\d+)?)\]/i.exec(nameCell)?.[1].toUpperCase() || "",
       features: parsed.features,
       producers: parsed.producers,
       aliases: parsed.aliases,
@@ -1028,6 +1029,7 @@ function buildSongList(sheetRows, stemFolders) {
     return {
       id: key,
       title: song.title,
+      trackerVersion: song.trackerVersion || "",
       display: song.features.length ? `${song.title} (${song.features[0]})` : song.title,
       features: song.features,
       producers: song.producers,
@@ -1087,7 +1089,7 @@ function buildSongList(sheetRows, stemFolders) {
       entry.poolVariants = forPool;
       entry.sourceVariants = sources;
     }
-    songs.push(entry);
+    songs.push(reconcileCatalogEligibility(applyCatalogMetadata(entry), SOURCE_RANK));
   });
 
   songs.sort((a, b) => a.title.localeCompare(b.title));
@@ -1127,7 +1129,7 @@ function setSongs(songs, source) {
   const covers = new Map(songs.filter(song => song.cover).map(song => [song.era, song.cover]));
   SONGS = songs.map(song => {
     const override = RENAMES[song.id];
-    song = applyCatalogMetadata(song);
+    song = reconcileCatalogEligibility(applyCatalogMetadata(song), SOURCE_RANK);
     if (!song.cover) song = { ...song, cover: covers.get(song.era) || coverForEra(song.era) };
     const entry = { ...song, ...creditFor(song, CONFIG.artist) };
     return override ? { ...entry, display: override } : entry;

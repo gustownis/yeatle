@@ -40,6 +40,8 @@ the silent switch on, and a few song eras and duplicate spellings are fixed.
 
 Version **1.11.4** adds **Check all** to HQ stem downloads and keeps the popup's menu bar hidden. It also fixes song answers, source filters and recording metadata, including the two Cant See versions, and removes the excluded Fleek and non-Yeat Zaza entries.
 
+Version **1.11.5** removes the requested non-Yeat demos, reference tracks and producer-only recordings from new rounds and suggestions. Same-title versions featuring Yeat remain available, and saved rounds and Daily challenges are preserved.
+
 See the [release notes](https://github.com/gustownis/yeatle/releases) for
 individual fixes and updates.
 
@@ -62,14 +64,14 @@ You can play without the optional stems. The built-in audio separation files dow
 
 | Computer | Downloads |
 | --- | --- |
-| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.11.4/Yeatle-Setup-1.11.4-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.11.4/Yeatle-1.11.4-windows-x64-portable.exe) |
-| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.11.4/Yeatle-1.11.4-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.11.4/Yeatle-1.11.4-mac-arm64.zip) |
-| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.11.4/Yeatle-1.11.4-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.11.4/Yeatle-1.11.4-mac-x64.zip) |
-| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.11.4/Yeatle-1.11.4-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.11.4/Yeatle-1.11.4-linux-x64.deb) |
-| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.11.4/Yeatle-1.11.4-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.11.4/Yeatle-1.11.4-linux-arm64.deb) |
+| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.11.5/Yeatle-Setup-1.11.5-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.11.5/Yeatle-1.11.5-windows-x64-portable.exe) |
+| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.11.5/Yeatle-1.11.5-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.11.5/Yeatle-1.11.5-mac-arm64.zip) |
+| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.11.5/Yeatle-1.11.5-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.11.5/Yeatle-1.11.5-mac-x64.zip) |
+| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.11.5/Yeatle-1.11.5-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.11.5/Yeatle-1.11.5-linux-x64.deb) |
+| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.11.5/Yeatle-1.11.5-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.11.5/Yeatle-1.11.5-linux-arm64.deb) |
 
 Installation steps for each OS are below.
-[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.11.4/SHA256SUMS.txt)
+[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.11.5/SHA256SUMS.txt)
 are provided with the release.
 
 ## Requirements
@@ -117,7 +119,7 @@ Cloning this public repository does not require authentication.
 
 ### Desktop app
 
-1. Download the Windows **x64 installer** (`Yeatle-Setup-1.11.4-windows-x64.exe`) for a usual
+1. Download the Windows **x64 installer** (`Yeatle-Setup-1.11.5-windows-x64.exe`) for a usual
    Intel/AMD Windows PC, or the matching portable `.exe` if offered.
 2. Run the installer, choose the installation folder if prompted, and open
    **Yeatle** from Start. The portable app runs directly without installation.
@@ -207,7 +209,7 @@ use the matching `.deb` on Debian/Ubuntu or the browser version.
 For a Debian/Ubuntu package, install the exact downloaded filename:
 
 ```sh
-sudo apt install ./Yeatle-1.11.4-linux-x64.deb
+sudo apt install ./Yeatle-1.11.5-linux-x64.deb
 ```
 
 For ARM64, use the package ending in `-arm64.deb`. Open Yeatle from your desktop

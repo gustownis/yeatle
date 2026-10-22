@@ -12,6 +12,321 @@
       "basis": "2026-10-20: all four public Cant See stems sum to the 169.0905 s tracker LS V2 recording at zero lag, correlation 0.995234. The distinct 137.273 s Alivë recording has correlation 0.01085. The pack has no info.txt; title-order matching had attached it to Alivë."
     }
   ],
+  "exclusionBasis": "Maintainer request, 2026-10-22: exclude the supplied non-Yeat versions and producer-only tracks from future rounds, suggestions and HQ downloads. Tracker tabs read on 2026-10-22: https://docs.google.com/spreadsheets/d/1FUzAZyTCgFTVxQ--qbCAS2bUk4dsAw6ASxwjURPHbyI/edit. This is a selection policy; original credits and saved audio references are retained.",
+  "excludedRecordings": [
+    {
+      "title": "Childish Gambino - Cruisin'",
+      "titleKey": "childishgambinocruisin",
+      "tab": "Unreleased",
+      "versions": ["V1","V2"],
+      "sources": [{"kind":"pillows","id":"568d7bdbe3e199aedd443d1468624648"}]
+    },
+    {
+      "title": "Suburban Plaza - FLUTEBEAT",
+      "titleKey": "suburbanplazaflutebeat",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"7e3c253a82c830f3bc1f86389ff38909"}]
+    },
+    {
+      "title": "Young Thug - My Wrist",
+      "titleKey": "youngthugmywrist",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"aa53a242de9f417da24e0f93cc669a3b"}]
+    },
+    {
+      "title": "Lancey Foux - Outside Trippin",
+      "titleKey": "lanceyfouxoutsidetrippin",
+      "tab": "Unreleased",
+      "versions": ["V1","V2"],
+      "sources": [{"kind":"pillows","id":"5cb174b5c57db536c39637d627b6e324"}]
+    },
+    {
+      "title": "Young Thug - COKE",
+      "titleKey": "youngthugcoke",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"541cc3c49242c143e3631a5b6cc5d99c"}]
+    },
+    {
+      "title": "Weiland - birthday",
+      "titleKey": "weilandbirthday",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"482dd988e5b609fca34f489356a23c1f"}]
+    },
+    {
+      "title": "Yung Kayo - fleek'",
+      "titleKey": "yungkayofleek",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"c4ec06e5ff5c7d1240444aee6bd78ced"}]
+    },
+    {
+      "title": "Kankan - Zaza",
+      "titleKey": "kankanzaza",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"4ef8f089f0f214ba3e15e5f9e8e9127e"}]
+    },
+    {
+      "title": "Izaya Tiji - ???",
+      "titleKey": "izayatiji",
+      "tab": "Unreleased",
+      "alias": "Firemane",
+      "sources": [{"kind":"pillows","id":"3c64ef6d2b683ef498c410050ee77470"}]
+    },
+    {
+      "title": "Izaya Tiji - Cop my style",
+      "titleKey": "izayatijicopmystyle",
+      "tab": "Unreleased",
+      "versions": ["V2"],
+      "sources": [{"kind":"pillows","id":"9121f26917d002e9b103f62b7aa718eb"}]
+    },
+    {
+      "title": "Ski Mask the Slump God - Look At She",
+      "titleKey": "skimasktheslumpgodlookatshe",
+      "tab": "Unreleased",
+      "versions": ["V1","V3"],
+      "sources": [{"kind":"pillows","id":"79cb8d643dd5eb8b2fea3164478003d9"},{"kind":"pillows","id":"5fd1075cdb899d8b40bc0e7b63692fdf"},{"kind":"pillows","id":"11f534f1d69d0382b0a2fffb83cb1caa"},{"kind":"pillows","id":"7e68c3efede03c4377d988e6232cc6e9"},{"kind":"pillows","id":"72aa92a4060d42bbe0152cfb6bdeccf4"},{"kind":"pillows","id":"e757b58c47aabb88dda89bbfada56b6c"},{"kind":"pillows","id":"3096d64ea70e0247555ea55f61c4e142"}]
+    },
+    {
+      "title": "Summrs - dope sickk",
+      "titleKey": "summrsdopesickk",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"69123c00d63f427c9b3ae4ae6f621262"}]
+    },
+    {
+      "title": "Lil Yachty - Still",
+      "titleKey": "lilyachtystill",
+      "tab": "Unreleased",
+      "versions": ["V1"]
+    },
+    {
+      "title": "Future & ATL Jacob - Millionaire",
+      "titleKey": "futureatljacobmillionaire",
+      "tab": "Unreleased",
+      "versions": ["V2"],
+      "sources": [{"kind":"pillows","id":"15b3adeabb64b73f0e943b557822cd69"}]
+    },
+    {
+      "title": "Kankan - not da same",
+      "titleKey": "kankannotdasame",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"d6753d53299ba310227c3871b2b835f5"}]
+    },
+    {
+      "title": "Ken Car$on - pull up",
+      "titleKey": "kencaronpullup",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"248479c919a1245653d51a6e23fab635"}]
+    },
+    {
+      "title": "Lil Uzi Vert - Aint Enough",
+      "titleKey": "liluzivertaintenough",
+      "tab": "Unreleased",
+      "versions": ["V1"]
+    },
+    {
+      "title": "Lil Uzi Vert - Panic",
+      "titleKey": "liluzivertpanic",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"c85173c3e46c688edf081f5f73d7cf2f"}]
+    },
+    {
+      "title": "Lunchbox - dat mode",
+      "titleKey": "lunchboxdatmode",
+      "tab": "Unreleased",
+      "versions": ["V1"]
+    },
+    {
+      "title": "midwxst - lock it up",
+      "titleKey": "midwxstlockitup",
+      "tab": "Unreleased",
+      "versions": ["V1","V2"]
+    },
+    {
+      "title": "Lil Uzi Vert - Hehe",
+      "titleKey": "liluziverthehe",
+      "tab": "Unreleased",
+      "versions": ["V1-V6","V7"],
+      "sources": [{"kind":"pillows","id":"16126067cf996979f86137f97c4cdece"}]
+    },
+    {
+      "title": "Future, Lil Durk & ATL Jacob - Millionaire",
+      "titleKey": "futurelildurkatljacobmillionaire",
+      "tab": "Unreleased",
+      "versions": ["V4"]
+    },
+    {
+      "title": "Ski Mask the Slump God & ATL Jacob - Millionaire",
+      "titleKey": "skimasktheslumpgodatljacobmillionaire",
+      "tab": "Unreleased",
+      "versions": ["V5","V6"],
+      "sources": [{"kind":"pillows","id":"77b2fecff10b4ba5b4995cf8859d0318"}]
+    },
+    {
+      "title": "Drake - 2 Many Freaks",
+      "titleKey": "drake2manyfreaks",
+      "tab": "Unreleased",
+      "versions": ["V1","V2-V4"],
+      "sources": [{"kind":"pillows","id":"46fed26933d818837d43b08dcd33521f"}]
+    },
+    {
+      "title": "Don Toliver - Geeked",
+      "titleKey": "dontolivergeeked",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"79da741affd18dda47d8f9ea884bbe02"}]
+    },
+    {
+      "title": "Summrs & PlaqueBoyMax - Hercules",
+      "titleKey": "summrsplaqueboymaxhercules",
+      "tab": "Unreleased",
+      "versions": ["V1","V2","V3"],
+      "sources": [{"kind":"pillows","id":"dab61a55ef0479e06f92dd268fe0072e"},{"kind":"pillows","id":"b8ca6f0943c9130be6914d03ed2b16c3"},{"kind":"pillows","id":"2f3b9cfca3981a860e8dde1a7d5d7959"}]
+    },
+    {
+      "title": "Summrs - ???",
+      "titleKey": "summrs",
+      "tab": "Unreleased",
+      "aliases": ["Houston", "Texas"]
+    },
+    {
+      "title": "Summrs - cant get that",
+      "titleKey": "summrscantgetthat",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"a026b902071252af6fcb8b1b54101bb7"}]
+    },
+    {
+      "title": "Summrs & PlaqueBoyMax - Rino Hercules",
+      "titleKey": "summrsplaqueboymaxrinohercules",
+      "tab": "Unreleased",
+      "versions": ["V4"],
+      "sources": [{"kind":"pillows","id":"0a30eecd50379490ee11f6c9f1bf5deb"}]
+    },
+    {
+      "title": "Lil Yachty - DOWN",
+      "titleKey": "lilyachtydown",
+      "tab": "Unreleased",
+      "versions": ["V1"]
+    },
+    {
+      "title": "Justin Bieber - YOU KNOW I CARE",
+      "titleKey": "justinbieberyouknowicareiloveuicare",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"a005d762d26d239c286561648af20633"}]
+    },
+    {
+      "title": "Young Thug - Eaters",
+      "titleKey": "youngthugeaters",
+      "tab": "Unreleased",
+      "versions": ["V1","V2","V3"],
+      "sources": [{"kind":"pillows","id":"f490f6b156665b084da14e0f8ccf4bd1"}]
+    },
+    {
+      "title": "Julia Wolf - BIG DOG",
+      "titleKey": "juliawolfbigdog",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"92f01ea8b111ed3eec0c05501a16db0e"}]
+    },
+    {
+      "title": "Drake - DOGHOUSE",
+      "titleKey": "drakedoghouse",
+      "tab": "Unreleased",
+      "versions": ["V2"],
+      "sources": [{"kind":"pillows","id":"e636c1a3fe9111b5a2ad9c5ad98bca41"}]
+    },
+    {
+      "title": "Joji - Rose Colored",
+      "titleKey": "jojirosecolored",
+      "tab": "Unreleased",
+      "versions": ["V2","V3","V4"]
+    },
+    {
+      "title": "Drake - MISS MY DOG",
+      "titleKey": "drakemissmydog",
+      "tab": "Unreleased",
+      "versions": ["V1"],
+      "sources": [{"kind":"pillows","id":"5e6f5befcf020f68c7f464e4f3fbad48"}]
+    },
+    {
+      "title": "Kankan - AMG C63",
+      "titleKey": "kankanamgc63",
+      "tab": "Unreleased",
+      "sources": [{"kind":"pillows","id":"bd453c6544751dd0701de79a34f0fccd"}]
+    },
+    {
+      "title": "Kankan - ATM",
+      "titleKey": "kankanatm",
+      "tab": "Unreleased",
+      "sources": [{"kind":"pillows","id":"3d1c8f3ca2499f7fbe36457729681829"}]
+    },
+    {
+      "title": "Weiland - Love Drug",
+      "titleKey": "weilandlovedrug",
+      "tab": "Released",
+      "sources": [{"kind":"apple","id":"1539817367"}]
+    },
+    {
+      "title": "Weiland - Have You Ever",
+      "titleKey": "weilandhaveyouever",
+      "tab": "Released",
+      "sources": [{"kind":"apple","id":"1539817957"}]
+    },
+    {
+      "title": "Kankan - Zaza",
+      "titleKey": "kankanzaza",
+      "tab": "Released",
+      "versions": ["V1"],
+      "sources": [{"kind":"apple","id":"1608967790"}]
+    },
+    {
+      "title": "SeptembersRich - No Clout",
+      "titleKey": "septembersrichnoclout",
+      "tab": "Released",
+      "sources": [{"kind":"apple","id":"1611437293"}]
+    },
+    {
+      "title": "BNYX® - fuëgo (Instrumental)",
+      "titleKey": "bnyxfuego",
+      "tab": "Released",
+      "sources": [{"kind":"apple","id":"6769925231"}]
+    },
+    {
+      "title": "Young Stoner Life & Young Thug - Eaters",
+      "titleKey": "youngstonerlifeyoungthugeaters",
+      "tab": "Released",
+      "versions": ["V2"],
+      "sources": [{"kind":"apple","id":"6807636007"},{"kind":"apple","id":"6807166220"}]
+    },
+    {
+      "title": "Kankan - AMG C63",
+      "titleKey": "kankanamgc63",
+      "tab": "Released",
+      "sources": [{"kind":"pillows","id":"bd453c6544751dd0701de79a34f0fccd"}]
+    },
+    {
+      "title": "Kankan - Atm",
+      "titleKey": "kankanatm",
+      "tab": "Released",
+      "sources": [{"kind":"pillows","id":"3d1c8f3ca2499f7fbe36457729681829"},{"kind":"apple","id":"1607600523"}]
+    },
+    {
+      "title": "vet - Louder",
+      "titleKey": "vetlouder",
+      "tab": "Released",
+      "sources": [{"kind":"pillows","id":"1fb06aa01ad4588c2649e070a5e0d6ac"}]
+    }
+  ],
   "corrections": [
     {
       "match": { "id": "yungkayofleek@2alive" },
