@@ -28,6 +28,7 @@ const { createActiveSongFeed } = require("./live-control.cjs");
 const { createStemCatalog } = require("./stem-catalog.cjs");
 const { createDailyChallenges } = require("./daily-challenge.cjs");
 const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs");
+const { createLeaderboardStore } = require("./leaderboard.cjs");
 const { creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
@@ -44,6 +45,7 @@ const CACHE_FILE = path.join(DATA_DIR, "songs-cache.json");
 const SONG_CACHE_FORMAT = 3;
 const PREVIEW_CACHE_FILE = path.join(DATA_DIR, "preview-cache.json");
 const dailyChallenge = createDailyChallenges(path.join(DATA_DIR, "daily-challenges.json"));
+const leaderboardStore = createLeaderboardStore(path.join(DATA_DIR, "leaderboard-users.json"));
 try {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 } catch (err) {
@@ -194,7 +196,7 @@ function tunnel(target) {
   });
 }
 
-async function request(url, { headers = {}, method = "GET", redirects = 6 } = {}) {
+async function request(url, { headers = {}, method = "GET", body, timeout = 30000, redirects = 6 } = {}) {
   const target = new URL(url);
   const lib = target.protocol === "http:" ? http : https;
   const extra = {};
@@ -205,24 +207,30 @@ async function request(url, { headers = {}, method = "GET", redirects = 6 } = {}
     extra.agent = false;
   }
 
+  const payload = body !== undefined ? (Buffer.isBuffer(body) ? body : Buffer.from(String(body), "utf8")) : null;
   return new Promise((resolve, reject) => {
     const req = lib.request(target, {
       method,
       ...extra,
-      headers: { "User-Agent": "Mozilla/5.0 (Yeatle)", ...headers }
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Yeatle)",
+        ...(payload ? { "Content-Length": payload.length } : {}),
+        ...headers
+      }
     }, res => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
         res.resume();
         const next = new URL(res.headers.location, target).toString();
-        resolve(request(next, { headers, method, redirects: redirects - 1 }));
+        resolve(request(next, { headers, method, body: payload, timeout, redirects: redirects - 1 }));
         return;
       }
       resolve(res);
     });
 
-    req.setTimeout(30000, () => req.destroy(new Error("timeout")));
+    req.setTimeout(timeout, () => req.destroy(new Error("timeout")));
     req.on("error", reject);
-    req.end();
+    if (payload) req.end(payload);
+    else req.end();
   });
 }
 
@@ -2881,6 +2889,103 @@ async function handleAdmin(req, res, pathname) {
   return true;
 }
 
+function bearerToken(req, body) {
+  const auth = String(req.headers.authorization || "");
+  if (/^Bearer\s+/i.test(auth)) return auth.replace(/^Bearer\s+/i, "").trim();
+  if (body && typeof body.token === "string") return body.token.trim();
+  return "";
+}
+
+async function proxyLeaderboardAuthority(req, pathname, bodyObj, token) {
+  if (!CONFIG.dailyAuthority || req.headers["x-yeatle-leaderboard-proxy"]) return null;
+  try {
+    const targetUrl = new URL(pathname, CONFIG.dailyAuthority).href;
+    const headers = {
+      Accept: "application/json",
+      "X-Yeatle-Leaderboard-Proxy": "1",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(bodyObj !== null ? { "Content-Type": "application/json" } : {})
+    };
+    const upstream = await request(targetUrl, {
+      method: req.method,
+      headers,
+      body: bodyObj !== null ? JSON.stringify(bodyObj) : undefined,
+      timeout: 4500
+    });
+    const chunks = [];
+    for await (const chunk of upstream) chunks.push(chunk);
+    const raw = Buffer.concat(chunks).toString("utf8");
+    if (upstream.statusCode === 404 || upstream.statusCode >= 500) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return { status: upstream.statusCode, body: { ...parsed, scope: "global" } };
+  } catch {
+    return null;
+  }
+}
+
+async function handleLeaderboard(req, res, pathname) {
+  if (pathname !== "/api/leaderboard" && !pathname.startsWith("/api/account/")) return false;
+
+  const isPost = req.method === "POST";
+  const isGet = req.method === "GET" || req.method === "HEAD";
+  let body = null;
+  if (isPost) {
+    if (!/application\/json/i.test(req.headers["content-type"] || "")) {
+      sendJson(res, 400, { error: "Expected JSON body." });
+      return true;
+    }
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { error: err.message || "Bad request" });
+      return true;
+    }
+  }
+
+  const token = bearerToken(req, body);
+  const proxied = await proxyLeaderboardAuthority(req, pathname, body, token);
+  if (proxied) {
+    sendJson(res, proxied.status, proxied.body);
+    return true;
+  }
+
+  const scope = CONFIG.dailyPublicUrl || !CONFIG.dailyAuthority ? "global" : "local";
+  try {
+    if (pathname === "/api/leaderboard") {
+      if (!isGet) { sendJson(res, 405, { error: "Use GET for the leaderboard." }); return true; }
+      sendJson(res, 200, { ...leaderboardStore.getLeaderboards(token), scope });
+      return true;
+    }
+    if (pathname === "/api/account/me") {
+      if (!isGet) { sendJson(res, 405, { error: "Use GET." }); return true; }
+      sendJson(res, 200, { ...leaderboardStore.me(token), scope });
+      return true;
+    }
+    if (pathname === "/api/account/register" && isPost) {
+      sendJson(res, 200, { ...leaderboardStore.register(body || {}), scope });
+      return true;
+    }
+    if (pathname === "/api/account/login" && isPost) {
+      sendJson(res, 200, { ...leaderboardStore.login(body || {}), scope });
+      return true;
+    }
+    if (pathname === "/api/account/sync" && isPost) {
+      sendJson(res, 200, { ...leaderboardStore.sync(token, body?.progress || {}), scope });
+      return true;
+    }
+    if (pathname === "/api/account/logout" && isPost) {
+      sendJson(res, 200, { ...leaderboardStore.logout(token), scope });
+      return true;
+    }
+    sendJson(res, 404, { error: "Not found" });
+    return true;
+  } catch (err) {
+    sendJson(res, err.status || 400, { error: err.message || "Request failed" });
+    return true;
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const { pathname, searchParams, search } = new URL(req.url, "http://localhost");
 
@@ -2899,6 +3004,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (await handleAdmin(req, res, pathname)) return;
+    if (await handleLeaderboard(req, res, pathname)) return;
 
     const model = /^\/models\/(\w+)\.fp16\.onnx$/.exec(pathname);
     if (model) return serveModel(req, res, model[1]);

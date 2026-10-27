@@ -60,6 +60,7 @@
       "stem-catalog.cjs",
       "daily-challenge.cjs",
       "daily-authority.cjs",
+      "leaderboard.cjs",
       "catalog-policy.cjs",
       "catalog-metadata.json"
     ],

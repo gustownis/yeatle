@@ -224,6 +224,7 @@ $("#share").onclick = async () => {
   }
 };
 addEventListener("storage", event => { if (challenge && event.key === storageKey) { stop(); round = readRound(); render(); } });
+addEventListener("yeatle:progress-synced", () => { if (challenge) { stop(); round = readRound(); render(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden) { stop(); render(); } else expired(); });
 addEventListener("pagehide", dispose);
 setInterval(() => {
