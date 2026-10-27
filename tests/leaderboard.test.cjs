@@ -9,6 +9,11 @@ const { createLeaderboardStore, computeMetrics, mergeProgress } = require("../le
 const frontendModule = import(pathToFileURL(path.join(__dirname, "../build/assets/leaderboard.mjs")).href);
 
 const root = path.resolve(__dirname, "..");
+const DAY = 86400000;
+const NOW = Date.parse("2026-10-27T12:00:00Z");
+const day = offset => new Date(NOW + offset * DAY).toISOString().slice(0, 10);
+const won = date => ({ id: `v1:${date}:song`, attempts: [{ kind: "right", text: "song" }], status: "won" });
+const lost = date => ({ id: `v1:${date}:song`, attempts: Array(6).fill({ kind: "skip", text: "" }), status: "lost" });
 
 function tempDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-lb-"));
@@ -16,13 +21,12 @@ function tempDir(t) {
   return dir;
 }
 
+function newStore(t, options) {
+  return createLeaderboardStore(path.join(tempDir(t), "leaderboard-users.json"), options);
+}
+
 async function startServer(t, dir, dailyAuthority = "") {
-  fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({
-    tabs: [],
-    refreshMinutes: 0,
-    openBrowser: false,
-    dailyAuthority
-  }));
+  fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority }));
   const child = fork(path.join(root, "server.js"), [], {
     silent: true,
     env: { ...process.env, YEATLE_DATA_DIR: dir, YEATLE_STEMS_DIR: "", YEATLE_DESKTOP: "1", YEATLE_PORT: "0" }
@@ -39,99 +43,143 @@ async function startServer(t, dir, dailyAuthority = "") {
   });
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error(logs)), 5000);
-    child.on("message", m => {
-      if (m.type === "yeatle-ready") {
-        clearTimeout(timeout);
-        resolve(`http://127.0.0.1:${m.port}`);
-      }
-    });
+    child.on("message", m => { if (m.type === "yeatle-ready") { clearTimeout(timeout); resolve(`http://127.0.0.1:${m.port}`); } });
     child.once("error", err => { clearTimeout(timeout); reject(err); });
     child.once("exit", () => { clearTimeout(timeout); reject(new Error(logs)); });
   });
 }
 
-test("store registers users, hashes passwords, merges device progress, and computes streaks and rankings", t => {
-  const dir = tempDir(t);
-  const file = path.join(dir, "leaderboard-users.json");
-  const store = createLeaderboardStore(file);
-  const now = Date.parse("2026-10-27T12:00:00Z");
+const post = (url, body, token) => fetch(url, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  body: JSON.stringify(body)
+});
 
-  const reg1 = store.register({
-    username: "yugpoog",
-    password: "secretPassword",
+test("accounts hash passwords, reject duplicates, merge devices and rank players", async t => {
+  const file = path.join(tempDir(t), "leaderboard-users.json");
+  const store = createLeaderboardStore(file);
+  const first = await store.register({
+    username: "yugpoog", password: "secretPassword",
     progress: {
       completed: { stems: ["song1", "song2", "song3"], snippet: ["snip1"] },
       stats: { stems: { songsAttempted: 4, correctlyGuessed: 3, totalStars: 14, currentStreak: 3, highestStreak: 3 } },
-      daily: {
-        "2026-10-25": { id: "v1:2026-10-25:a", attempts: [{ kind: "right", text: "a" }], status: "won" },
-        "2026-10-26": { id: "v1:2026-10-26:b", attempts: [{ kind: "right", text: "b" }], status: "won" },
-        "2026-10-27": { id: "v1:2026-10-27:c", attempts: [{ kind: "right", text: "c" }], status: "won" }
-      },
-      karaoke: {
-        "yeatle-karaoke-best:song1:medium": { score: 42000, name: "yugpoog" }
-      }
+      daily: { [day(-1)]: won(day(-1)), [day(0)]: won(day(0)) },
+      karaoke: { "yeatle-karaoke-best:song1:medium": { score: 42000, name: "yugpoog" } }
     }
-  }, now);
+  }, NOW);
+  assert.match(first.token, /^[a-f0-9]{48}$/);
+  assert.equal(first.account.metrics.dailyStreak, 2);
+  assert.equal(first.account.metrics.stemsSolved, 3);
+  assert.doesNotMatch(fs.readFileSync(file, "utf8"), /secretPassword/);
 
-  assert.ok(reg1.token);
-  assert.equal(reg1.account.username, "yugpoog");
-  assert.equal(reg1.account.metrics.dailyStreak, 3);
-  assert.equal(reg1.account.metrics.dailyWins, 3);
-  assert.equal(reg1.account.metrics.stemsSolved, 3);
-  assert.equal(reg1.account.metrics.karaokeTotalScore, 42000);
+  await assert.rejects(store.register({ username: "YUGPOOG", password: "otherPassword" }, NOW), /already taken/);
+  await assert.rejects(store.login({ username: "yugpoog", password: "wrongPassword" }, NOW), /Wrong username or password/);
 
-  // Case-insensitive duplicate registration is rejected
-  assert.throws(() => store.register({ username: "YUGPOOG", password: "otherPassword" }, now), /already taken/);
-  assert.throws(() => store.login({ username: "yugpoog", password: "wrongPassword" }, now), /Wrong username or password/);
-
-  // Logging in from a second device merges completed songs without wiping existing streaks
-  const loginDevice2 = store.login({
-    username: "yugpoog",
-    password: "secretPassword",
+  const second = await store.login({
+    username: "YugPoog", password: "secretPassword",
     progress: {
       completed: { stems: ["song3", "song4"] },
-      stats: { stems: { songsAttempted: 0, correctlyGuessed: 0, totalStars: 0, currentStreak: 0, highestStreak: 0 } },
-      karaoke: {
-        "yeatle-karaoke-best:song1:medium": { score: 30000, name: "yugpoog" },
-        "yeatle-karaoke-best:song2:hard": { score: 50000, name: "yugpoog" }
-      }
+      stats: { stems: emptyStats() },
+      karaoke: { "yeatle-karaoke-best:song1:medium": { score: 30000, name: "x" }, "yeatle-karaoke-best:song2:hard": { score: 50000, name: "x" } }
     }
-  }, now);
+  }, NOW);
+  assert.equal(second.account.username, "yugpoog", "login with different case keeps the registered name");
+  assert.deepEqual(second.account.progress.completed.stems, ["song1", "song2", "song3", "song4"]);
+  assert.equal(second.account.progress.stats.stems.currentStreak, 3, "a blank device does not reset the streak");
+  assert.equal(second.account.metrics.karaokeTotalScore, 92000);
 
-  assert.deepEqual(loginDevice2.account.progress.completed.stems, ["song1", "song2", "song3", "song4"]);
-  assert.equal(loginDevice2.account.progress.stats.stems.currentStreak, 3, "blank device does not overwrite active streak");
-  assert.equal(loginDevice2.account.metrics.stemsSolved, 4);
-  assert.equal(loginDevice2.account.metrics.karaokeTotalScore, 92000);
-  assert.equal(loginDevice2.account.metrics.karaokeSongs, 2);
-
-  // Register a second player and verify rankings
-  const reg2 = store.register({
-    username: "fewmet",
-    password: "password2",
-    progress: {
-      completed: { stems: ["song1"] },
-      daily: {
-        "2026-10-27": { id: "v1:2026-10-27:c", attempts: [{ kind: "right", text: "c" }], status: "won" }
-      }
-    }
-  }, now);
-
-  const boards = store.getLeaderboards(reg2.token, now);
-  assert.equal(boards.totalAccounts, 2);
-  assert.equal(boards.boards.stems.entries[0].username, "yugpoog");
-  assert.equal(boards.boards.stems.entries[1].username, "fewmet");
+  const other = await store.register({ username: "fewmet", password: "password2", progress: { completed: { stems: ["song1"] }, daily: { [day(0)]: won(day(0)) } } }, NOW);
+  const boards = store.getLeaderboards(other.token, NOW);
+  assert.deepEqual(boards.boards.stems.entries.map(e => e.username), ["yugpoog", "fewmet"]);
   assert.equal(boards.boards.stems.viewer.rank, 2);
-  assert.equal(boards.boards.daily.entries[0].dailyStreak, 3);
-  assert.equal(boards.boards.daily.entries[1].dailyStreak, 1);
+  assert.equal(boards.boards.daily.entries[0].dailyStreak, 2);
+  assert.equal(boards.viewer.username, "fewmet");
+  assert.equal(boards.boards.stems.entries.some(e => "progress" in e), false, "boards never expose other players' progress");
 
-  // Missed day expires current streak while preserving bestDailyStreak
-  const twoDaysLater = now + 2 * 86400000;
-  const expiredMetrics = computeMetrics(loginDevice2.account.progress, twoDaysLater);
-  assert.equal(expiredMetrics.dailyStreak, 0);
-  assert.equal(expiredMetrics.bestDailyStreak, 3);
+  assert.equal(computeMetrics(second.account.progress, NOW + 2 * DAY).dailyStreak, 0, "a missed day ends the streak");
+  assert.equal(computeMetrics(second.account.progress, NOW + 2 * DAY).bestDailyStreak, 2);
+
+  // Tokens survive a restart and logout revokes only that device.
+  const reopened = createLeaderboardStore(file);
+  assert.equal(reopened.me(second.token).account.username, "yugpoog");
+  reopened.logout(second.token);
+  assert.equal(reopened.me(second.token).account, null);
+  assert.equal(reopened.me(first.token).account.username, "yugpoog");
 });
 
-test("frontend storage helpers collect and restore cross-device progress cleanly", async () => {
+function emptyStats() {
+  return { songsAttempted: 0, correctlyGuessed: 0, totalStars: 0, currentStreak: 0, highestStreak: 0 };
+}
+
+test("prestige clears songs on every device instead of being restored by a sync", async t => {
+  const store = newStore(t);
+  const { token } = await store.register({ username: "player", password: "pass1234", progress: { completed: { stems: ["s1", "s2", "s3"] } } }, NOW);
+  const prestiged = store.sync(token, { completed: { stems: ["kept"] }, prestige: 1 }, NOW);
+  assert.deepEqual(prestiged.account.progress.completed.stems, ["kept"]);
+  assert.equal(prestiged.account.progress.prestige, 1);
+  // A second device that never saw the prestige still has the old list.
+  const stale = store.sync(token, { completed: { stems: ["s1", "s2", "s3"] }, prestige: 0 }, NOW);
+  assert.deepEqual(stale.account.progress.completed.stems, ["kept"]);
+  // After catching up, devices merge normally again.
+  assert.deepEqual(store.sync(token, { completed: { stems: ["s9"] }, prestige: 1 }, NOW).account.progress.completed.stems, ["kept", "s9"]);
+});
+
+test("rankings ignore self-reported stats, unknown song ids, backfilled and future Dailies", async t => {
+  const catalog = new Map([["real1", "real1"], ["real2", "real2"], ["oldname", "real1"]]);
+  const store = newStore(t, { canonicalSongId: id => catalog.get(id) || null });
+
+  const stats = await store.register({ username: "stats", password: "pass1234", progress: { stats: { stems: { correctlyGuessed: 99999999, songsAttempted: 99999999 } } } }, NOW);
+  assert.equal(stats.account.metrics.stemsSolved, 0);
+
+  const ids = await store.register({
+    username: "ids", password: "pass1234",
+    progress: {
+      completed: { stems: ["real1", "oldname", "real2", ...Array.from({ length: 500 }, (_, i) => `fake${i}`)] },
+      karaoke: {
+        "yeatle-karaoke-best:real1:medium": { score: 25000, name: "ids" },
+        "yeatle-karaoke-best:oldname:hard:wpm": { score: 40000, name: "ids" },
+        "yeatle-karaoke-best:fake99:expert": { score: 999999, name: "ids" }
+      }
+    }
+  }, NOW);
+  assert.equal(ids.account.metrics.stemsSolved, 2, "former ids count once and invented ids not at all");
+  assert.equal(ids.account.metrics.karaokeSongs, 1, "equivalent/former karaoke song ids deduplicate and unknown songs are ignored");
+  assert.equal(ids.account.metrics.karaokeTotalScore, 40000);
+
+  const daily = {};
+  for (let i = 0; i < 300; i++) daily[day(-i)] = won(day(-i));
+  daily[day(1)] = won(day(1));
+  const backfill = await store.register({ username: "backfill", password: "pass1234", progress: { daily } }, NOW);
+  assert.equal(backfill.account.metrics.dailyStreak, 2, "only today and yesterday can be claimed");
+  assert.equal(backfill.account.progress.daily[day(1)], undefined, "future dates are dropped");
+  // Days synced on time keep counting; a client cannot mark an entry verified itself.
+  const later = store.sync(backfill.token, { daily: { [day(1)]: won(day(1)), [day(-50)]: { ...won(day(-50)), verified: true } } }, NOW + DAY);
+  assert.equal(later.account.metrics.dailyStreak, 3);
+  assert.equal(later.account.progress.daily[day(-50)].verified, undefined);
+
+  // A finished Daily cannot be rewritten into a better result, and impossible rounds are rejected.
+  const { token } = await store.register({ username: "flip", password: "pass1234", progress: { daily: { [day(0)]: lost(day(0)) } } }, NOW);
+  assert.equal(store.sync(token, { daily: { [day(0)]: won(day(0)) } }, NOW).account.metrics.dailyWins, 0);
+  const impossible = store.sync(token, { daily: { [day(-1)]: { id: "x", attempts: [], status: "won" } } }, NOW);
+  assert.equal(impossible.account.progress.daily[day(-1)], undefined);
+});
+
+test("repeated wrong passwords lock that username briefly", async t => {
+  const store = newStore(t);
+  await store.register({ username: "victim", password: "rightpass" }, NOW);
+  for (let i = 0; i < 5; i++) await assert.rejects(store.login({ username: "victim", password: "nope" }, NOW), /Wrong/);
+  await assert.rejects(store.login({ username: "victim", password: "rightpass" }, NOW), /Too many/);
+  assert.ok((await store.login({ username: "victim", password: "rightpass" }, NOW + 61000)).token);
+});
+
+test("an unreadable account file stops startup instead of being overwritten", t => {
+  const file = path.join(tempDir(t), "leaderboard-users.json");
+  fs.writeFileSync(file, "{broken");
+  assert.throws(() => createLeaderboardStore(file), /Restore or fix it/);
+  assert.equal(fs.readFileSync(file, "utf8"), "{broken");
+});
+
+test("frontend helpers collect local progress and apply the server's copy", async () => {
   const { collectLocalProgress, applyServerProgress, computeLocalDailyStreak } = await frontendModule;
   const map = new Map();
   const storage = {
@@ -140,62 +188,55 @@ test("frontend storage helpers collect and restore cross-device progress cleanly
     getItem(k) { return map.has(k) ? map.get(k) : null; },
     setItem(k, v) { map.set(k, String(v)); }
   };
-
   storage.setItem("yeatle:completed", JSON.stringify(["a", "b"]));
-  storage.setItem("yeatle:daily:2026-10-26", JSON.stringify({ id: "v1:2026-10-26:a", attempts: [], status: "won" }));
-  storage.setItem("yeatle:daily:2026-10-27", JSON.stringify({ id: "v1:2026-10-27:b", attempts: [], status: "lost" }));
+  storage.setItem(`yeatle:daily:${day(-1)}`, JSON.stringify(won(day(-1))));
+  storage.setItem(`yeatle:daily:${day(0)}`, JSON.stringify(lost(day(0))));
 
   const collected = collectLocalProgress(storage);
   assert.deepEqual(collected.completed.stems, ["a", "b"]);
-  assert.equal(computeLocalDailyStreak(storage, Date.parse("2026-10-27T18:00:00Z")), 2);
+  assert.equal(Object.keys(collected.daily).length, 2);
+  assert.equal(computeLocalDailyStreak(storage, NOW), 2);
 
-  const merged = mergeProgress(collected, {
-    completed: { stems: ["b", "c"], snippet: ["s1"] },
-    prestige: 2,
-    karaoke: { "yeatle-karaoke-best:song1:easy": { score: 15000, name: "mat" } }
-  });
-
-  const changed = applyServerProgress(merged, storage);
-  assert.equal(changed, true);
-  assert.deepEqual(JSON.parse(storage.getItem("yeatle:completed")), ["a", "b", "c"]);
+  const merged = mergeProgress(collected, { completed: { stems: ["b", "c"], snippet: ["s1"] }, prestige: 2, karaoke: { "yeatle-karaoke-best:song1:easy": { score: 15000, name: "mat" } } }, NOW);
+  assert.equal(applyServerProgress(merged, storage), true);
+  assert.deepEqual(JSON.parse(storage.getItem("yeatle:completed")), ["b", "c"], "the higher prestige's list wins");
   assert.deepEqual(JSON.parse(storage.getItem("yeatle:completed:snippet")), ["s1"]);
   assert.equal(JSON.parse(storage.getItem("yeatle:prestige")), 2);
   assert.equal(JSON.parse(storage.getItem("yeatle-karaoke-best:song1:easy")).score, 15000);
+  assert.equal(applyServerProgress(merged, storage), false, "re-applying the same copy changes nothing");
 });
 
-test("server leaderboard API syncs accounts and proxies through dailyAuthority when configured", async t => {
-  const hostDir = tempDir(t);
+test("the server shares accounts through dailyAuthority and accepts a full-catalog sync", async t => {
+  const hostUrl = await startServer(t, tempDir(t), "");
   const clientDir = tempDir(t);
-  const hostUrl = await startServer(t, hostDir, "");
   const clientUrl = await startServer(t, clientDir, hostUrl);
 
-  // Register on the client server (which proxies to hostUrl)
-  const regRes = await fetch(`${clientUrl}/api/account/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      username: "mat",
-      password: "yeatfan1",
-      progress: {
-        completed: { stems: ["flawless", "talk"] },
-        daily: { [new Date().toISOString().slice(0, 10)]: { id: "v1:today:flawless", attempts: [], status: "won" } }
-      }
-    })
-  });
-  assert.equal(regRes.status, 200);
-  const regBody = await regRes.json();
+  const reg = await post(`${clientUrl}/api/account/register`, { username: "mat", password: "yeatfan1", progress: { completed: { stems: ["flawless", "talk"] } } });
+  assert.equal(reg.status, 200);
+  const regBody = await reg.json();
   assert.equal(regBody.scope, "global");
-  assert.equal(regBody.account.username, "mat");
   assert.equal(regBody.account.metrics.stemsSolved, 2);
-  assert.equal(regBody.account.metrics.dailyStreak, 1);
+  assert.equal(fs.existsSync(path.join(clientDir, "leaderboard-users.json")), false, "clients keep no account copy");
 
-  // Fetching leaderboard directly from the host shows the account created via the client proxy
-  const lbRes = await fetch(`${hostUrl}/api/leaderboard`, {
-    headers: { Authorization: `Bearer ${regBody.token}` }
-  });
-  assert.equal(lbRes.status, 200);
-  const lbBody = await lbRes.json();
-  assert.equal(lbBody.totalAccounts, 1);
-  assert.equal(lbBody.boards.stems.entries[0].username, "mat");
-  assert.equal(lbBody.boards.stems.viewer.rank, 1);
+  const ids = Array.from({ length: 1500 }, (_, i) => `someyeatsongtitle${i}`);
+  const heavy = { completed: Object.fromEntries(["stems", "snippet", "snippet:base", "snippet:easy", "snippet:hard", "snippet:extreme"].map(m => [m, ids])) };
+  const sync = await post(`${clientUrl}/api/account/sync`, { progress: heavy }, regBody.token);
+  assert.equal(sync.status, 200, await sync.clone().text());
+
+  const board = await (await fetch(`${hostUrl}/api/leaderboard`, { headers: { Authorization: `Bearer ${regBody.token}` } })).json();
+  assert.equal(board.totalAccounts, 1);
+  assert.equal(board.boards.stems.viewer.username, "mat");
+
+  assert.equal((await post(`${clientUrl}/api/account/login`, { username: "mat", password: "wrongpass" })).status, 401);
+  assert.equal((await fetch(`${hostUrl}/api/account/sync`, { method: "PUT" })).status, 405);
+});
+
+test("an unreachable shared host never creates local accounts", async t => {
+  const dir = tempDir(t);
+  const url = await startServer(t, dir, "http://127.0.0.1:1");
+  const response = await post(`${url}/api/account/register`, { username: "mat", password: "yeatfan1" });
+  assert.equal(response.status, 503);
+  assert.match((await response.json()).error, /shared leaderboard is unavailable/);
+  assert.equal((await fetch(`${url}/api/leaderboard`)).status, 503);
+  assert.equal(fs.existsSync(path.join(dir, "leaderboard-users.json")), false);
 });

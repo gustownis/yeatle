@@ -5,7 +5,7 @@ const BOARD_META = {
   daily: {
     tabLabel: "Daily 🔥",
     heading: "Top Daily players",
-    rule: "ranked by active 🔥 daily streak and daily wins",
+    rule: "🔥 streak counts Dailies finished while signed in",
     formatYou: entry => `You're #${entry.rank} with 🔥 ${entry.dailyStreak} streak (${entry.dailyWins} ${entry.dailyWins === 1 ? "win" : "wins"}).`,
     formatRight: entry => `${entry.dailyWins} ${entry.dailyWins === 1 ? "win" : "wins"}${entry.bestDailyStreak > 0 ? ` · best 🔥 ${entry.bestDailyStreak}` : ""}`
   },
@@ -122,7 +122,8 @@ export function applyServerProgress(progress, storage = globalThis.localStorage,
         const key = `yeatle:daily:${date}`;
         const local = safeJsonParse(storage.getItem(key), null);
         if (!local || (local.status === "playing" && entry.status !== "playing")) {
-          write(key, JSON.stringify(entry));
+          const { verified: _v, ...cleanRound } = entry;
+          write(key, JSON.stringify(cleanRound));
           changed = true;
         }
       }
@@ -201,9 +202,9 @@ function initLeaderboardUI() {
   }
 
   function currentStreakBadgeValue() {
-    const serverStreak = leaderboardData?.viewer?.metrics?.dailyStreak ?? accountState?.dailyStreak ?? 0;
-    const localStreak = computeLocalDailyStreak(localStorage);
-    return Math.max(serverStreak, localStreak);
+    // Signed-in players see the server's streak, which only counts Dailies synced on time.
+    if (accountState?.token) return leaderboardData?.viewer?.metrics?.dailyStreak ?? accountState?.dailyStreak ?? 0;
+    return computeLocalDailyStreak(localStorage);
   }
 
   // Trigger button mounted in header
@@ -585,7 +586,7 @@ function initLeaderboardUI() {
     if (!leaderboardData) {
       const loading = document.createElement("div");
       loading.className = "yeatle-lb-empty";
-      loading.textContent = "Loading leaderboard…";
+      loading.textContent = statusError && statusMessage ? statusMessage : "Loading leaderboard…";
       body.appendChild(loading);
     } else if (!board?.entries?.length) {
       const empty = document.createElement("div");

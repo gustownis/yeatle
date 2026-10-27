@@ -45,7 +45,18 @@ const CACHE_FILE = path.join(DATA_DIR, "songs-cache.json");
 const SONG_CACHE_FORMAT = 3;
 const PREVIEW_CACHE_FILE = path.join(DATA_DIR, "preview-cache.json");
 const dailyChallenge = createDailyChallenges(path.join(DATA_DIR, "daily-challenges.json"));
-const leaderboardStore = createLeaderboardStore(path.join(DATA_DIR, "leaderboard-users.json"));
+// Leaderboard rankings only count songs that exist in this server's catalog (current or former ids).
+let leaderboardStore;
+try {
+  leaderboardStore = createLeaderboardStore(path.join(DATA_DIR, "leaderboard-users.json"), {
+    canonicalSongId: id => {
+      if (!SONG_INDEX.size) return id;
+      const song = SONG_INDEX.get(id);
+      if (!song) return null;
+      return song.equivalentIds?.length ? [song.id, ...song.equivalentIds].sort()[0] : song.id;
+    }
+  });
+} catch (error) { console.error(`Leaderboard accounts: ${error.message}`); process.exit(1); }
 try {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 } catch (err) {
@@ -2226,13 +2237,13 @@ function loggedIn(req) {
   return true;
 }
 
-function readJsonBody(req) {
+function readJsonBody(req, limit = 200000) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
     req.on("data", chunk => {
       size += chunk.length;
-      if (size > 200000) { reject(new Error("Request too big")); req.destroy(); }
+      if (size > limit) { reject(new Error("Request too big")); req.destroy(); }
       else chunks.push(chunk);
     });
     req.on("end", () => {
@@ -2896,31 +2907,34 @@ function bearerToken(req, body) {
   return "";
 }
 
+// Clients use the shared website's accounts, like the shared Daily. When that host is
+// unreachable there is no local substitute: a local account would split from the real one.
 async function proxyLeaderboardAuthority(req, pathname, bodyObj, token) {
-  if (!CONFIG.dailyAuthority || req.headers["x-yeatle-leaderboard-proxy"]) return null;
+  if (req.headers["x-yeatle-leaderboard-proxy"]) {
+    return { status: 503, body: { error: "The authoritative website must set dailyAuthority to an empty string in its config.json." } };
+  }
+  const unavailable = detail => ({ status: 503, body: { error: `The shared leaderboard is unavailable. Try again later; your progress is still saved on this device. (${detail})` } });
   try {
-    const targetUrl = new URL(pathname, CONFIG.dailyAuthority).href;
-    const headers = {
-      Accept: "application/json",
-      "X-Yeatle-Leaderboard-Proxy": "1",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(bodyObj !== null ? { "Content-Type": "application/json" } : {})
-    };
-    const upstream = await request(targetUrl, {
-      method: req.method,
-      headers,
+    const upstream = await request(new URL(pathname, CONFIG.dailyAuthority).href, {
+      method: req.method === "HEAD" ? "GET" : req.method,
+      headers: {
+        Accept: "application/json",
+        "X-Yeatle-Leaderboard-Proxy": "1",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(bodyObj !== null ? { "Content-Type": "application/json" } : {})
+      },
       body: bodyObj !== null ? JSON.stringify(bodyObj) : undefined,
-      timeout: 4500
+      timeout: 8000
     });
     const chunks = [];
     for await (const chunk of upstream) chunks.push(chunk);
-    const raw = Buffer.concat(chunks).toString("utf8");
-    if (upstream.statusCode === 404 || upstream.statusCode >= 500) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
+    if (upstream.statusCode === 404) return unavailable("the shared website has not been updated for leaderboards yet");
+    if (upstream.statusCode >= 500) return unavailable(`the shared website returned ${upstream.statusCode}`);
+    const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    if (!parsed || typeof parsed !== "object") return unavailable("invalid response");
     return { status: upstream.statusCode, body: { ...parsed, scope: "global" } };
-  } catch {
-    return null;
+  } catch (error) {
+    return unavailable(error.message);
   }
 }
 
@@ -2929,6 +2943,7 @@ async function handleLeaderboard(req, res, pathname) {
 
   const isPost = req.method === "POST";
   const isGet = req.method === "GET" || req.method === "HEAD";
+  if (!isPost && !isGet) { sendJson(res, 405, { error: "Use GET or POST." }); return true; }
   let body = null;
   if (isPost) {
     if (!/application\/json/i.test(req.headers["content-type"] || "")) {
@@ -2936,7 +2951,8 @@ async function handleLeaderboard(req, res, pathname) {
       return true;
     }
     try {
-      body = await readJsonBody(req);
+      // A full catalog solved in every mode is a few hundred kilobytes.
+      body = await readJsonBody(req, 2000000);
     } catch (err) {
       sendJson(res, 400, { error: err.message || "Bad request" });
       return true;
@@ -2944,46 +2960,28 @@ async function handleLeaderboard(req, res, pathname) {
   }
 
   const token = bearerToken(req, body);
-  const proxied = await proxyLeaderboardAuthority(req, pathname, body, token);
-  if (proxied) {
+  if (CONFIG.dailyAuthority) {
+    const proxied = await proxyLeaderboardAuthority(req, pathname, body, token);
     sendJson(res, proxied.status, proxied.body);
     return true;
   }
 
-  const scope = CONFIG.dailyPublicUrl || !CONFIG.dailyAuthority ? "global" : "local";
+  const scope = CONFIG.dailyPublicUrl ? "global" : "local";
   try {
-    if (pathname === "/api/leaderboard") {
-      if (!isGet) { sendJson(res, 405, { error: "Use GET for the leaderboard." }); return true; }
-      sendJson(res, 200, { ...leaderboardStore.getLeaderboards(token), scope });
-      return true;
-    }
-    if (pathname === "/api/account/me") {
-      if (!isGet) { sendJson(res, 405, { error: "Use GET." }); return true; }
-      sendJson(res, 200, { ...leaderboardStore.me(token), scope });
-      return true;
-    }
-    if (pathname === "/api/account/register" && isPost) {
-      sendJson(res, 200, { ...leaderboardStore.register(body || {}), scope });
-      return true;
-    }
-    if (pathname === "/api/account/login" && isPost) {
-      sendJson(res, 200, { ...leaderboardStore.login(body || {}), scope });
-      return true;
-    }
-    if (pathname === "/api/account/sync" && isPost) {
-      sendJson(res, 200, { ...leaderboardStore.sync(token, body?.progress || {}), scope });
-      return true;
-    }
-    if (pathname === "/api/account/logout" && isPost) {
-      sendJson(res, 200, { ...leaderboardStore.logout(token), scope });
-      return true;
-    }
-    sendJson(res, 404, { error: "Not found" });
-    return true;
+    let result;
+    if (pathname === "/api/leaderboard" && isGet) result = leaderboardStore.getLeaderboards(token);
+    else if (pathname === "/api/account/me" && isGet) result = leaderboardStore.me(token);
+    else if (pathname === "/api/account/register" && isPost) result = await leaderboardStore.register(body || {});
+    else if (pathname === "/api/account/login" && isPost) result = await leaderboardStore.login(body || {});
+    else if (pathname === "/api/account/sync" && isPost) result = leaderboardStore.sync(token, body?.progress || {});
+    else if (pathname === "/api/account/logout" && isPost) result = leaderboardStore.logout(token);
+    else { sendJson(res, 404, { error: "Not found" }); return true; }
+    sendJson(res, 200, { ...result, scope });
   } catch (err) {
+    if (!err.status) console.warn(`[leaderboard] ${err.message}`);
     sendJson(res, err.status || 400, { error: err.message || "Request failed" });
-    return true;
   }
+  return true;
 }
 
 const server = http.createServer(async (req, res) => {
