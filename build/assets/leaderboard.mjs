@@ -188,6 +188,9 @@ function initLeaderboardUI() {
   let leaderboardData = null;
   let isOpen = false;
   let busyAuth = false;
+  let renaming = false;
+  let renameDraft = "";
+  let focusRename = false;
   let statusMessage = "";
   let statusError = false;
   let syncTimer = null;
@@ -400,11 +403,34 @@ function initLeaderboardUI() {
     }
   }
 
+  async function handleRename(username) {
+    if (busyAuth) return;
+    busyAuth = true;
+    statusMessage = "";
+    statusError = false;
+    renderModal();
+    try {
+      const res = await apiCall("api/account/rename", "POST", { username });
+      saveAccountState({ ...accountState, username: res.account.username });
+      renaming = false;
+      statusMessage = `Username changed to ${res.account.username}.`;
+      await refreshLeaderboard(false);
+    } catch (err) {
+      if (err.message && /expired|log in/i.test(err.message)) saveAccountState(null);
+      statusError = true;
+      statusMessage = err.message || "Couldn't change your username.";
+    } finally {
+      busyAuth = false;
+      if (isOpen) renderModal();
+    }
+  }
+
   async function handleLogout() {
     try {
       if (accountState?.token) await apiCall("api/account/logout", "POST", {});
     } catch {}
     saveAccountState(null);
+    renaming = false;
     statusError = false;
     statusMessage = "Logged out on this device.";
     await refreshLeaderboard(false);
@@ -468,9 +494,70 @@ function initLeaderboardUI() {
       outBtn.textContent = "Log out";
       outBtn.addEventListener("click", handleLogout);
 
-      actions.append(syncBtn, outBtn);
+      const renameBtn = document.createElement("button");
+      renameBtn.type = "button";
+      renameBtn.className = "yeatle-lb-btn-action";
+      renameBtn.textContent = "Change username";
+      renameBtn.hidden = renaming;
+      renameBtn.addEventListener("click", () => {
+        renaming = true;
+        renameDraft = accountState.username || "";
+        focusRename = true;
+        statusMessage = "";
+        statusError = false;
+        renderModal();
+      });
+
+      actions.append(syncBtn, renameBtn, outBtn);
       top.append(userLine, actions);
       accountBox.appendChild(top);
+
+      if (renaming) {
+        const form = document.createElement("form");
+        form.className = "yeatle-lb-auth-form yeatle-lb-rename-form";
+        const nameIn = document.createElement("input");
+        nameIn.type = "text";
+        nameIn.placeholder = "New username";
+        nameIn.maxLength = 20;
+        nameIn.autocomplete = "username";
+        nameIn.required = true;
+        // Kept outside the form so a leaderboard refresh does not wipe what is being typed.
+        nameIn.value = renameDraft;
+        nameIn.addEventListener("input", () => { renameDraft = nameIn.value; });
+        nameIn.setAttribute("aria-label", "New username");
+
+        const btns = document.createElement("div");
+        btns.className = "yeatle-lb-auth-btns";
+        const saveBtn = document.createElement("button");
+        saveBtn.type = "submit";
+        saveBtn.className = "yeatle-lb-btn-action primary";
+        saveBtn.disabled = busyAuth;
+        saveBtn.textContent = busyAuth ? "Working…" : "Save";
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.className = "yeatle-lb-btn-action";
+        cancelBtn.disabled = busyAuth;
+        cancelBtn.textContent = "Cancel";
+        cancelBtn.addEventListener("click", () => {
+          renaming = false;
+          statusMessage = "";
+          statusError = false;
+          renderModal();
+        });
+
+        form.addEventListener("submit", e => {
+          e.preventDefault();
+          const next = nameIn.value.trim();
+          if (next && next !== accountState.username) handleRename(next);
+        });
+        btns.append(saveBtn, cancelBtn);
+        form.append(nameIn, btns);
+        accountBox.appendChild(form);
+        if (focusRename) {
+          focusRename = false;
+          queueMicrotask(() => nameIn.isConnected && nameIn.select());
+        }
+      }
     } else {
       const note = document.createElement("p");
       note.className = "yeatle-lb-account-note";

@@ -2322,6 +2322,11 @@ const ADMIN_HTML = String.raw`<!doctype html>
   .test-results { display: grid; gap: 4px; margin-top: 8px; max-height: 280px; overflow: auto; }
   .test-result { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 8px; border-bottom: 1px solid rgba(255,255,255,.1); }
   .test-result .grow { min-width: 0; }
+  .filter-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .filter-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 14px; background: rgba(137,1,185,.35); font-size: .85rem; }
+  .filter-chip button { padding: 0 8px; border: 0; border-radius: 10px; background: rgba(0,0,0,.35); color: #fff; cursor: pointer; }
+  .filter-add { display: flex; gap: 8px; margin-top: 8px; }
+  .filter-add input { flex: 1 1 auto; min-width: 0; }
   .rowline { display: flex; gap: 10px; align-items: center; justify-content: space-between; font-size: .85rem; }
   h2 { font-size: 1.05rem; margin: 28px 0 4px; }
   .empty { padding: 24px 0; color: rgba(255,255,255,.6); }
@@ -2483,6 +2488,39 @@ function buildScreen() {
   testPanel.appendChild(testNote);
   testPanel.appendChild(testResults);
 
+  var namesPanel = el("div", { class: "test-search", style: "display:none" });
+  var namesToggle = el("button", { class: "btn", text: "Filtered usernames", onclick: function () {
+    var open = namesPanel.style.display === "none";
+    namesPanel.style.display = open ? "block" : "none";
+    namesToggle.textContent = open ? "Hide filtered usernames" : "Filtered usernames";
+    if (open) api("/api/admin/username-filters").then(renderFilters).catch(function (err) { alert(err.message); });
+  } });
+  function renderFilters(data) {
+    namesPanel.textContent = "";
+    var input = el("input", { type: "text", maxlength: "40", placeholder: "Word or name to block", "aria-label": "Filtered username" });
+    function add() {
+      if (!input.value.trim()) return;
+      api("/api/admin/username-filters", { word: input.value, blocked: true }).then(renderFilters).catch(function (err) { alert(err.message); });
+    }
+    input.addEventListener("keydown", function (e) { if (e.key === "Enter") add(); });
+    namesPanel.appendChild(el("div", { class: "muted", text: "New accounts and username changes are refused when the name contains a filtered word. Case, dots, underscores and hyphens are ignored, so \"bad\" also blocks \"B.a_d-guy\". Existing accounts keep their names." }));
+    if (data.authority) namesPanel.appendChild(el("p", { class: "error", text: "This copy uses the accounts on " + data.authority + ". Add filters in that website's admin panel; this list does nothing here." }));
+    namesPanel.appendChild(el("div", { class: "filter-add" }, [input, el("button", { class: "btn small solid", text: "Add", onclick: add })]));
+    var list = el("div", { class: "filter-list" });
+    if (!data.filters.length) list.appendChild(el("span", { class: "muted", text: "No filtered usernames yet." }));
+    data.filters.forEach(function (word) {
+      list.appendChild(el("span", { class: "filter-chip" }, [
+        document.createTextNode(word),
+        el("button", { type: "button", text: "×", "aria-label": "Remove " + word, onclick: function () {
+          api("/api/admin/username-filters", { word: word, blocked: false }).then(renderFilters).catch(function (err) { alert(err.message); });
+        } })
+      ]));
+    });
+    namesPanel.appendChild(list);
+    if (data.matches.length) namesPanel.appendChild(el("p", { class: "muted", text: "Existing accounts that match: " + data.matches.join(", ") }));
+    input.focus();
+  }
+
   var search = el("input", { type: "text", class: "grow", placeholder: "Search title or era", "aria-label": "Search" });
   search.addEventListener("input", function () {
     state.search = search.value.toLowerCase();
@@ -2515,9 +2553,11 @@ function buildScreen() {
     select("Show", "show", [["all", "All songs"], ["visible", "Visible only"], ["hidden", "Hidden only"], ["excluded", "Excluded only"], ["dupes", "Possible duplicates"], ["merged", "Combined songs"]]),
     select("Tab", "tab", [["all", "Released and unreleased"], ["Released", "Released"], ["Unreleased", "Unreleased"]]),
     eraSelect,
-    testToggle
+    testToggle,
+    namesToggle
   ]));
   app.appendChild(testPanel);
+  app.appendChild(namesPanel);
   app.appendChild(el("div", { class: "bar sticky" }, [
     el("button", { class: "btn small", text: "Select all matches", onclick: function () { shown().forEach(function (s) { if (s.guessingEligible !== false) state.selected[s.id] = true; }); renderList(); } }),
     el("button", { class: "btn small", text: "Clear", onclick: function () { state.selected = {}; renderList(); } }),
@@ -2830,6 +2870,20 @@ async function handleAdmin(req, res, pathname) {
     return true;
   }
 
+  if (pathname === "/api/admin/username-filters") {
+    // Accounts live on the dailyAuthority website, so its admin panel holds the list that counts.
+    const authority = CONFIG.dailyAuthority || "";
+    if (req.method === "GET") { sendJson(res, 200, { ...leaderboardStore.getUsernameFilters(), authority }); return true; }
+    if (req.method !== "POST" || !/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
+    const body = await readJsonBody(req);
+    try {
+      sendJson(res, 200, { ...leaderboardStore.setUsernameFilter(body.word, body.blocked !== false), authority });
+    } catch (err) {
+      sendJson(res, err.status || 400, { error: err.message });
+    }
+    return true;
+  }
+
   if (pathname === "/api/admin/rename" && req.method === "POST") {
     if (!/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
     const body = await readJsonBody(req);
@@ -2928,7 +2982,9 @@ async function proxyLeaderboardAuthority(req, pathname, bodyObj, token) {
     });
     const chunks = [];
     for await (const chunk of upstream) chunks.push(chunk);
-    if (upstream.statusCode === 404) return unavailable("the shared website has not been updated for leaderboards yet");
+    if (upstream.statusCode === 404) return unavailable(pathname === "/api/account/rename"
+      ? "the shared website has not been updated for username changes yet"
+      : "the shared website has not been updated for leaderboards yet");
     if (upstream.statusCode >= 500) return unavailable(`the shared website returned ${upstream.statusCode}`);
     const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     if (!parsed || typeof parsed !== "object") return unavailable("invalid response");
@@ -2974,6 +3030,7 @@ async function handleLeaderboard(req, res, pathname) {
     else if (pathname === "/api/account/register" && isPost) result = await leaderboardStore.register(body || {});
     else if (pathname === "/api/account/login" && isPost) result = await leaderboardStore.login(body || {});
     else if (pathname === "/api/account/sync" && isPost) result = leaderboardStore.sync(token, body?.progress || {});
+    else if (pathname === "/api/account/rename" && isPost) result = leaderboardStore.rename(token, body?.username);
     else if (pathname === "/api/account/logout" && isPost) result = leaderboardStore.logout(token);
     else { sendJson(res, 404, { error: "Not found" }); return true; }
     sendJson(res, 200, { ...result, scope });

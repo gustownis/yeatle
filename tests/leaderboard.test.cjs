@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { fork } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
-const { createLeaderboardStore, computeMetrics, mergeProgress } = require("../leaderboard.cjs");
+const { createLeaderboardStore, computeMetrics, mergeProgress, BLOCKED_USERNAME_MESSAGE } = require("../leaderboard.cjs");
 const frontendModule = import(pathToFileURL(path.join(__dirname, "../build/assets/leaderboard.mjs")).href);
 
 const root = path.resolve(__dirname, "..");
@@ -239,4 +239,81 @@ test("an unreachable shared host never creates local accounts", async t => {
   assert.match((await response.json()).error, /shared leaderboard is unavailable/);
   assert.equal((await fetch(`${url}/api/leaderboard`)).status, 503);
   assert.equal(fs.existsSync(path.join(dir, "leaderboard-users.json")), false);
+});
+
+test("players can change their username and keep their sessions and progress", async t => {
+  const store = newStore(t);
+  const mat = await store.register({ username: "mat", password: "yeatfan1", progress: { completed: { stems: ["talk"] } } }, NOW);
+  await store.register({ username: "ken", password: "yeatfan2" }, NOW);
+
+  await assert.rejects(() => Promise.resolve().then(() => store.rename(mat.token, "KEN", NOW)), { status: 409 });
+  await assert.rejects(() => Promise.resolve().then(() => store.rename(mat.token, "x", NOW)), /2 to 20/);
+  await assert.rejects(() => Promise.resolve().then(() => store.rename("nope", "matty", NOW)), { status: 401 });
+
+  assert.equal(store.rename(mat.token, "Mat", NOW).account.username, "Mat", "a case-only change keeps the same account");
+  const renamed = store.rename(mat.token, "matty", NOW);
+  assert.equal(renamed.account.username, "matty");
+  assert.equal(renamed.account.metrics.stemsSolved, 1);
+  assert.equal(store.me(mat.token).account.username, "matty", "existing sessions stay signed in");
+  assert.equal((await store.login({ username: "matty", password: "yeatfan1" }, NOW)).account.username, "matty");
+  await assert.rejects(() => store.login({ username: "mat", password: "yeatfan1" }, NOW), { status: 401 });
+  assert.equal((await store.register({ username: "mat", password: "other1" }, NOW)).account.username, "mat", "the old name is free again");
+});
+
+test("filtered usernames block sign-ups and name changes but keep existing accounts", async t => {
+  const dir = tempDir(t);
+  const file = path.join(dir, "leaderboard-users.json");
+  const store = createLeaderboardStore(file);
+  const old = await store.register({ username: "badguy", password: "yeatfan1" }, NOW);
+
+  assert.throws(() => store.setUsernameFilter("  ", true), /1 to 40/);
+  assert.deepEqual(store.setUsernameFilter(" BAD ", true), { filters: ["bad"], matches: ["badguy"] });
+  for (const name of ["bad", "B.a_d-guy", "superBAD"]) {
+    await assert.rejects(() => store.register({ username: name, password: "yeatfan1" }, NOW), err => err.status === 400 && err.message === BLOCKED_USERNAME_MESSAGE);
+  }
+  const ken = await store.register({ username: "ken", password: "yeatfan2" }, NOW);
+  assert.throws(() => store.rename(ken.token, "bad_ken", NOW), { message: BLOCKED_USERNAME_MESSAGE });
+  assert.equal(BLOCKED_USERNAME_MESSAGE, "Error Username cannot be chosen because the song is dogshit");
+  assert.equal((await store.login({ username: "badguy", password: "yeatfan1" }, NOW)).account.username, "badguy", "existing accounts can still log in");
+  assert.equal(store.me(old.token).account.username, "badguy");
+
+  const reopened = createLeaderboardStore(file);
+  assert.deepEqual(reopened.getUsernameFilters().filters, ["bad"], "filters survive a restart");
+  assert.deepEqual(reopened.setUsernameFilter("bad", false), { filters: [], matches: [] });
+  assert.equal((await reopened.register({ username: "bad", password: "yeatfan1" }, NOW)).account.username, "bad");
+});
+
+test("the admin panel filters usernames on the shared host and clients rename through it", async t => {
+  const hostDir = tempDir(t);
+  fs.writeFileSync(path.join(hostDir, "admin.json"), JSON.stringify({ password: "letmein" }));
+  const hostUrl = await startServer(t, hostDir, "");
+  const clientUrl = await startServer(t, tempDir(t), hostUrl);
+
+  assert.equal((await post(`${hostUrl}/api/admin/username-filters`, { word: "bad" })).status, 401, "admins only");
+  const login = await post(`${hostUrl}/api/admin/login`, { password: "letmein" });
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  const admin = (url, body) => fetch(url, body === undefined ? { headers: { Cookie: cookie } } : {
+    method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify(body)
+  });
+  const added = await (await admin(`${hostUrl}/api/admin/username-filters`, { word: "bad", blocked: true })).json();
+  assert.deepEqual(added, { filters: ["bad"], matches: [], authority: "" });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(hostDir, "username-filters.json"), "utf8")).filters[0], "bad");
+
+  const blocked = await post(`${clientUrl}/api/account/register`, { username: "BadSinger", password: "yeatfan1" });
+  assert.equal(blocked.status, 400);
+  assert.equal((await blocked.json()).error, "Error Username cannot be chosen because the song is dogshit");
+
+  const reg = await (await post(`${clientUrl}/api/account/register`, { username: "mat", password: "yeatfan1" })).json();
+  const badRename = await post(`${clientUrl}/api/account/rename`, { username: "mat_bad" }, reg.token);
+  assert.equal(badRename.status, 400);
+  assert.equal((await badRename.json()).error, "Error Username cannot be chosen because the song is dogshit");
+  const rename = await post(`${clientUrl}/api/account/rename`, { username: "matty" }, reg.token);
+  assert.equal(rename.status, 200);
+  assert.equal((await rename.json()).account.username, "matty");
+  const board = await (await fetch(`${hostUrl}/api/leaderboard`, { headers: { Authorization: `Bearer ${reg.token}` } })).json();
+  assert.equal(board.viewer.username, "matty");
+
+  const removed = await (await admin(`${hostUrl}/api/admin/username-filters`, { word: "bad", blocked: false })).json();
+  assert.deepEqual(removed.filters, []);
+  assert.equal((await admin(`${hostUrl}/api/admin/username-filters`)).status, 200);
 });

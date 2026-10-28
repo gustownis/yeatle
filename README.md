@@ -568,6 +568,8 @@ You can choose another password in `admin.json` if you prefer. It lets you
 correct song names, eras, and other minor metadata issues while waiting for
 an upstream update.
 
+**Filtered usernames** blocks leaderboard account names. A new account or a username change is refused with "Error Username cannot be chosen because the song is dogshit" when the name contains a filtered word, ignoring case, dots, underscores and hyphens. Existing accounts keep their names, and the panel lists the ones that match. Accounts live on the `dailyAuthority` website, so only that website's admin panel controls the list; it is saved in its ignored `username-filters.json`. Signed-in players can change their own username from the leaderboard window.
+
 ## Troubleshooting
 
 | Problem | What to do |

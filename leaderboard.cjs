@@ -11,6 +11,8 @@ const MAX_TOKENS_PER_USER = 10;
 const LOGIN_FAILS_BEFORE_LOCK = 5;
 const LOGIN_LOCK_MS = 60000;
 const DAY_MS = 86400000;
+const BLOCKED_USERNAME_MESSAGE = "Error Username cannot be chosen because the song is dogshit";
+const MAX_USERNAME_FILTERS = 1000;
 
 function emptyStats() {
   return { songsAttempted: 0, correctlyGuessed: 0, totalStars: 0, currentStreak: 0, highestStreak: 0 };
@@ -32,6 +34,23 @@ function validateUsername(raw) {
     throw new Error("Use 2 to 20 letters, numbers, underscores, hyphens, or dots for your username.");
   }
   return { username, key: username.toLowerCase() };
+}
+
+// Filters ignore case and the separators allowed in usernames, so "bad" also blocks "B.a_d-guy".
+const filterForm = text => String(text || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+function cleanUsernameFilter(raw) {
+  const word = String(raw || "").trim().toLowerCase();
+  if (!filterForm(word) || word.length > 40) throw httpError("Use 1 to 40 characters with at least one letter or number for a filtered username.", 400);
+  return word;
+}
+
+function usernameMatchesFilters(username, filters) {
+  const name = filterForm(username);
+  return filters.some(word => {
+    const form = filterForm(word);
+    return form && name.includes(form);
+  });
 }
 
 function validatePassword(raw) {
@@ -251,19 +270,32 @@ function httpError(message, status) {
   return err;
 }
 
-function createLeaderboardStore(file, { canonicalSongId = null } = {}) {
-  let state = { users: {} };
-  if (fs.existsSync(file)) {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-      if (parsed && typeof parsed === "object" && parsed.users && typeof parsed.users === "object" && !Array.isArray(parsed.users)) {
-        state = parsed;
-      }
-    } catch (err) {
-      // Refuse to start over an unreadable file: saving would erase every account.
-      throw new Error(`Could not read ${path.basename(file)} (${err.message}). Restore or fix it before restarting.`);
-    }
+function readJsonFile(file, fallback) {
+  if (!fs.existsSync(file)) return fallback;
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (err) {
+    // Refuse to start over an unreadable file: saving would erase what it holds.
+    throw new Error(`Could not read ${path.basename(file)} (${err.message}). Restore or fix it before restarting.`);
   }
+}
+
+function writeJsonFile(file, value) {
+  const temp = `${file}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify(value));
+  fs.renameSync(temp, file);
+}
+
+function createLeaderboardStore(file, { canonicalSongId = null, filtersFile = path.join(path.dirname(file), "username-filters.json") } = {}) {
+  let state = { users: {} };
+  const parsed = readJsonFile(file, null);
+  if (parsed && typeof parsed === "object" && parsed.users && typeof parsed.users === "object" && !Array.isArray(parsed.users)) {
+    state = parsed;
+  }
+  const savedFilters = readJsonFile(filtersFile, {});
+  let usernameFilters = Array.isArray(savedFilters?.filters)
+    ? [...new Set(savedFilters.filters.filter(w => typeof w === "string" && filterForm(w)).map(w => w.trim().toLowerCase()))]
+    : [];
 
   const tokenIndex = new Map();
   for (const user of Object.values(state.users)) {
@@ -271,10 +303,10 @@ function createLeaderboardStore(file, { canonicalSongId = null } = {}) {
   }
   const loginFailures = new Map(); // username key -> { count, lockedUntil }
 
-  function save() {
-    const temp = `${file}.tmp`;
-    fs.writeFileSync(temp, JSON.stringify(state));
-    fs.renameSync(temp, file);
+  const save = () => writeJsonFile(file, state);
+
+  function checkNotFiltered(username) {
+    if (usernameMatchesFilters(username, usernameFilters)) throw httpError(BLOCKED_USERNAME_MESSAGE, 400);
   }
 
   const userByToken = token => (token && typeof token === "string" ? tokenIndex.get(token) || null : null);
@@ -306,6 +338,7 @@ function createLeaderboardStore(file, { canonicalSongId = null } = {}) {
 
   async function register({ username, password, progress }, now = Date.now()) {
     const { username: cleanName, key } = validateUsername(username);
+    checkNotFiltered(cleanName);
     const cleanPass = validatePassword(password);
     if (state.users[key]) throw httpError("That username is already taken. Log in if it is yours, or pick another name.", 409);
     const salt = crypto.randomBytes(16).toString("hex");
@@ -347,6 +380,43 @@ function createLeaderboardStore(file, { canonicalSongId = null } = {}) {
     user.updatedAt = now;
     save();
     return { account: publicProfile(user, now) };
+  }
+
+  // Existing sessions stay signed in: tokens point at the account, not at its name.
+  function rename(token, newUsername, now = Date.now()) {
+    const user = userByToken(token);
+    if (!user) throw httpError("Session expired. Please log in again.", 401);
+    const { username: cleanName, key } = validateUsername(newUsername);
+    checkNotFiltered(cleanName);
+    if (key !== user.key && state.users[key]) throw httpError("That username is already taken. Pick another name.", 409);
+    delete state.users[user.key];
+    user.username = cleanName;
+    user.key = key;
+    user.updatedAt = now;
+    state.users[key] = user;
+    save();
+    return { account: publicProfile(user, now) };
+  }
+
+  function getUsernameFilters() {
+    const filters = [...usernameFilters].sort();
+    const matches = Object.values(state.users)
+      .filter(u => usernameMatchesFilters(u.username, filters))
+      .map(u => u.username)
+      .sort((a, b) => a.localeCompare(b));
+    return { filters, matches };
+  }
+
+  function setUsernameFilter(raw, blocked) {
+    const word = cleanUsernameFilter(raw);
+    const next = usernameFilters.filter(w => w !== word);
+    if (blocked) {
+      if (next.length >= MAX_USERNAME_FILTERS) throw httpError(`Keep the list to ${MAX_USERNAME_FILTERS} filtered usernames or fewer.`, 400);
+      next.push(word);
+    }
+    usernameFilters = next;
+    writeJsonFile(filtersFile, { filters: usernameFilters });
+    return getUsernameFilters();
   }
 
   function logout(token) {
@@ -406,14 +476,16 @@ function createLeaderboardStore(file, { canonicalSongId = null } = {}) {
     return { serverTime: now, totalAccounts: allUsers.length, boards, viewer: viewerUser ? publicProfile(viewerUser, now) : null };
   }
 
-  return { register, login, sync, logout, me, getLeaderboards };
+  return { register, login, sync, rename, logout, me, getLeaderboards, getUsernameFilters, setUsernameFilter };
 }
 
 module.exports = {
+  BLOCKED_USERNAME_MESSAGE,
   MODES,
   SNIPPET_MODES,
   validateUsername,
   validatePassword,
+  usernameMatchesFilters,
   mergeProgress,
   computeMetrics,
   createLeaderboardStore
