@@ -22,9 +22,8 @@ it is safe, rather than only telling the user an update exists.
    do not guess a new branch relationship or discard local commits.
 3. Check the latest published regular GitHub release, for example with
    `gh api repos/gustownis/yeatle/releases/latest`, and compare its tag with
-   the version in the root `package.json`. Compare version numbers correctly;
-   do not treat lexical ordering as version ordering. An unreleased development
-   version can be newer than the latest release and must not be downgraded.
+   the version in the root `package.json`. A tag like `v1.12` is equal to
+   `package.json` version `1.12.0`. Compare version numbers correctly;
 4. If the checkout is clean and its branch is behind its upstream with no
    local-only commits, automatically run `git merge --ff-only '@{upstream}'`.
    This updates tracked
@@ -76,6 +75,12 @@ private notes intact throughout synchronization.
 - Let prose wrap naturally to the reader's available page width. Keep each paragraph on one source line instead of manually wrapping at a fixed column count or putting each sentence on a new line. Apply this to release notes, README text, documentation, shared instructions, and release or pull-request descriptions.
 - Keep each list item on one source line unless it contains a real nested list, separate paragraph, or code block. Use blank lines for actual paragraph breaks and preserve meaningful structure such as headings, tables, and code; do not add forced line breaks just to shorten a line.
 - GitHub release descriptions can display source newlines as visible line breaks. When copying notes from Markdown files, join wrapped paragraph and list-continuation lines before publishing, and check the rendered notes for unnecessary breaks.
+
+## Version numbering
+
+- Name releases with two numbers, X.Y (for example 1.12, then 1.13). Use this form in git tags, GitHub release titles, release notes and the README. Do not add a trailing ".0" (write 1.12, not 1.12.0).
+- `package.json` and `package-lock.json` must keep a valid three-part semver (1.12.0), because npm and electron-builder reject "1.12". Treat X.Y as X.Y.0 when comparing versions.
+- Use a third number only for a real patch release (for example 1.12.1).
 
 ## Important project constraints
 
