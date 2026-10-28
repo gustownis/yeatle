@@ -2002,7 +2002,7 @@ async function loadSongs() {
   try {
     const res = await fetch("api/songs");
     const data = await res.json();
-    const { songsForPool } = await import("./song-pools.mjs?v=1.11.6");
+    const { songsForPool } = await import("./song-pools.mjs?v=1.12.0");
     state.songs = songsForPool(data.songs || []).slice().sort((a, b) => a.display.localeCompare(b.display));
     carryFormerIds(state.songs);
     state.artist = data.artist || "Yeat";

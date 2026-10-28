@@ -203,7 +203,9 @@ function initLeaderboardUI() {
 
   function currentStreakBadgeValue() {
     // Signed-in players see the server's streak, which only counts Dailies synced on time.
-    if (accountState?.token) return leaderboardData?.viewer?.metrics?.dailyStreak ?? accountState?.dailyStreak ?? 0;
+    // accountState is refreshed by every sync, login and leaderboard load, so it is never
+    // older than the cached leaderboard (which is only reloaded when the popup opens).
+    if (accountState?.token) return accountState.dailyStreak || 0;
     return computeLocalDailyStreak(localStorage);
   }
 

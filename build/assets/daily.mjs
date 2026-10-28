@@ -1,5 +1,5 @@
-import { BASE_LENGTHS, matchesSong, restoreRound, shareResult } from "./snippet-rules.mjs?v=1.11.6";
-import { attachSongSuggestions } from "./song-suggestions.mjs?v=1.11.6";
+import { BASE_LENGTHS, matchesSong, restoreRound, shareResult } from "./snippet-rules.mjs?v=1.12.0";
+import { attachSongSuggestions } from "./song-suggestions.mjs?v=1.12.0";
 
 const $ = selector => document.querySelector(selector);
 const suggestions = attachSongSuggestions($("#guess"), $("#song-suggestions"));
