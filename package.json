@@ -18,11 +18,11 @@
     "test:1.11": "node scripts/test-1.11.cjs",
     "desktop": "electron .",
     "test": "node --test tests/*.test.cjs",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder --publish never",
-    "dist:win": "electron-builder --win --publish never",
-    "dist:mac": "electron-builder --mac --publish never",
-    "dist:linux": "electron-builder --linux --publish never",
+    "pack": "node scripts/builder.cjs --dir",
+    "dist": "node scripts/builder.cjs --publish never",
+    "dist:win": "node scripts/builder.cjs --win --publish never",
+    "dist:mac": "node scripts/builder.cjs --mac --publish never",
+    "dist:linux": "node scripts/builder.cjs --linux --publish never",
     "prepare:release": "node scripts/prepare-release.cjs"
   },
   "devDependencies": {
