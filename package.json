@@ -76,10 +76,10 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "Yeatle-Setup-${version}-windows-${arch}.${ext}"
+      "artifactName": "Yeatle-Setup-${env.YEATLE_VERSION}-windows-${arch}.${ext}"
     },
     "portable": {
-      "artifactName": "Yeatle-${version}-windows-${arch}-portable.${ext}"
+      "artifactName": "Yeatle-${env.YEATLE_VERSION}-windows-${arch}-portable.${ext}"
     },
     "mac": {
       "target": [
@@ -88,7 +88,7 @@
       ],
       "category": "public.app-category.games",
       "identity": null,
-      "artifactName": "Yeatle-${version}-mac-${arch}.${ext}"
+      "artifactName": "Yeatle-${env.YEATLE_VERSION}-mac-${arch}.${ext}"
     },
     "linux": {
       "target": [
@@ -97,7 +97,7 @@
       ],
       "category": "Game",
       "maintainer": "gustownis <60524993+gustownis@users.noreply.github.com>",
-      "artifactName": "Yeatle-${version}-linux-${arch}.${ext}"
+      "artifactName": "Yeatle-${env.YEATLE_VERSION}-linux-${arch}.${ext}"
     }
   },
   "dependencies": {
