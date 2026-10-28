@@ -2503,7 +2503,7 @@ function buildScreen() {
       api("/api/admin/username-filters", { word: input.value, blocked: true }).then(renderFilters).catch(function (err) { alert(err.message); });
     }
     input.addEventListener("keydown", function (e) { if (e.key === "Enter") add(); });
-    namesPanel.appendChild(el("div", { class: "muted", text: "New accounts and username changes are refused when the name contains a filtered word. Case, dots, underscores and hyphens are ignored, so \"bad\" also blocks \"B.a_d-guy\". Existing accounts keep their names." }));
+    namesPanel.appendChild(el("div", { class: "muted", text: "New accounts and username changes are refused when the name contains a filtered word. Case, dots, underscores and hyphens are ignored, so \"bad\" also blocks \"B.a_d-guy\". Alive 4 a min, Regular person and Terrified are always blocked in any spelling. Existing accounts keep their names." }));
     if (data.authority) namesPanel.appendChild(el("p", { class: "error", text: "This copy uses the accounts on " + data.authority + ". Add filters in that website's admin panel; this list does nothing here." }));
     namesPanel.appendChild(el("div", { class: "filter-add" }, [input, el("button", { class: "btn small solid", text: "Add", onclick: add })]));
     var list = el("div", { class: "filter-list" });

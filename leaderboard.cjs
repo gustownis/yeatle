@@ -45,7 +45,28 @@ function cleanUsernameFilter(raw) {
   return word;
 }
 
+// Always blocked, whatever the admin list says. Names are checked after undoing number
+// swaps (4 -> a, 1 -> i or l, 3 -> e, 0 -> o, ...) and collapsing doubled letters, so
+// "Alive_4_A_Min", "aliveforaminute", "T3rrrif1ed" and "reguler-persn" are all caught.
+const BUILT_IN_BLOCKED_USERNAMES = [
+  { label: "alive 4 a min", pattern: /al[iy]v[e]?(?:f[ou]?r)?a?m[iey]n/ },
+  { label: "regular person", pattern: /reg(?:[ue]?l[aeu]?r)?p[eu]?r?s[oau]?n/ },
+  { label: "terrified", pattern: /t[aeiu]r[iy]f[iy]?e?d|t[aeiu]r[iy]f[iy]e/ }
+];
+const LEET = { 0: "o", 2: "z", 3: "e", 4: "a", 5: "s", 6: "g", 7: "t", 8: "b", 9: "g" };
+
+function builtInForms(username) {
+  const base = filterForm(username);
+  return ["i", "l"].map(one => base.replace(/[0-9]/g, d => (d === "1" ? one : LEET[d])).replace(/(.)\1+/g, "$1"));
+}
+
+function isBuiltInBlockedUsername(username) {
+  const forms = builtInForms(username);
+  return BUILT_IN_BLOCKED_USERNAMES.some(({ pattern }) => forms.some(form => pattern.test(form)));
+}
+
 function usernameMatchesFilters(username, filters) {
+  if (isBuiltInBlockedUsername(username)) return true;
   const name = filterForm(username);
   return filters.some(word => {
     const form = filterForm(word);
@@ -486,6 +507,8 @@ module.exports = {
   validateUsername,
   validatePassword,
   usernameMatchesFilters,
+  isBuiltInBlockedUsername,
+  BUILT_IN_BLOCKED_USERNAMES,
   mergeProgress,
   computeMetrics,
   createLeaderboardStore

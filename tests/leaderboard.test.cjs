@@ -317,3 +317,20 @@ test("the admin panel filters usernames on the shared host and clients rename th
   assert.deepEqual(removed.filters, []);
   assert.equal((await admin(`${hostUrl}/api/admin/username-filters`)).status, 200);
 });
+
+test("alive 4 a min, regular person and terrified are blocked in any spelling", async t => {
+  const { isBuiltInBlockedUsername } = require("../leaderboard.cjs");
+  for (const name of ["alive4amin", "Alive_4_A_Min", "aliveforaminute", "a1ive4min", "xxalive4aminxx", "regularperson", "Reguler.Persn", "r3gul4rp3rs0n", "regperson", "Terrified", "t3rr1f13d", "terrrifyed", "im_terifid"]) {
+    assert.ok(isBuiltInBlockedUsername(name), `${name} should be blocked`);
+  }
+  for (const name of ["alive", "regular", "person", "teriyaki", "territory", "terry", "fewmet", "IShat4aMin", "Lyfestealer"]) {
+    assert.ok(!isBuiltInBlockedUsername(name), `${name} should be allowed`);
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-builtin-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = createLeaderboardStore(path.join(dir, "leaderboard-users.json"));
+  await assert.rejects(() => store.register({ username: "Alive-4-A-Min", password: "yeatfan1" }, NOW), err => err.status === 400 && err.message === BLOCKED_USERNAME_MESSAGE);
+  const ok = await store.register({ username: "yeatfan", password: "yeatfan1" }, NOW);
+  assert.throws(() => store.rename(ok.token, "t3rrified", NOW), { message: BLOCKED_USERNAME_MESSAGE });
+  assert.deepEqual(store.getUsernameFilters().filters, [], "built-in blocks are not editable admin filters");
+});
