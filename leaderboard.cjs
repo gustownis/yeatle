@@ -35,6 +35,34 @@ const KARAOKE_RUN_MS = 30 * 60000;
 const KARAOKE_MAX_SECONDS = 20 * 60;
 const KARAOKE_DIFFICULTIES = ["easy", "medium", "hard", "expert"];
 const MAX_FLAGS = 500;
+// Verified Snippets rounds: the server picks the song from the ones the page offers,
+// streams it under the round's id and checks each guess, so the page never learns the
+// answer until the round is over. Tries per difficulty match the game's clip lists.
+const SNIPPET_TRIES = { base: 6, easy: 7, medium: 7, hard: 7, extreme: 3 };
+const SNIPPET_HINTS = [["era", 3], ["year", 4], ["producers", 5]];
+const SNIPPET_ROUND_MS = 3 * 3600000;
+const SNIPPET_MAX_CANDIDATES = 6000;
+const SNIPPET_ROUNDS_PER_PLAYER = 20;
+const MAX_SNIPPET_ROUNDS = 50000;
+// Automatic bans. Pressing play, hearing a clip and typing a title takes a person
+// seconds; a right answer before the audio was even requested can only come from
+// somewhere other than the song. Strikes expire after a week.
+const FAST_FIRST_TRY_MS = 1500;
+const STRIKE_WINDOW_MS = 7 * DAY_MS;
+const STRIKES_TO_BAN = 3;
+// Over the last rounds whose first clip is a quarter second or less, nearly always
+// naming the song from that first clip is beyond anyone playing by ear.
+const FIRST_CLIP_RECENT = 25;
+const FIRST_CLIP_MIN_ROUNDS = 20;
+const FIRST_CLIP_MAX_RATE = 0.85;
+const SHORT_FIRST_CLIP = ["base", "hard", "extreme"];
+// Cheat tools the page recognises by their own on-screen text or element ids. Only the
+// signed-in player's own page can report its account.
+const KNOWN_CHEAT_TOOLS = {
+  "yeatle-cracked": "the \"Yeatle Cracked\" cheat panel",
+  "snippets-solver": "a Snippets answer solver",
+  "stem-injector": "the karaoke stem injector"
+};
 
 function emptyStats() {
   return { songsAttempted: 0, correctlyGuessed: 0, totalStars: 0, currentStreak: 0, highestStreak: 0 };
@@ -393,6 +421,10 @@ function createLeaderboardStore(file, {
   songSeconds = () => null,
   checkDailyWin = null,
   ipBlockMs = DEFAULT_IP_BLOCK_MS,
+  snippetSong = () => null,
+  snippetHints = () => ({}),
+  snippetReveal = () => null,
+  matchesAnswer = () => false,
   filtersFile = path.join(path.dirname(file), "username-filters.json"),
   bansFile = path.join(path.dirname(file), "leaderboard-bans.json")
 } = {}) {
@@ -410,7 +442,8 @@ function createLeaderboardStore(file, {
     bans: savedBans?.bans && typeof savedBans.bans === "object" ? savedBans.bans : {},
     ipBlocks: savedBans?.ipBlocks && typeof savedBans.ipBlocks === "object" ? savedBans.ipBlocks : {},
     deviceBlocks: savedBans?.deviceBlocks && typeof savedBans.deviceBlocks === "object" ? savedBans.deviceBlocks : {},
-    flags: Array.isArray(savedBans?.flags) ? savedBans.flags : []
+    flags: Array.isArray(savedBans?.flags) ? savedBans.flags : [],
+    strikes: savedBans?.strikes && typeof savedBans.strikes === "object" ? savedBans.strikes : {}
   };
 
   const save = () => writeJsonFile(file, state);
@@ -459,6 +492,7 @@ function createLeaderboardStore(file, {
 
   const loginFailures = new Map(); // username key + address -> { count, lockedUntil }
   const karaokeRuns = new Map(); // run id -> run
+  const snippetRounds = new Map(); // round id -> round
   const dummySalt = crypto.randomBytes(16).toString("hex");
 
   function checkNotFiltered(username) {
@@ -551,7 +585,8 @@ function createLeaderboardStore(file, {
       return;
     }
     r.stems = creditBucket(r.stems, stems, now);
-    r.snippet = creditBucket(r.snippet, snippet, now);
+    // Snippets solves rank only from verified rounds (snippetVerified); the count from
+    // before rounds existed is kept as it was.
     // A prestige means finishing the whole catalog again, so a day apart is generous.
     const p = r.prestige || { ranked: 0, at: now };
     if (prestige < p.ranked) r.prestige = { ranked: prestige, at: now };
@@ -563,7 +598,7 @@ function createLeaderboardStore(file, {
     // Karaoke bests from before verified runs (legacyKaraoke) are kept but never ranked.
     const karaoke = { ...(r.karaoke || {}) };
     if (r.grandfather) return { karaoke };
-    return { karaoke, stems: r.stems?.ranked ?? 0, snippet: r.snippet?.ranked ?? 0, prestige: r.prestige?.ranked ?? 0 };
+    return { karaoke, stems: r.stems?.ranked ?? 0, snippet: (r.snippet?.ranked ?? 0) + (r.snippetVerified?.length || 0), prestige: r.prestige?.ranked ?? 0 };
   }
 
   const metricsFor = (user, now) => computeMetrics(user.progress, now, canonicalSongId, rankedFor(user));
@@ -829,6 +864,11 @@ function createLeaderboardStore(file, {
       const failed = Array.isArray(integrity.failed) ? integrity.failed.filter(f => typeof f === "string").slice(0, 10).map(f => f.slice(0, 60)) : [];
       reasons.push(`modified browser audio or microphone (${failed.join(", ") || "unknown"})`);
     }
+    if (similarity.reasons.length) {
+      flagRun(user, run, score, reasons, now);
+      autoBan(user, reasons.map(r => `karaoke: ${r}`), now);
+      throw bannedError();
+    }
     if (reasons.length) {
       flagRun(user, run, score, reasons, now);
       return { ranked: false, flagged: true, message: "This run wasn't ranked: the microphone or audio looked modified, or too much like the song's own vocal. An admin will review it." };
@@ -858,14 +898,24 @@ function createLeaderboardStore(file, {
     const user = key ? state.users[key] : null;
     if (!user) throw httpError(`No account is called "${String(username || "").trim().slice(0, 40)}".`, 404);
     if (isBanned(user)) throw httpError(`${user.username} is already banned.`, 409);
-    const cleanReason = String(reason || "").trim().slice(0, MAX_BAN_REASON);
+    applyBan(user, { reason: String(reason || "").trim().slice(0, MAX_BAN_REASON), auto: false }, now);
+    return listBans();
+  }
+
+  // Banning signs the account out everywhere, resets its progress to a new account's and
+  // restricts its devices, and for a ban an admin made or confirmed, its recent addresses.
+  // Only this one user's record changes; the old progress is kept in the ban record so a
+  // mistaken ban can be undone.
+  function applyBan(user, { reason, auto, evidence = [] }, now) {
     const tokenHashes = (user.tokens || []).map(sha256);
     moderation.bans[user.id] = {
-      accountId: user.id, username: user.username, bannedAt: now, reason: cleanReason, tokenHashes,
+      accountId: user.id, username: user.username, bannedAt: now, reason, tokenHashes,
+      ...(auto ? { auto: true, confirmed: false, evidence: evidence.slice(0, 10).map(e => String(e).slice(0, 200)) } : {}),
       snapshot: { progress: user.progress, ranked: user.ranked, legacyKaraoke: user.legacyKaraoke }
     };
-    for (const hash of Object.keys(user.seen?.ips || {})) moderation.ipBlocks[hash] = { accountId: user.id, until: now + ipBlockMs };
+    if (!auto) blockAddresses(user, now);
     for (const hash of Object.keys(user.seen?.devices || {})) moderation.deviceBlocks[hash] = { accountId: user.id };
+    delete moderation.strikes[user.id];
     saveModeration(now);
     for (const t of user.tokens || []) tokenIndex.delete(t);
     for (const hash of tokenHashes) revokedTokens.set(hash, user.id);
@@ -875,8 +925,194 @@ function createLeaderboardStore(file, {
     user.ranked = freshRanked(now);
     delete user.legacyKaraoke;
     for (const [id, run] of karaokeRuns) if (run.accountId === user.id) karaokeRuns.delete(id);
+    for (const [id, round] of snippetRounds) if (round.accountId === user.id) snippetRounds.delete(id);
     save();
+  }
+
+  function blockAddresses(user, now) {
+    for (const hash of Object.keys(user.seen?.ips || {})) moderation.ipBlocks[hash] = { accountId: user.id, until: now + ipBlockMs };
+  }
+
+  // Automatic bans wait in the admin panel for review. Confirming one adds the address
+  // restrictions an admin's own ban has; Unban with Restore progress undoes it.
+  function autoBan(user, evidence, now) {
+    if (!user || isBanned(user)) return;
+    applyBan(user, { reason: "Automatic anti-cheat ban", auto: true, evidence }, now);
+  }
+
+  function confirmBan(accountId, now = Date.now()) {
+    const ban = moderation.bans[String(accountId || "")];
+    if (!ban) throw httpError("That account isn't banned.", 404);
+    if (!ban.auto || ban.confirmed) throw httpError("That ban doesn't need confirming.", 409);
+    ban.confirmed = true;
+    ban.confirmedAt = now;
+    const user = byId.get(ban.accountId);
+    if (user) blockAddresses(user, now);
+    saveModeration(now);
     return listBans();
+  }
+
+  // Adds weighted strikes and bans once they reach STRIKES_TO_BAN within the window.
+  function addStrike(user, weight, reason, now) {
+    const list = (moderation.strikes[user.id] || []).filter(s => s.at > now - STRIKE_WINDOW_MS);
+    list.push({ at: now, weight, reason: String(reason).slice(0, 200) });
+    moderation.strikes[user.id] = list.slice(-50);
+    const total = list.reduce((sum, s) => sum + s.weight, 0);
+    if (total >= STRIKES_TO_BAN) autoBan(user, list.map(s => s.reason), now);
+    else saveModeration(now);
+  }
+
+  /* ---------- verified Snippets rounds ---------- */
+
+  function sweepRounds(now) {
+    for (const [id, round] of snippetRounds) if (round.expiresAt <= now) snippetRounds.delete(id);
+    while (snippetRounds.size > MAX_SNIPPET_ROUNDS) snippetRounds.delete(snippetRounds.keys().next().value);
+  }
+
+  function hintsFor(round) {
+    if (round.difficulty === "extreme") return {};
+    const all = snippetHints(round.songId, round.pool) || {};
+    const level = round.attempts.length;
+    const out = {};
+    for (const [field, at] of SNIPPET_HINTS) {
+      if (level < at) continue;
+      if (field === "year") { if (all.eraYear) out.eraYear = all.eraYear; if (all.year) out.year = all.year; }
+      else if (all[field]) out[field] = all[field];
+    }
+    return out;
+  }
+
+  // The page offers every song it would have picked from (its pool, eras and songs not yet
+  // solved); the server picks one and keeps which one to itself.
+  function startSnippetRound(token, body, now = Date.now(), ctx = {}) {
+    const { user, changed } = authUser(token, ctx, now, { optional: true });
+    if (changed) save();
+    const difficulty = String(body?.difficulty || "base");
+    const tries = SNIPPET_TRIES[difficulty];
+    if (!tries) throw httpError("Unknown Snippets difficulty.", 400);
+    if (!Array.isArray(body?.candidates) || !body.candidates.length) throw httpError("No songs were offered for this round.", 400);
+    const pool = ["all", "released", "unreleased", "stems"].includes(body?.pool) ? body.pool : "all";
+    const ids = [...new Set(body.candidates.filter(id => typeof id === "string" && id.length <= 200))].slice(0, SNIPPET_MAX_CANDIDATES);
+    const playable = ids.filter(id => snippetSong(id, pool)?.playable);
+    if (!playable.length) throw httpError("None of these songs can be played right now. Refresh the game and try again.", 404);
+    sweepRounds(now);
+    const owner = user ? `a:${user.id}` : ctx.deviceHash ? `d:${ctx.deviceHash}` : "";
+    if (owner) {
+      const mine = [...snippetRounds.entries()].filter(([, r]) => r.owner === owner);
+      for (const [id] of mine.slice(0, Math.max(0, mine.length - SNIPPET_ROUNDS_PER_PLAYER + 1))) snippetRounds.delete(id);
+    }
+    const songId = playable[crypto.randomInt(playable.length)];
+    const round = {
+      id: crypto.randomBytes(16).toString("hex"), songId, pool, owner, accountId: user ? user.id : null, difficulty, tries,
+      attempts: [], status: "playing", startedAt: now, audioAt: 0, expiresAt: now + SNIPPET_ROUND_MS
+    };
+    snippetRounds.set(round.id, round);
+    return { roundId: round.id, tries, stems: Boolean(snippetSong(songId, pool).stems) };
+  }
+
+  // The song behind a round's audio. The first request is when the player could first hear it.
+  function snippetRoundAudio(roundId, now = Date.now()) {
+    const round = snippetRounds.get(String(roundId || ""));
+    if (!round || round.expiresAt <= now) return null;
+    if (!round.audioAt) round.audioAt = now;
+    return { songId: round.songId, pool: round.pool };
+  }
+
+  function snippetRoundAct(token, body, now = Date.now(), ctx = {}) {
+    const round = snippetRounds.get(String(body?.roundId || ""));
+    if (!round || round.expiresAt <= now) throw httpError("This round has expired. Start a new song.", 409);
+    let user = null;
+    if (round.accountId) {
+      user = authUser(token, ctx, now).user;
+      if (user.id !== round.accountId) throw httpError("This round belongs to another account.", 403);
+    } else checkDevice(ctx);
+    if (round.status !== "playing") throw httpError("This round is already over.", 409);
+
+    const kind = String(body?.kind || "");
+    if (kind === "guess") {
+      const text = String(body?.text || "").trim().slice(0, 200);
+      if (!text) throw httpError("Type a guess first.", 400);
+      if (matchesAnswer(round.songId, text, round.pool)) {
+        round.attempts.push({ kind: "right", text });
+        round.status = "won";
+      } else {
+        round.attempts.push({ kind: "wrong", text });
+        if (round.attempts.length >= round.tries) round.status = "lost";
+      }
+    } else if (kind === "skip") {
+      if (round.attempts.length >= round.tries - 1) throw httpError("This is already the longest clip.", 409);
+      round.attempts.push({ kind: "skip", text: "" });
+    } else if (kind === "giveup") {
+      round.attempts.push({ kind: "skip", text: "" });
+      round.status = "lost";
+    } else throw httpError("Unknown round action.", 400);
+
+    const result = { status: round.status, level: Math.min(round.attempts.length, round.tries - 1), hints: hintsFor(round) };
+    if (round.status !== "playing") {
+      result.song = snippetReveal(round.songId, round.pool);
+      round.finishedAt = now;
+      if (user) result.ranked = finishRound(user, round, now);
+    }
+    return result;
+  }
+
+  // Credits a won round and checks how it was won. Returns whether it ranked.
+  function finishRound(user, round, now) {
+    const won = round.status === "won";
+    // Two strikes, not three: iOS may not request audio until Play is tapped, so one lucky
+    // blind guess mustn't ban anyone. A tool that answers every round is banned on its second.
+    if (won && !round.audioAt) addStrike(user, 2, "Snippets: named the song before its audio was requested", now);
+    else if (won && round.attempts.length === 1 && now - round.audioAt < FAST_FIRST_TRY_MS) {
+      addStrike(user, 1, `Snippets: named the song from the first clip ${now - round.audioAt} ms after its audio was requested`, now);
+    }
+    if (isBanned(user)) throw bannedError();
+
+    const r = user.ranked || (user.ranked = freshRanked(now));
+    if (SHORT_FIRST_CLIP.includes(round.difficulty)) {
+      r.firstClip = [...(r.firstClip || []), won && round.attempts.length === 1 ? 1 : 0].slice(-FIRST_CLIP_RECENT);
+      const rate = r.firstClip.reduce((a, b) => a + b, 0) / r.firstClip.length;
+      if (r.firstClip.length >= FIRST_CLIP_MIN_ROUNDS && rate >= FIRST_CLIP_MAX_RATE) {
+        autoBan(user, [`Snippets: named ${Math.round(rate * 100)}% of the last ${r.firstClip.length} songs from a clip of a quarter second or less`], now);
+        throw bannedError();
+      }
+    }
+    let ranked = false;
+    if (won) {
+      const song = snippetSong(round.songId, round.pool);
+      const id = song?.canonical || round.songId;
+      if (!Array.isArray(r.snippetVerified)) r.snippetVerified = [];
+      if (!r.snippetVerified.includes(id)) r.snippetVerified.push(id);
+      if (r.snippetVerified.length > 20000) r.snippetVerified.shift();
+      ranked = true;
+    }
+    user.updatedAt = now;
+    save();
+    return ranked;
+  }
+
+  // A signed-in page that finds a known cheat tool on itself reports it once.
+  function reportCheatTool(token, body, now = Date.now(), ctx = {}) {
+    const { user } = authUser(token, ctx, now);
+    const tools = (Array.isArray(body?.tools) ? body.tools : []).filter(t => Object.hasOwn(KNOWN_CHEAT_TOOLS, t));
+    if (!tools.length) return { ok: true };
+    autoBan(user, [...new Set(tools)].map(t => `cheat tool on the page: ${KNOWN_CHEAT_TOOLS[t]}`), now);
+    throw bannedError();
+  }
+
+  // Every account, newest first, for the admin panel. No addresses, devices or progress.
+  function listPlayers(query = "", now = Date.now()) {
+    const q = String(query || "").trim().toLowerCase();
+    const all = Object.values(state.users)
+      .filter(u => !q || u.key.includes(q))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    return {
+      total: Object.keys(state.users).length,
+      matching: all.length,
+      players: all.slice(0, 500).map(u => ({
+        username: u.username, createdAt: u.createdAt || null, lastActive: u.updatedAt || null,
+        banned: isBanned(u), nameBlocked: isNameBlocked(u)
+      }))
+    };
   }
 
   function unbanUser(accountId, { restore = false } = {}, now = Date.now()) {
@@ -902,7 +1138,10 @@ function createLeaderboardStore(file, {
   function listBans() {
     const bans = Object.values(moderation.bans).map(ban => {
       const user = byId.get(ban.accountId);
-      return { accountId: ban.accountId, username: ban.username, currentUsername: user ? user.username : "", bannedAt: ban.bannedAt, reason: ban.reason || "" };
+      return {
+        accountId: ban.accountId, username: ban.username, currentUsername: user ? user.username : "", bannedAt: ban.bannedAt, reason: ban.reason || "",
+        auto: Boolean(ban.auto), confirmed: Boolean(ban.confirmed), evidence: ban.auto ? ban.evidence || [] : []
+      };
     }).sort((a, b) => b.bannedAt - a.bannedAt);
     const flags = moderation.flags.map(f => ({
       id: f.id, accountId: f.accountId, username: byId.get(f.accountId)?.username || f.username, songId: f.songId, difficulty: f.difficulty,
@@ -921,7 +1160,8 @@ function createLeaderboardStore(file, {
 
   return {
     register, login, sync, rename, adminRename, logout, me, status, getLeaderboards, getUsernameFilters, setUsernameFilter,
-    startKaraokeRun, submitKaraokeRun, banUser, unbanUser, listBans, dismissFlag
+    startKaraokeRun, submitKaraokeRun, banUser, unbanUser, confirmBan, listBans, dismissFlag,
+    startSnippetRound, snippetRoundAudio, snippetRoundAct, reportCheatTool, listPlayers
   };
 }
 
@@ -935,6 +1175,9 @@ module.exports = {
   SNIPPET_MODES,
   SOLVE_CREDIT_PER_HOUR,
   SOLVE_CREDIT_BURST,
+  SNIPPET_TRIES,
+  FAST_FIRST_TRY_MS,
+  KNOWN_CHEAT_TOOLS,
   validateUsername,
   validatePassword,
   usernameMatchesFilters,

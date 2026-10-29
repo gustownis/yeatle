@@ -110,27 +110,31 @@ test("a realistic human run is ranked; forged and replayed runs are rejected", a
   assert.deepEqual(board.map(e => [e.username, e.primary]), [["singer", score]]);
 });
 
-test("injector-like and tampered runs are unranked and listed for review, never banned", async t => {
+test("tampered runs are flagged for review, and a run that is the song's own vocal bans automatically", async t => {
   const scoring = await scoringModule;
   const store = newStore(t);
-  const { token } = await store.register({ username: "krank", password: "pass1234" }, NOW);
+  const { token } = await store.register({ username: "krank", password: "pass1234", progress: { completed: { stems: ["a"] } } }, NOW);
   const tryRun = (trace, extra = {}) => {
     const run = store.startKaraokeRun(token, { songId: "song", difficulty: "expert" }, NOW);
     return store.submitKaraokeRun(token, { runId: run.runId, score: scoring.rescoreTrace(trace), duration: 180, phrases: trace, integrity, ...extra }, scoring, NOW + 4 * MIN);
   };
-  const injected = tryRun(injectorTrace());
-  assert.equal(injected.ranked, false);
-  assert.equal(injected.flagged, true);
   const patched = tryRun(humanTrace(11), { integrity: { ok: false, failed: ["page getUserMedia"] } });
+  assert.equal(patched.ranked, false);
   assert.equal(patched.flagged, true, "a patched microphone function unranks the run");
   const missing = tryRun(humanTrace(12), { integrity: undefined });
   assert.equal(missing.flagged, true);
+  assert.equal(store.listBans().bans.length, 0, "integrity flags alone never ban: extensions patch these functions too");
 
-  const { flags } = store.listBans();
+  assert.throws(() => tryRun(injectorTrace()), err => err.banned === true);
+  const { flags, bans } = store.listBans();
   assert.equal(flags.length, 3);
-  assert.match(flags.at(-1).reasons.join(" "), /original vocal/);
-  assert.match(flags[1].reasons.join(" "), /getUserMedia/);
-  assert.equal(store.listBans().bans.length, 0, "flags never ban");
+  assert.match(flags[0].reasons.join(" "), /original vocal/);
+  assert.match(flags[2].reasons.join(" "), /getUserMedia/, "newest first");
+  assert.equal(bans.length, 1);
+  assert.equal(bans[0].auto, true);
+  assert.equal(bans[0].confirmed, false, "automatic bans wait for an admin to review them");
+  assert.match(bans[0].evidence.join(" "), /karaoke: .*original vocal/);
+  assert.throws(() => store.me(token, NOW), err => err.banned === true);
   assert.equal(store.getLeaderboards("", NOW).boards.karaoke.entries.length, 0);
   assert.equal(store.dismissFlag(flags[0].id).flags.length, 2);
 });
@@ -170,7 +174,7 @@ test("ranked solves grow at a bounded rate and wait for the catalog", async t =>
   ready = true;
   const fast = await store.register({ username: "backlog", password: "pass1234", progress: { completed: { stems: ids, "snippet:hard": ids.slice(0, 10) } } }, NOW);
   assert.equal(fast.account.metrics.stemsSolved, SOLVE_CREDIT_BURST, "a big first sync is credited gradually");
-  assert.equal(fast.account.metrics.snippetSolved, 10);
+  assert.equal(fast.account.metrics.snippetSolved, 0, "synced Snippets solves no longer rank; only verified rounds do");
   assert.equal(store.sync(fast.token, {}, NOW + 3600000).account.metrics.stemsSolved, SOLVE_CREDIT_BURST + SOLVE_CREDIT_PER_HOUR);
   let caught;
   for (let hour = 2; hour <= 6; hour++) caught = store.sync(fast.token, {}, NOW + hour * 3600000).account.metrics.stemsSolved;

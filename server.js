@@ -126,6 +126,8 @@ let leaderboardStore, signalHasher;
 // The game's own Daily guess matching, used to confirm a won Daily's right guess.
 let snippetRules = null;
 import(pathToFileURL(path.join(__dirname, "build", "assets", "snippet-rules.mjs")).href).then(m => { snippetRules = m; }, err => console.warn(`[leaderboard] ${err.message}`));
+let songPools = null;
+import(pathToFileURL(path.join(__dirname, "build", "assets", "song-pools.mjs")).href).then(m => { songPools = m; }, err => console.warn(`[leaderboard] ${err.message}`));
 const karaokeScoring = import(pathToFileURL(path.join(__dirname, "build", "assets", "karaoke-scoring.mjs")).href);
 karaokeScoring.catch(err => console.warn(`[leaderboard] ${err.message}`));
 try {
@@ -146,6 +148,24 @@ try {
       const saved = dailyChallenge.saved(date);
       const right = entry.attempts[entry.attempts.length - 1];
       return Boolean(saved && snippetRules && entry.id === saved.id && right?.kind === "right" && snippetRules.matchesSong(publicSong(saved.song), right.text));
+    },
+    snippetSong: (id, pool) => {
+      const entry = snippetEntry(id, pool);
+      if (!entry) return null;
+      const song = SONG_INDEX.get(id);
+      return { playable: entry.playable, stems: entry.stems, canonical: song.equivalentIds?.length ? [song.id, ...song.equivalentIds].sort()[0] : song.id };
+    },
+    snippetHints: (id, pool) => {
+      const pub = snippetEntry(id, pool)?.pub;
+      return pub ? { era: pub.era || "", eraYear: pub.eraYear || null, year: pub.year || null, producers: pub.producers || [] } : {};
+    },
+    snippetReveal: (id, pool) => {
+      const pub = snippetEntry(id, pool)?.pub;
+      return pub ? attachJokes([pub])[0] : null;
+    },
+    matchesAnswer: (id, text, pool) => {
+      const pub = snippetEntry(id, pool)?.pub;
+      return Boolean(pub && snippetRules && snippetRules.matchesSong(pub, text));
     },
     ipBlockMs: CONFIG.ipRestrictionDays * 86400000
   });
@@ -1881,6 +1901,25 @@ async function serveSongAudio(req, res, id, pinnedSong) {
   }
 }
 
+// A Snippets round's audio, named only by the round. Copies of the game pass the bytes on
+// from the shared website, which holds the round.
+async function serveRoundAudio(req, res, roundId, stem) {
+  if (!["GET", "HEAD"].includes(req.method)) return sendJson(res, 405, { error: "Use GET." });
+  const rel = `/api/audio/round-${roundId}${stem ? `/${stem}.mp3` : ""}`;
+  if (CONFIG.dailyAuthority) {
+    try { return await pipeAudio(req, res, new URL(rel, CONFIG.dailyAuthority).href); }
+    catch (err) { if (!res.headersSent) return sendJson(res, 502, { error: `Could not load this round's audio. (${err.message})` }); res.destroy(); return; }
+  }
+  const round = leaderboardStore.snippetRoundAudio(roundId);
+  const entry = round && snippetEntry(round.songId, round.pool);
+  if (!entry) return sendJson(res, 404, { error: "This round has expired. Start a new song." });
+  if (stem) {
+    if (!entry.stems) return sendJson(res, 404, { error: "Not found" });
+    return serveStatic(req, res, `/Songs/${entry.raw.folder}/${stem}.mp3`, { noStore: true });
+  }
+  return serveSongAudio(req, res, entry.raw.audioId || entry.raw.id, entry.raw);
+}
+
 /* ------------------------------------------------------------------ *
  *  Static files
  * ------------------------------------------------------------------ */
@@ -1894,7 +1933,7 @@ const MIME = {
   ".jpeg": "image/jpeg", ".lrc": "text/plain; charset=utf-8", ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif"
 };
 
-function serveStatic(req, res, pathname) {
+function serveStatic(req, res, pathname, { noStore = false } = {}) {
   let rel;
   try { rel = decodeURIComponent(pathname); } catch (err) { rel = pathname; }
   if (rel === "/") rel = "/index.html";
@@ -1924,7 +1963,8 @@ function serveStatic(req, res, pathname) {
     const type = MIME[path.extname(file).toLowerCase()] || "application/octet-stream";
     const compressible = /\.(html|js|mjs|css|json|wasm|svg)$/i.test(file) && stat.size >= 1024;
     if (compressible) res.setHeader("Vary", "Accept-Encoding");
-    const cache = staticCacheHeaders(file, stat, APP_VERSION);
+    // Round audio must not be cached under a name a later round could reuse.
+    const cache = noStore ? { "Cache-Control": "no-store" } : staticCacheHeaders(file, stat, APP_VERSION);
     for (const [header, value] of Object.entries(cache)) res.setHeader(header, value);
     if (isNotModified(req.headers, cache.ETag, stat.mtimeMs)) {
       res.writeHead(304);
@@ -2134,6 +2174,21 @@ function publicSong(song) {
   const { source, fallback, mergedFrom, sourceVariants, poolVariants, ...rest } = song;
   return { ...rest, hasFull: Boolean(song.mode === "filter" || fallback),
     ...(poolVariants ? { poolVariants: Object.fromEntries(Object.entries(poolVariants).map(([pool, variant]) => [pool, publicSong(variant)])) } : {}) };
+}
+
+// A song as a Snippets round in one pool sees it: the public entry the page would have
+// used (with that pool's recording, as songsForPool builds it) and the recording itself.
+function snippetEntry(id, pool = "all") {
+  const song = SONG_INDEX.get(id);
+  if (!song || song.id !== id || isHidden(song) || !isGuessingEligible(song)) return null;
+  const base = publicSong(song);
+  if (songPools && !songPools.inSongPool(base, pool)) return null;
+  const variant = pool !== "all" ? song.poolVariants?.[pool] : null;
+  const pub = variant ? { ...base, ...publicSong(variant), id: song.id, poolVariants: base.poolVariants } : base;
+  const raw = variant || song;
+  const stems = raw.mode === "stems" && !raw.fallback && Boolean(raw.folder);
+  const playable = raw.mode === "stems" ? Boolean(raw.fallback || raw.folder) : Boolean(raw.source);
+  return { pub, raw, stems, playable };
 }
 
 function songListJson() {
@@ -2600,6 +2655,46 @@ function buildScreen() {
     input.focus();
   }
 
+  var playersPanel = el("div", { class: "test-search", style: "display:none" });
+  var playersToggle = el("button", { class: "btn", text: "Players", onclick: function () {
+    var open = playersPanel.style.display === "none";
+    playersPanel.style.display = open ? "block" : "none";
+    playersToggle.textContent = open ? "Hide players" : "Players";
+    if (open) loadPlayers("");
+  } });
+  var playerSearchTimer;
+  function loadPlayers(q) {
+    api("/api/admin/players?q=" + encodeURIComponent(q)).then(function (data) { renderPlayers(data, q); }).catch(function (err) { alert(err.message); });
+  }
+  function renderPlayers(data, q) {
+    playersPanel.textContent = "";
+    var search = el("input", { type: "text", maxlength: "20", placeholder: "Search usernames", "aria-label": "Search players", value: q });
+    search.addEventListener("input", function () {
+      clearTimeout(playerSearchTimer);
+      playerSearchTimer = setTimeout(function () { loadPlayers(search.value.trim()); }, 200);
+    });
+    playersPanel.appendChild(el("div", { class: "muted", text: "Every account, newest first, with when it was created and when it last signed in, synced or changed its name. " + data.total + (data.total === 1 ? " account" : " accounts") + (q ? ", " + data.matching + " matching" : "") + (data.matching > data.players.length ? "; showing the newest " + data.players.length : "") + "." }));
+    if (data.authority) playersPanel.appendChild(el("p", { class: "error", text: "This copy uses the accounts on " + data.authority + ". Open that website's admin panel to see its players." }));
+    playersPanel.appendChild(el("div", { class: "filter-add" }, [search]));
+    var list = el("div", { class: "ban-list" });
+    if (!data.players.length) list.appendChild(el("span", { class: "muted", text: q ? "No usernames match." : "No accounts yet." }));
+    data.players.forEach(function (p) {
+      list.appendChild(el("div", { class: "ban-row" }, [
+        el("div", { class: "grow" }, [
+          el("div", { class: "name" }, [
+            document.createTextNode(p.username + " "),
+            p.banned ? el("span", { class: "tag hid", text: "Banned" }) : null,
+            p.nameBlocked ? el("span", { class: "tag exc", text: "Blocked name" }) : null
+          ]),
+          el("div", { class: "muted", text: "Created " + (p.createdAt ? when(p.createdAt) : "unknown") + (p.lastActive ? " · last active " + when(p.lastActive) : "") })
+        ])
+      ]));
+    });
+    playersPanel.appendChild(list);
+    search.focus();
+    search.setSelectionRange(search.value.length, search.value.length);
+  }
+
   var bansPanel = el("div", { class: "test-search", style: "display:none" });
   var bansToggle = el("button", { class: "btn", text: "Banned users", onclick: function () {
     var open = bansPanel.style.display === "none";
@@ -2612,7 +2707,7 @@ function buildScreen() {
     bansPanel.textContent = "";
     var local = !data.authority;
     var status = el("p", { class: "error", "aria-live": "polite" });
-    bansPanel.appendChild(el("div", { class: "muted", text: "A ban signs the account out on every device and resets its progress to a new account's. Its devices can't use accounts until it is unbanned, and its recent networks can't sign up or sign in for a while; other people on those networks can still play. Bans only take effect on the dailyAuthority website. Reasons are only shown here." }));
+    bansPanel.appendChild(el("div", { class: "muted", text: "A ban signs the account out on every device and resets its progress to a new account's. Its devices can't use accounts until it is unbanned, and its recent networks can't sign up or sign in for a while; other people on those networks can still play. Bans only take effect on the dailyAuthority website. Reasons are only shown here. The anti-cheat also bans automatically (a known cheat panel on the page, Snippets answers that arrive before or within moments of the audio, or a karaoke run that is the song's own vocal); those bans block devices straight away and networks once you confirm them. Unban with Restore progress undoes one completely." }));
     if (!local) bansPanel.appendChild(el("p", { class: "error", text: "This copy uses the accounts on " + data.authority + ". Ban players in that website's admin panel; bans can't be added here." }));
 
     var name = el("input", { type: "text", maxlength: "20", placeholder: "Username", "aria-label": "Username to ban" });
@@ -2643,11 +2738,19 @@ function buildScreen() {
     data.bans.forEach(function (ban) {
       var restore = el("input", { type: "checkbox", "aria-label": "Restore progress for " + ban.username });
       var renamed = ban.currentUsername && ban.currentUsername !== ban.username ? " (now " + ban.currentUsername + ")" : "";
+      var pending = ban.auto && !ban.confirmed;
       list.appendChild(el("div", { class: "ban-row" }, [
         el("div", { class: "grow" }, [
-          el("div", { class: "name", text: ban.username + renamed }),
-          el("div", { class: "muted", text: "Banned " + when(ban.bannedAt) + (ban.reason ? " · " + ban.reason : "") })
+          el("div", { class: "name" }, [
+            document.createTextNode(ban.username + renamed + " "),
+            ban.auto ? el("span", { class: "tag " + (pending ? "mix" : "hid"), text: pending ? "Automatic · needs review" : "Automatic · confirmed" }) : null
+          ]),
+          el("div", { class: "muted", text: "Banned " + when(ban.bannedAt) + (ban.reason ? " · " + ban.reason : "") }),
+          ban.evidence && ban.evidence.length ? el("div", { class: "muted", text: "Why: " + ban.evidence.join("; ") }) : null
         ]),
+        pending ? el("button", { class: "btn small red", text: "Confirm ban", disabled: !local, onclick: function () {
+          api("/api/admin/confirm-ban", { accountId: ban.accountId }).then(renderBans).catch(function (err) { status.textContent = err.message; });
+        } }) : null,
         el("label", { class: "ban-restore" }, [restore, document.createTextNode(" Restore progress")]),
         el("button", { class: "btn small", text: "Unban", disabled: !local, onclick: function () {
           api("/api/admin/unban", { accountId: ban.accountId, restore: restore.checked }).then(renderBans).catch(function (err) { status.textContent = err.message; });
@@ -2674,7 +2777,7 @@ function buildScreen() {
       ]));
     });
     bansPanel.appendChild(el("h2", { text: "Flagged karaoke runs" }));
-    bansPanel.appendChild(el("div", { class: "muted", text: "Runs that looked like the song's own vocal or a modified microphone. They aren't ranked; nobody is banned automatically." }));
+    bansPanel.appendChild(el("div", { class: "muted", text: "Runs that looked like the song's own vocal or a modified microphone. They aren't ranked. A run that matched the song's own vocal also bans the player automatically; that ban waits above for review." }));
     bansPanel.appendChild(flags);
   }
 
@@ -2712,11 +2815,13 @@ function buildScreen() {
     eraSelect,
     testToggle,
     namesToggle,
-    bansToggle
+    bansToggle,
+    playersToggle
   ]));
   app.appendChild(testPanel);
   app.appendChild(namesPanel);
   app.appendChild(bansPanel);
+  app.appendChild(playersPanel);
   app.appendChild(el("div", { class: "bar sticky" }, [
     el("button", { class: "btn small", text: "Select all matches", onclick: function () { shown().forEach(function (s) { if (s.guessingEligible !== false) state.selected[s.id] = true; }); renderList(); } }),
     el("button", { class: "btn small", text: "Clear", onclick: function () { state.selected = {}; renderList(); } }),
@@ -3064,7 +3169,13 @@ async function handleAdmin(req, res, pathname) {
     return true;
   }
 
-  if (pathname === "/api/admin/bans" || pathname === "/api/admin/unban" || pathname === "/api/admin/karaoke-flags") {
+  if (pathname === "/api/admin/players") {
+    if (req.method !== "GET") { sendJson(res, 405, { error: "Use GET." }); return true; }
+    sendJson(res, 200, { ...leaderboardStore.listPlayers(new URL(req.url, "http://localhost").searchParams.get("q") || ""), authority: CONFIG.dailyAuthority || "" });
+    return true;
+  }
+
+  if (pathname === "/api/admin/bans" || pathname === "/api/admin/unban" || pathname === "/api/admin/karaoke-flags" || pathname === "/api/admin/confirm-ban") {
     // Bans, like accounts, only exist on the dailyAuthority website.
     const authority = CONFIG.dailyAuthority || "";
     if (pathname === "/api/admin/bans" && req.method === "GET") { sendJson(res, 200, { ...leaderboardStore.listBans(), authority }); return true; }
@@ -3074,6 +3185,7 @@ async function handleAdmin(req, res, pathname) {
     try {
       const result = pathname === "/api/admin/bans" ? leaderboardStore.banUser(body.username, body.reason)
         : pathname === "/api/admin/unban" ? leaderboardStore.unbanUser(body.accountId, { restore: body.restore === true })
+        : pathname === "/api/admin/confirm-ban" ? leaderboardStore.confirmBan(body.accountId)
         : leaderboardStore.dismissFlag(body.id);
       sendJson(res, 200, { ...result, authority });
     } catch (err) {
@@ -3184,11 +3296,15 @@ async function proxyLeaderboardAuthority(req, pathname, bodyObj, token) {
     });
     const chunks = [];
     for await (const chunk of upstream) chunks.push(chunk);
-    if (upstream.statusCode === 404) return unavailable(pathname === "/api/account/rename"
-      ? "the shared website has not been updated for username changes yet"
-      : "the shared website has not been updated for leaderboards yet");
     if (upstream.statusCode >= 500) return unavailable(`the shared website returned ${upstream.statusCode}`);
-    const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    let parsed = null;
+    try { parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { /* handled below */ }
+    // An unknown route means an older shared website. Any other 404 (an expired round, a
+    // song that can't play) is a real answer and passes through.
+    if (upstream.statusCode === 404 && (!parsed || parsed.error === "Not found")) return unavailable(pathname === "/api/account/rename"
+      ? "the shared website has not been updated for username changes yet"
+      : pathname.startsWith("/api/account/round/") ? "the shared website has not been updated for checked Snippets rounds yet"
+      : "the shared website has not been updated for leaderboards yet");
     if (!parsed || typeof parsed !== "object") return unavailable("invalid response");
     // The banned response reaches the player exactly as the shared website sent it.
     if (upstream.statusCode === 403 && parsed.banned === true) return { status: 403, body: parsed };
@@ -3250,6 +3366,9 @@ async function handleLeaderboard(req, res, pathname) {
       case "logout": result = leaderboardStore.logout(token, now, ctx); break;
       case "karaoke-start": result = leaderboardStore.startKaraokeRun(token, body || {}, now, ctx); break;
       case "karaoke-submit": result = leaderboardStore.submitKaraokeRun(token, body || {}, await karaokeScoring, now, ctx); break;
+      case "round-start": result = leaderboardStore.startSnippetRound(token, body || {}, now, ctx); break;
+      case "round-act": result = leaderboardStore.snippetRoundAct(token, body || {}, now, ctx); break;
+      case "report": result = leaderboardStore.reportCheatTool(token, body || {}, now, ctx); break;
     }
     sendJson(res, 200, { ...result, scope });
   } catch (err) {
@@ -3272,7 +3391,10 @@ const ACCOUNT_ROUTES = Object.fromEntries([
   ["POST /api/account/rename", "rename", 30, 10, HOUR],
   ["POST /api/account/logout", "logout", 600, 120, MINUTE],
   ["POST /api/account/karaoke/start", "karaoke-start", 240, 60, HOUR],
-  ["POST /api/account/karaoke/submit", "karaoke-submit", 240, 60, HOUR]
+  ["POST /api/account/karaoke/submit", "karaoke-submit", 240, 60, HOUR],
+  ["POST /api/account/round/start", "round-start", 1200, 120, MINUTE],
+  ["POST /api/account/round/act", "round-act", 2400, 240, MINUTE],
+  ["POST /api/account/report", "report", 120, 20, HOUR]
 ].map(([key, name, ip, device, window]) => [key, { name, ip, device, window }]));
 const accountLimiter = createRateLimiter();
 
@@ -3377,6 +3499,8 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, stemCatalog.catalog());
     }
 
+    const roundAudio = /^\/api\/audio\/round-([a-f0-9]{32})(?:\/(drums|bass|other|vocals)\.mp3)?$/.exec(pathname);
+    if (roundAudio) return serveRoundAudio(req, res, roundAudio[1], roundAudio[2] || "");
     const audio = /^\/api\/audio\/(.+)$/.exec(pathname);
     if (audio) return serveSongAudio(req, res, decodeURIComponent(audio[1]));
 

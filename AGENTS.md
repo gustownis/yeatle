@@ -150,7 +150,8 @@ covers HQ stem downloads in the desktop app, and `scripts/karaoke-skip-smoke.cjs
 covers Karaoke White people mode with a synthetic microphone. `scripts/bans-browser-smoke.cjs`
 covers the banned screen and admin ban panel, and `scripts/karaoke-injector-smoke.cjs` checks
 ranked karaoke against a known cheat userscript; run it only against a local server, and see
-`docs/karaoke-anti-cheat.md`. Verify platform-specific behavior
+`docs/karaoke-anti-cheat.md`. `scripts/snippet-rounds-smoke.cjs` (needs ffmpeg) checks that
+Snippets rounds never reveal the song before they end. Verify platform-specific behavior
 on that platform, and report anything not exercised. Do not call an unrun check
 passed or present a package build as proof of device behavior.
 

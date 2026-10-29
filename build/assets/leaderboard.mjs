@@ -233,6 +233,7 @@ async function requestJson(path, { method = "GET", body = null, token = savedTok
   if (!res.ok) {
     const err = new Error(data.error || `Request failed (${res.status})`);
     err.banned = data.banned === true;
+    err.status = res.status;
     throw err;
   }
   return data;
@@ -261,6 +262,76 @@ export const rankedKaraoke = {
   start: body => requestJson("api/account/karaoke/start", { method: "POST", body }),
   submit: body => requestJson("api/account/karaoke/submit", { method: "POST", body })
 };
+
+// Server-checked Snippets rounds, used by yeatle.js. The page offers the songs it would have
+// picked from; the server picks one and streams it as api/audio/round-<id>, so neither the
+// page nor anything injected into it learns the answer until the round is over.
+let roundTicket = 0, roundBusy = false;
+export const snippetRounds = {
+  ticket: () => ++roundTicket,
+  isCurrent: ticket => ticket === roundTicket,
+  busy: () => roundBusy,
+  // Null means play the old way, unranked: only a copy of the game whose shared website
+  // is unreachable or not yet updated answers 503. Anything else is an error to show.
+  async start(body) {
+    try {
+      const d = await requestJson("api/account/round/start", { method: "POST", body });
+      const audio = `round-${d.roundId}`;
+      return {
+        id: audio, audioId: audio, roundId: d.roundId, mode: d.stems ? "stems" : "filter",
+        ...(d.stems ? { stemBase: `api/audio/${audio}` } : {}),
+        title: "", display: "", keys: [], answerKeys: [], features: []
+      };
+    } catch (err) {
+      if (err.banned) return new Promise(() => {}); // the banned screen takes over
+      if (err.status === 503) return null;
+      throw err;
+    }
+  },
+  async act(song, kind, text = "") {
+    if (roundBusy) return null;
+    roundBusy = true;
+    try {
+      return await requestJson("api/account/round/act", { method: "POST", body: { roundId: song.roundId, kind, text } });
+    } finally {
+      roundBusy = false;
+    }
+  },
+  // Hints unlock as clips do; the song itself arrives when the round ends. The game holds
+  // the round's song object, so it is filled in place.
+  reveal(song, result, recent) {
+    Object.assign(song, result.hints || {});
+    if (!result.song) return;
+    Object.assign(song, result.song);
+    if (recent) recent.current = [song.id, ...recent.current.filter(id => id !== song.id)].slice(0, 20);
+  }
+};
+
+// Cheat tools recognised by their own on-screen text or element ids. None of these phrases
+// can appear in the game: usernames have no spaces and song titles never use them.
+const CHEAT_TOOL_SIGNS = [
+  ["yeatle-cracked", node => /Yeatle Cracked|Captured Song Answer/.test(node.textContent || "")],
+  ["snippets-solver", node => /Snippets Solver|Snippet Song Solver/i.test(node.textContent || "")],
+  ["stem-injector", () => Boolean(document.querySelector('[id^="yksi-"]')) || /Yeatle Stem Deck|Stem Injector/.test(document.body.textContent || "")]
+];
+
+export function findCheatTools(root = document.body) {
+  if (!root) return [];
+  return CHEAT_TOOL_SIGNS.filter(([, test]) => { try { return test(root); } catch { return false; } }).map(([name]) => name);
+}
+
+function watchForCheatTools() {
+  let reported = false;
+  const check = async () => {
+    if (reported || bannedShown || document.hidden || !savedToken()) return;
+    const tools = findCheatTools();
+    if (!tools.length) return;
+    reported = true;
+    try { await requestJson("api/account/report", { method: "POST", body: { tools } }); } catch {}
+  };
+  setInterval(check, 4000);
+  setTimeout(check, 1500);
+}
 
 // A full-page screen over the app. It never blocks closing the tab or window, the back
 // button or keyboard shortcuts; it only hides the game and its account features.
@@ -935,6 +1006,8 @@ function initLeaderboardUI() {
   renderTriggerButton();
   ensureTriggerMounted();
   new MutationObserver(() => ensureTriggerMounted()).observe(document.body, { childList: true, subtree: true });
+
+  watchForCheatTools();
 
   // Every page asks once whether this device or account is banned, then syncs if signed in.
   checkBanStatus().then(banned => {
