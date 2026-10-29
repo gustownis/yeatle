@@ -384,14 +384,12 @@ const networkBlockedError = () => Object.assign(httpError(NETWORK_BLOCKED_MESSAG
 //   songSeconds(id)      the song's length in seconds when the catalog knows it, else null
 //   checkDailyWin(date, entry)  confirms a won Daily against that day's answer
 //   ipBlockMs            how long a banned account's addresses stay restricted
-//   pendingBans          [{ username, reason }] to ban once, the first time this store sees them
 function createLeaderboardStore(file, {
   canonicalSongId = null,
   catalogReady = () => true,
   songSeconds = () => null,
   checkDailyWin = null,
   ipBlockMs = DEFAULT_IP_BLOCK_MS,
-  pendingBans = [],
   filtersFile = path.join(path.dirname(file), "username-filters.json"),
   bansFile = path.join(path.dirname(file), "leaderboard-bans.json")
 } = {}) {
@@ -409,8 +407,7 @@ function createLeaderboardStore(file, {
     bans: savedBans?.bans && typeof savedBans.bans === "object" ? savedBans.bans : {},
     ipBlocks: savedBans?.ipBlocks && typeof savedBans.ipBlocks === "object" ? savedBans.ipBlocks : {},
     deviceBlocks: savedBans?.deviceBlocks && typeof savedBans.deviceBlocks === "object" ? savedBans.deviceBlocks : {},
-    flags: Array.isArray(savedBans?.flags) ? savedBans.flags : [],
-    appliedPending: Array.isArray(savedBans?.appliedPending) ? savedBans.appliedPending : []
+    flags: Array.isArray(savedBans?.flags) ? savedBans.flags : []
   };
 
   const save = () => writeJsonFile(file, state);
@@ -894,18 +891,6 @@ function createLeaderboardStore(file, {
     saveModeration(now);
     return listBans();
   }
-
-  // Each pending ban applies once. A name that isn't taken yet is still marked done, so
-  // whoever registers it later isn't banned, and a later unban in the panel sticks.
-  let pendingChanged = false;
-  for (const entry of Array.isArray(pendingBans) ? pendingBans : []) {
-    const key = String(entry?.username || "").trim().toLowerCase();
-    if (!key || moderation.appliedPending.includes(key)) continue;
-    moderation.appliedPending.push(key);
-    pendingChanged = true;
-    if (state.users[key] && !isBanned(state.users[key])) banUser(key, entry.reason || "", loadedAt);
-  }
-  if (pendingChanged) saveModeration(loadedAt);
 
   return {
     register, login, sync, rename, logout, me, status, getLeaderboards, getUsernameFilters, setUsernameFilter,

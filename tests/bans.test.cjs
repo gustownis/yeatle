@@ -244,19 +244,3 @@ test("the leaderboard secret is created once and kept", async t => {
   await startServer(t, dir);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, "leaderboard-secret.json"), "utf8")).secret, secret);
 });
-
-test("bans listed in pending-bans.json apply once, never to a later registrant, and an unban sticks", async t => {
-  const file = path.join(tempDir(t), "leaderboard-users.json");
-  const pendingBans = [{ username: "krank", reason: "stem injector" }, { username: "notyet", reason: "x" }];
-  const first = createLeaderboardStore(file);
-  const krank = await first.register({ username: "Krank", password: "pass1234", progress }, NOW);
-  const store = createLeaderboardStore(file, { pendingBans });
-  assert.throws(() => store.sync(krank.token, {}, NOW), isBanned);
-  assert.deepEqual(store.listBans().bans.map(b => [b.username, b.reason]), [["Krank", "stem injector"]]);
-  const later = await store.register({ username: "notyet", password: "pass1234" }, NOW);
-  const reopened = createLeaderboardStore(file, { pendingBans });
-  assert.equal(reopened.me(later.token, NOW).account.username, "notyet", "a name registered after the list was applied isn't banned");
-  reopened.unbanUser(reopened.listBans().bans[0].accountId, {}, NOW);
-  const again = createLeaderboardStore(file, { pendingBans });
-  assert.equal(again.listBans().bans.length, 0, "an unban isn't undone by the next restart");
-});

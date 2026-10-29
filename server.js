@@ -147,9 +147,7 @@ try {
       const right = entry.attempts[entry.attempts.length - 1];
       return Boolean(saved && snippetRules && entry.id === saved.id && right?.kind === "right" && snippetRules.matchesSong(publicSong(saved.song), right.text));
     },
-    ipBlockMs: CONFIG.ipRestrictionDays * 86400000,
-    // Bans listed in the tracked pending-bans.json apply once on the authoritative website.
-    pendingBans: CONFIG.dailyAuthority ? [] : loadJson(path.join(__dirname, "pending-bans.json"), {}).bans || []
+    ipBlockMs: CONFIG.ipRestrictionDays * 86400000
   });
 } catch (error) { console.error(`Leaderboard accounts: ${error.message}`); process.exit(1); }
 const ERA_COVERS = (loadJson(path.join(DATA_DIR, "era-covers.json"), {}).covers) || {};
