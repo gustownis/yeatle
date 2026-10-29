@@ -434,3 +434,117 @@
     display: none;
   }
 }
+
+/* Banned screen: covers the app, never the browser's own controls. */
+.yeatle-is-banned body > :not(.yeatle-banned) {
+  display: none !important;
+}
+
+.yeatle-banned {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  overflow-y: auto;
+  background: #000;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.yeatle-banned-card {
+  width: min(100%, 420px);
+  margin: auto;
+  padding: 22px;
+  background: #0c0c0f;
+  border: 1px solid rgba(181, 101, 224, 0.45);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85), 0 0 32px rgba(137, 1, 185, 0.22);
+  text-align: center;
+}
+
+.yeatle-banned-video {
+  position: relative;
+  width: min(100%, 300px);
+  aspect-ratio: 480 / 648;
+  max-height: 52vh;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #050507;
+}
+
+.yeatle-banned-video video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.yeatle-banned-video.failed {
+  display: none;
+}
+
+.yeatle-banned-sound {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 5px 10px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  border: 1px solid rgba(181, 101, 224, 0.65);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.yeatle-banned-sound:hover {
+  background: rgba(137, 1, 185, 0.55);
+}
+
+.yeatle-banned-fallback {
+  margin: 0 0 4px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.88rem;
+}
+
+.yeatle-banned h1 {
+  margin: 18px 0 8px;
+  font-size: 1.45rem;
+}
+
+.yeatle-banned p {
+  margin: 0;
+  color: #d0c5ed;
+  line-height: 1.45;
+}
+
+.yeatle-banned-link {
+  display: inline-block;
+  margin-top: 18px;
+  padding: 9px 16px;
+  background: #8901b9;
+  color: #fff;
+  border-radius: 999px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.yeatle-banned-link:hover {
+  background: #a021ca;
+}
+
+.yeatle-banned :focus-visible {
+  outline: 2px solid #b565e0;
+  outline-offset: 2px;
+}
+
+@media (max-height: 560px) {
+  .yeatle-banned-video {
+    max-height: 40vh;
+  }
+}

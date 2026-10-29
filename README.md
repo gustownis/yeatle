@@ -513,6 +513,9 @@ text editor, and restart. For example:
 | `liveControl` | With the admin panel on, lets **Play in game** switch open games to a song; public sites set `false` |
 | `stemsHost` | Desktop app: the server **Download from server…** gets HQ stems from; default `https://playyeatle.duckdns.org`. Separate from Daily's `dailyAuthority` |
 | `stemDownloads` | Server: offer this server's complete HQ stem folders for download; default `false` |
+| `trustedProxies` | Server: addresses of a reverse proxy in front of this server whose `X-Forwarded-For` is trusted, for example `["127.0.0.1", "::1"]` for Caddy or nginx on the same machine; default `[]`. Only the right-most entry, the one the proxy adds, is used. Without it, a server behind a local proxy turns address limits and restrictions off and logs a warning |
+| `ipRestrictionDays` | Server: how long a banned account's recent network addresses can't sign up or sign in; default 30. Device and account bans last until an unban |
+| `bannedJobsUrl` | The http(s) link under the banned screen's message; default `https://www.indeed.com/` |
 
 A server with `stemDownloads` on lists only folders holding all four stems as
 real files inside its Songs folder (symlinks are skipped), hashes them once in
@@ -569,6 +572,8 @@ correct song names, eras, and other minor metadata issues while waiting for
 an upstream update.
 
 **Filtered usernames** blocks leaderboard account names. A new account or a username change is refused with "Error Username cannot be chosen because the song is dogshit" when the name contains a filtered word, ignoring case, dots, underscores and hyphens. Existing accounts keep their names, and the panel lists the ones that match. Accounts live on the `dailyAuthority` website, so only that website's admin panel controls the list; it is saved in its ignored `username-filters.json`. Signed-in players can change their own username from the leaderboard window.
+
+**Banned users** bans a leaderboard account by its current username, with an optional reason only admins see. A ban signs the account out on every device, resets its progress to a new account's (a snapshot is kept so an accidental ban can be undone with **Unban** and **Restore progress**), keeps its name reserved and removes it from every board. The devices it used see a banned screen and can't use accounts until it is unbanned; its recent network addresses can't sign up or sign in for `ipRestrictionDays`, but other people on those networks can still play without an account. Addresses and device ids are only stored as keyed hashes in the ignored `leaderboard-users.json` and `leaderboard-bans.json`, with the key in the ignored `leaderboard-secret.json`, and the panel never shows them. The same panel lists **Flagged karaoke runs**: ranked runs that looked like the song's own vocal or a modified microphone, which aren't ranked and wait for an admin to dismiss them or ban the player. Like accounts, bans only take effect on the `dailyAuthority` website. Usernames listed in the tracked `pending-bans.json` are banned once, automatically, the next time that website starts. Karaoke rankings only count verified runs; see [karaoke anti-cheat](docs/karaoke-anti-cheat.md).
 
 ## Troubleshooting
 

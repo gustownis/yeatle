@@ -29,6 +29,8 @@ const { createStemCatalog } = require("./stem-catalog.cjs");
 const { createDailyChallenges } = require("./daily-challenge.cjs");
 const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs");
 const { createLeaderboardStore } = require("./leaderboard.cjs");
+const { DEVICE_HEADER, cleanDeviceId, clientIp, normalIp, loadSecret, createSignalHasher, createRateLimiter } = require("./client-signals.cjs");
+const { pathToFileURL } = require("url");
 const { creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
@@ -45,18 +47,6 @@ const CACHE_FILE = path.join(DATA_DIR, "songs-cache.json");
 const SONG_CACHE_FORMAT = 3;
 const PREVIEW_CACHE_FILE = path.join(DATA_DIR, "preview-cache.json");
 const dailyChallenge = createDailyChallenges(path.join(DATA_DIR, "daily-challenges.json"));
-// Leaderboard rankings only count songs that exist in this server's catalog (current or former ids).
-let leaderboardStore;
-try {
-  leaderboardStore = createLeaderboardStore(path.join(DATA_DIR, "leaderboard-users.json"), {
-    canonicalSongId: id => {
-      if (!SONG_INDEX.size) return id;
-      const song = SONG_INDEX.get(id);
-      if (!song) return null;
-      return song.equivalentIds?.length ? [song.id, ...song.equivalentIds].sort()[0] : song.id;
-    }
-  });
-} catch (error) { console.error(`Leaderboard accounts: ${error.message}`); process.exit(1); }
 try {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 } catch (err) {
@@ -83,7 +73,15 @@ const DEFAULT_CONFIG = {
   liveControl: true,
   // Offer this server's complete HQ stem folders for download (desktop
   // Help > Optional HQ Stems > Download from server). Off unless a host turns it on.
-  stemDownloads: false
+  stemDownloads: false,
+  // Addresses of a reverse proxy in front of this server (for example ["127.0.0.1", "::1"]
+  // for Caddy or nginx on the same machine). Only requests from these addresses may name
+  // the client address in X-Forwarded-For; everyone else is identified by their own.
+  trustedProxies: [],
+  // How long a banned account's recent network addresses can't sign up or sign in.
+  ipRestrictionDays: 30,
+  // The link under the banned screen's message.
+  bannedJobsUrl: "https://www.indeed.com/"
 };
 
 function loadJson(file, fallback) {
@@ -113,6 +111,47 @@ if (!Number.isInteger(CONFIG.port) || CONFIG.port < 0 || CONFIG.port > 65535 ||
   console.error("Invalid Yeatle settings. Use a port from 0 to 65535, a non-negative refreshMinutes number, and the format shown in config.example.json.");
   process.exit(1);
 }
+const httpUrl = value => { try { return ["http:", "https:"].includes(new URL(value).protocol); } catch { return false; } };
+if (!Array.isArray(CONFIG.trustedProxies) || CONFIG.trustedProxies.some(ip => typeof ip !== "string" || !normalIp(ip)) ||
+    !Number.isFinite(CONFIG.ipRestrictionDays) || CONFIG.ipRestrictionDays < 0 || CONFIG.ipRestrictionDays > 3650 ||
+    typeof CONFIG.bannedJobsUrl !== "string" || !httpUrl(CONFIG.bannedJobsUrl)) {
+  console.error("Invalid Yeatle settings. trustedProxies must be a list of IP addresses, ipRestrictionDays a number from 0 to 3650, and bannedJobsUrl an http(s) address.");
+  process.exit(1);
+}
+const TRUSTED_PROXIES = CONFIG.trustedProxies.map(normalIp);
+
+// Leaderboard rankings only count songs that exist in this server's catalog (current or
+// former ids). Until the catalog has loaded no id counts, so invented ids never slip through.
+let leaderboardStore, signalHasher;
+// The game's own Daily guess matching, used to confirm a won Daily's right guess.
+let snippetRules = null;
+import(pathToFileURL(path.join(__dirname, "build", "assets", "snippet-rules.mjs")).href).then(m => { snippetRules = m; }, err => console.warn(`[leaderboard] ${err.message}`));
+const karaokeScoring = import(pathToFileURL(path.join(__dirname, "build", "assets", "karaoke-scoring.mjs")).href);
+karaokeScoring.catch(err => console.warn(`[leaderboard] ${err.message}`));
+try {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  signalHasher = createSignalHasher(loadSecret(path.join(DATA_DIR, "leaderboard-secret.json")));
+  leaderboardStore = createLeaderboardStore(path.join(DATA_DIR, "leaderboard-users.json"), {
+    canonicalSongId: id => {
+      const song = SONG_INDEX.get(id);
+      if (!song) return null;
+      return song.equivalentIds?.length ? [song.id, ...song.equivalentIds].sort()[0] : song.id;
+    },
+    catalogReady: () => SONG_INDEX.size > 0,
+    songSeconds: id => {
+      const song = SONG_INDEX.get(id);
+      return !song ? null : song.preview && song.mode !== "stems" ? 30 : trackSeconds(song.length);
+    },
+    checkDailyWin: (date, entry) => {
+      const saved = dailyChallenge.saved(date);
+      const right = entry.attempts[entry.attempts.length - 1];
+      return Boolean(saved && snippetRules && entry.id === saved.id && right?.kind === "right" && snippetRules.matchesSong(publicSong(saved.song), right.text));
+    },
+    ipBlockMs: CONFIG.ipRestrictionDays * 86400000,
+    // Bans listed in the tracked pending-bans.json apply once on the authoritative website.
+    pendingBans: CONFIG.dailyAuthority ? [] : loadJson(path.join(__dirname, "pending-bans.json"), {}).bans || []
+  });
+} catch (error) { console.error(`Leaderboard accounts: ${error.message}`); process.exit(1); }
 const ERA_COVERS = (loadJson(path.join(DATA_DIR, "era-covers.json"), {}).covers) || {};
 let dailyAuthority;
 try {
@@ -2218,6 +2257,7 @@ const LIVE_CONTROL = Boolean(ADMIN && CONFIG.liveControl);
 const adminSessions = new Map(); // token -> expires
 let adminFails = 0;
 let adminLockedUntil = 0;
+const adminFailures = new Map(); // address hash -> { count, lockedUntil }
 
 function passwordOk(password) {
   const expected = Buffer.from(ADMIN.hash, "hex");
@@ -2327,10 +2367,18 @@ const ADMIN_HTML = String.raw`<!doctype html>
   .filter-chip button { padding: 0 8px; border: 0; border-radius: 10px; background: rgba(0,0,0,.35); color: #fff; cursor: pointer; }
   .filter-add { display: flex; gap: 8px; margin-top: 8px; }
   .filter-add input { flex: 1 1 auto; min-width: 0; }
+  .ban-form { gap: 8px; margin-top: 8px; grid-template-columns: minmax(0,1fr) minmax(0,2fr) auto; }
+  .ban-form input { min-width: 0; width: 100%; }
+  .ban-confirm { flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; padding: 8px 10px; border: 1px solid #b8352e; border-radius: 6px; }
+  .ban-list { display: grid; gap: 4px; margin-top: 6px; }
+  .ban-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 7px 8px; border-bottom: 1px solid rgba(255,255,255,.1); }
+  .ban-row .grow { flex: 1 1 220px; min-width: 0; word-break: break-word; }
+  .ban-restore { display: inline-flex; align-items: center; gap: 4px; font-size: .85rem; white-space: nowrap; }
+  .ban-restore input { accent-color: #8901b9; }
   .rowline { display: flex; gap: 10px; align-items: center; justify-content: space-between; font-size: .85rem; }
   h2 { font-size: 1.05rem; margin: 28px 0 4px; }
   .empty { padding: 24px 0; color: rgba(255,255,255,.6); }
-  @media (max-width: 600px) { .row { grid-template-columns: 24px minmax(0,1fr) auto; } .row .play { display: none; } .list > .row > .btn:last-child { grid-column: 3; } }
+  @media (max-width: 600px) { .ban-form { grid-template-columns: minmax(0,1fr); } .row { grid-template-columns: 24px minmax(0,1fr) auto; } .row .play { display: none; } .list > .row > .btn:last-child { grid-column: 3; } }
 </style>
 </head>
 <body>
@@ -2521,6 +2569,84 @@ function buildScreen() {
     input.focus();
   }
 
+  var bansPanel = el("div", { class: "test-search", style: "display:none" });
+  var bansToggle = el("button", { class: "btn", text: "Banned users", onclick: function () {
+    var open = bansPanel.style.display === "none";
+    bansPanel.style.display = open ? "block" : "none";
+    bansToggle.textContent = open ? "Hide banned users" : "Banned users";
+    if (open) api("/api/admin/bans").then(renderBans).catch(function (err) { alert(err.message); });
+  } });
+  function when(ms) { return new Date(ms).toLocaleString(); }
+  function renderBans(data) {
+    bansPanel.textContent = "";
+    var local = !data.authority;
+    var status = el("p", { class: "error", "aria-live": "polite" });
+    bansPanel.appendChild(el("div", { class: "muted", text: "A ban signs the account out on every device and resets its progress to a new account's. Its devices can't use accounts until it is unbanned, and its recent networks can't sign up or sign in for a while; other people on those networks can still play. Bans only take effect on the dailyAuthority website. Reasons are only shown here." }));
+    if (!local) bansPanel.appendChild(el("p", { class: "error", text: "This copy uses the accounts on " + data.authority + ". Ban players in that website's admin panel; bans can't be added here." }));
+
+    var name = el("input", { type: "text", maxlength: "20", placeholder: "Username", "aria-label": "Username to ban" });
+    var reason = el("input", { type: "text", maxlength: "500", placeholder: "Reason (optional, only admins see it)", "aria-label": "Internal reason" });
+    var confirmBox = el("div", { class: "ban-confirm", style: "display:none" });
+    var form = el("div", { class: "ban-form", style: "display:none" }, [name, reason, el("button", { class: "btn small red", text: "Ban", onclick: function () {
+      var who = name.value.trim();
+      status.textContent = "";
+      if (!who) { status.textContent = "Type the username to ban."; return; }
+      confirmBox.textContent = "";
+      confirmBox.appendChild(el("span", { text: "Ban " + who + "? They will be signed out everywhere and their progress reset." }));
+      confirmBox.appendChild(el("button", { class: "btn small red", text: "Yes, ban " + who, onclick: function () {
+        api("/api/admin/bans", { username: who, reason: reason.value }).then(renderBans).catch(function (err) { confirmBox.style.display = "none"; status.textContent = err.message; });
+      } }));
+      confirmBox.appendChild(el("button", { class: "btn small", text: "Cancel", onclick: function () { confirmBox.style.display = "none"; } }));
+      confirmBox.style.display = "flex";
+    } })]);
+    bansPanel.appendChild(el("div", { class: "filter-add" }, [el("button", { class: "btn small solid", text: "Add user", disabled: !local, onclick: function () {
+      form.style.display = "grid";
+      name.focus();
+    } })]));
+    bansPanel.appendChild(form);
+    bansPanel.appendChild(confirmBox);
+    bansPanel.appendChild(status);
+
+    var list = el("div", { class: "ban-list" });
+    if (!data.bans.length) list.appendChild(el("span", { class: "muted", text: "No banned users." }));
+    data.bans.forEach(function (ban) {
+      var restore = el("input", { type: "checkbox", "aria-label": "Restore progress for " + ban.username });
+      var renamed = ban.currentUsername && ban.currentUsername !== ban.username ? " (now " + ban.currentUsername + ")" : "";
+      list.appendChild(el("div", { class: "ban-row" }, [
+        el("div", { class: "grow" }, [
+          el("div", { class: "name", text: ban.username + renamed }),
+          el("div", { class: "muted", text: "Banned " + when(ban.bannedAt) + (ban.reason ? " · " + ban.reason : "") })
+        ]),
+        el("label", { class: "ban-restore" }, [restore, document.createTextNode(" Restore progress")]),
+        el("button", { class: "btn small", text: "Unban", disabled: !local, onclick: function () {
+          api("/api/admin/unban", { accountId: ban.accountId, restore: restore.checked }).then(renderBans).catch(function (err) { status.textContent = err.message; });
+        } })
+      ]));
+    });
+    bansPanel.appendChild(el("h2", { text: "Banned users" }));
+    bansPanel.appendChild(list);
+
+    var flags = el("div", { class: "ban-list" });
+    if (!data.flags.length) flags.appendChild(el("span", { class: "muted", text: "No flagged karaoke runs." }));
+    data.flags.forEach(function (flag) {
+      flags.appendChild(el("div", { class: "ban-row" }, [
+        el("div", { class: "grow" }, [
+          el("div", { class: "name", text: flag.username + " · " + flag.score.toLocaleString() + " on " + flag.songId + " (" + flag.difficulty + (flag.white ? ", White people mode" : "") + ")" }),
+          el("div", { class: "muted", text: when(flag.at) + " · " + flag.reasons.join("; ") })
+        ]),
+        flag.banned ? el("span", { class: "tag hid", text: "Banned" }) : el("button", { class: "btn small red", text: "Ban", disabled: !local, onclick: function () {
+          name.value = flag.username; form.style.display = "grid"; reason.value = "Flagged karaoke run"; name.focus();
+        } }),
+        el("button", { class: "btn small", text: "Dismiss", disabled: !local, onclick: function () {
+          api("/api/admin/karaoke-flags", { id: flag.id }).then(renderBans).catch(function (err) { status.textContent = err.message; });
+        } })
+      ]));
+    });
+    bansPanel.appendChild(el("h2", { text: "Flagged karaoke runs" }));
+    bansPanel.appendChild(el("div", { class: "muted", text: "Runs that looked like the song's own vocal or a modified microphone. They aren't ranked; nobody is banned automatically." }));
+    bansPanel.appendChild(flags);
+  }
+
   var search = el("input", { type: "text", class: "grow", placeholder: "Search title or era", "aria-label": "Search" });
   search.addEventListener("input", function () {
     state.search = search.value.toLowerCase();
@@ -2554,10 +2680,12 @@ function buildScreen() {
     select("Tab", "tab", [["all", "Released and unreleased"], ["Released", "Released"], ["Unreleased", "Unreleased"]]),
     eraSelect,
     testToggle,
-    namesToggle
+    namesToggle,
+    bansToggle
   ]));
   app.appendChild(testPanel);
   app.appendChild(namesPanel);
+  app.appendChild(bansPanel);
   app.appendChild(el("div", { class: "bar sticky" }, [
     el("button", { class: "btn small", text: "Select all matches", onclick: function () { shown().forEach(function (s) { if (s.guessingEligible !== false) state.selected[s.id] = true; }); renderList(); } }),
     el("button", { class: "btn small", text: "Clear", onclick: function () { state.selected = {}; renderList(); } }),
@@ -2803,19 +2931,27 @@ async function handleAdmin(req, res, pathname) {
   }
 
   if (pathname === "/api/admin/login" && req.method === "POST") {
-    if (Date.now() < adminLockedUntil) {
-      sendJson(res, 429, { error: `Too many tries. Wait ${Math.ceil((adminLockedUntil - Date.now()) / 1000)} seconds.` });
+    // Five wrong passwords lock that address for a minute. The global lock only trips on
+    // a flood from many addresses, so one stranger can't keep the real admin out.
+    const ipHash = requestSignals(req).ipHash || "unknown";
+    const failures = adminFailures.get(ipHash);
+    const lockedUntil = Math.max(adminLockedUntil, failures?.lockedUntil || 0);
+    if (Date.now() < lockedUntil) {
+      sendJson(res, 429, { error: `Too many tries. Wait ${Math.ceil((lockedUntil - Date.now()) / 1000)} seconds.` });
       return true;
     }
     if (!/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
     const body = await readJsonBody(req);
     if (!passwordOk(body.password)) {
+      const count = (failures?.count || 0) + 1;
+      adminFailures.set(ipHash, count >= 5 ? { count: 0, lockedUntil: Date.now() + 60000 } : { count, lockedUntil: 0 });
+      if (adminFailures.size > 10000) adminFailures.delete(adminFailures.keys().next().value);
       adminFails++;
-      if (adminFails >= 5) { adminFails = 0; adminLockedUntil = Date.now() + 60000; }
+      if (adminFails >= 50) { adminFails = 0; adminLockedUntil = Date.now() + 60000; }
       sendJson(res, 401, { error: "Wrong password" });
       return true;
     }
-    adminFails = 0;
+    adminFailures.delete(ipHash);
     const token = crypto.randomBytes(24).toString("hex");
     adminSessions.set(token, Date.now() + 12 * 3600 * 1000);
     res.setHeader("Set-Cookie", `yeatle_admin=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${12 * 3600}`);
@@ -2878,6 +3014,24 @@ async function handleAdmin(req, res, pathname) {
     const body = await readJsonBody(req);
     try {
       sendJson(res, 200, { ...leaderboardStore.setUsernameFilter(body.word, body.blocked !== false), authority });
+    } catch (err) {
+      sendJson(res, err.status || 400, { error: err.message });
+    }
+    return true;
+  }
+
+  if (pathname === "/api/admin/bans" || pathname === "/api/admin/unban" || pathname === "/api/admin/karaoke-flags") {
+    // Bans, like accounts, only exist on the dailyAuthority website.
+    const authority = CONFIG.dailyAuthority || "";
+    if (pathname === "/api/admin/bans" && req.method === "GET") { sendJson(res, 200, { ...leaderboardStore.listBans(), authority }); return true; }
+    if (req.method !== "POST" || !/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
+    const body = await readJsonBody(req);
+    if (authority) { sendJson(res, 409, { error: `This copy uses the accounts on ${authority}. Ban players in that website's admin panel.` }); return true; }
+    try {
+      const result = pathname === "/api/admin/bans" ? leaderboardStore.banUser(body.username, body.reason)
+        : pathname === "/api/admin/unban" ? leaderboardStore.unbanUser(body.accountId, { restore: body.restore === true })
+        : leaderboardStore.dismissFlag(body.id);
+      sendJson(res, 200, { ...result, authority });
     } catch (err) {
       sendJson(res, err.status || 400, { error: err.message });
     }
@@ -2968,12 +3122,16 @@ async function proxyLeaderboardAuthority(req, pathname, bodyObj, token) {
     return { status: 503, body: { error: "The authoritative website must set dailyAuthority to an empty string in its config.json." } };
   }
   const unavailable = detail => ({ status: 503, body: { error: `The shared leaderboard is unavailable. Try again later; your progress is still saved on this device. (${detail})` } });
+  // Only the device id is passed on. The shared website sees this computer's own address;
+  // no header from here can claim a different one.
+  const device = cleanDeviceId(req.headers[DEVICE_HEADER]);
   try {
     const upstream = await request(new URL(pathname, CONFIG.dailyAuthority).href, {
       method: req.method === "HEAD" ? "GET" : req.method,
       headers: {
         Accept: "application/json",
         "X-Yeatle-Leaderboard-Proxy": "1",
+        ...(device ? { "X-Yeatle-Device": device } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(bodyObj !== null ? { "Content-Type": "application/json" } : {})
       },
@@ -2988,6 +3146,8 @@ async function proxyLeaderboardAuthority(req, pathname, bodyObj, token) {
     if (upstream.statusCode >= 500) return unavailable(`the shared website returned ${upstream.statusCode}`);
     const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     if (!parsed || typeof parsed !== "object") return unavailable("invalid response");
+    // The banned response reaches the player exactly as the shared website sent it.
+    if (upstream.statusCode === 403 && parsed.banned === true) return { status: 403, body: parsed };
     return { status: upstream.statusCode, body: { ...parsed, scope: "global" } };
   } catch (error) {
     return unavailable(error.message);
@@ -3023,22 +3183,64 @@ async function handleLeaderboard(req, res, pathname) {
   }
 
   const scope = CONFIG.dailyPublicUrl ? "global" : "local";
+  const route = ACCOUNT_ROUTES[`${isPost ? "POST" : "GET"} ${pathname}`];
+  if (!route) { sendJson(res, 404, { error: "Not found" }); return true; }
+  const ctx = requestSignals(req);
+  // Limits apply per network address and per device, each keyed by its hash.
+  if (!accountLimiter.take(`${route.name}:ip`, ctx.ipHash, route.ip, route.window) ||
+      !accountLimiter.take(`${route.name}:device`, ctx.deviceHash, route.device, route.window)) {
+    sendJson(res, 429, { error: "Too many requests. Wait a few minutes and try again." });
+    return true;
+  }
   try {
+    const now = Date.now();
     let result;
-    if (pathname === "/api/leaderboard" && isGet) result = leaderboardStore.getLeaderboards(token);
-    else if (pathname === "/api/account/me" && isGet) result = leaderboardStore.me(token);
-    else if (pathname === "/api/account/register" && isPost) result = await leaderboardStore.register(body || {});
-    else if (pathname === "/api/account/login" && isPost) result = await leaderboardStore.login(body || {});
-    else if (pathname === "/api/account/sync" && isPost) result = leaderboardStore.sync(token, body?.progress || {});
-    else if (pathname === "/api/account/rename" && isPost) result = leaderboardStore.rename(token, body?.username);
-    else if (pathname === "/api/account/logout" && isPost) result = leaderboardStore.logout(token);
-    else { sendJson(res, 404, { error: "Not found" }); return true; }
+    switch (route.name) {
+      case "leaderboard": result = leaderboardStore.getLeaderboards(token, now, ctx); break;
+      case "me": result = leaderboardStore.me(token, now, ctx); break;
+      case "status": result = leaderboardStore.status(token, now, ctx); break;
+      case "register": result = await leaderboardStore.register(body || {}, now, ctx); break;
+      case "login": result = await leaderboardStore.login(body || {}, now, ctx); break;
+      case "sync": result = leaderboardStore.sync(token, body?.progress || {}, now, ctx); break;
+      case "rename": result = leaderboardStore.rename(token, body?.username, now, ctx); break;
+      case "logout": result = leaderboardStore.logout(token, now, ctx); break;
+      case "karaoke-start": result = leaderboardStore.startKaraokeRun(token, body || {}, now, ctx); break;
+      case "karaoke-submit": result = leaderboardStore.submitKaraokeRun(token, body || {}, await karaokeScoring, now, ctx); break;
+    }
     sendJson(res, 200, { ...result, scope });
   } catch (err) {
+    if (err.banned) { sendJson(res, 403, { banned: true, error: err.message }); return true; }
     if (!err.status) console.warn(`[leaderboard] ${err.message}`);
     sendJson(res, err.status || 400, { error: err.message || "Request failed" });
   }
   return true;
+}
+
+// Account and leaderboard endpoints with their per-address and per-device limits.
+const MINUTE = 60000, HOUR = 3600000;
+const ACCOUNT_ROUTES = Object.fromEntries([
+  ["GET /api/leaderboard", "leaderboard", 600, 120, MINUTE],
+  ["GET /api/account/me", "me", 600, 120, MINUTE],
+  ["GET /api/account/status", "status", 600, 120, MINUTE],
+  ["POST /api/account/register", "register", 5, 3, HOUR],
+  ["POST /api/account/login", "login", 30, 20, 10 * MINUTE],
+  ["POST /api/account/sync", "sync", 600, 40, MINUTE],
+  ["POST /api/account/rename", "rename", 30, 10, HOUR],
+  ["POST /api/account/logout", "logout", 600, 120, MINUTE],
+  ["POST /api/account/karaoke/start", "karaoke-start", 240, 60, HOUR],
+  ["POST /api/account/karaoke/submit", "karaoke-submit", 240, 60, HOUR]
+].map(([key, name, ip, device, window]) => [key, { name, ip, device, window }]));
+const accountLimiter = createRateLimiter();
+
+let warnedUntrustedProxy = false;
+// The hashed network address and device id of a request. Raw values are never stored or logged.
+function requestSignals(req) {
+  const ip = clientIp(req, TRUSTED_PROXIES);
+  if (!ip && req.headers["x-forwarded-for"] && !warnedUntrustedProxy) {
+    warnedUntrustedProxy = true;
+    console.warn("[leaderboard] Requests arrive through a reverse proxy that isn't listed in trustedProxies, so address limits and restrictions are off. See the README's config table.");
+  }
+  return { ipHash: signalHasher.ip(ip), deviceHash: signalHasher.device(cleanDeviceId(req.headers[DEVICE_HEADER])) };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -3065,6 +3267,7 @@ const server = http.createServer(async (req, res) => {
     if (model) return serveModel(req, res, model[1]);
 
     if (pathname === "/api/active-song") return sendJson(res, 200, ACTIVE_SONG);
+    if (pathname === "/api/banned-info") return sendJson(res, 200, { jobsUrl: CONFIG.bannedJobsUrl });
     if (pathname === "/api/separator-revision") return sendJson(res, 200, { revision: await separatorRevision() });
     if (pathname === "/api/active-song/events") {
       if (!LIVE_CONTROL) return sendJson(res, 404, { enabled: false });

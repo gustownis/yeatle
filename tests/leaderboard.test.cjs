@@ -49,6 +49,11 @@ async function startServer(t, dir, dailyAuthority = "") {
   });
 }
 
+function writeCatalog(dir, ids, extra = {}) {
+  const songs = ids.map(id => ({ id, title: id, display: id, era: "Test", mode: "filter", length: "2:30", source: { kind: "url", id: `https://audio.invalid/${id}` }, ...extra[id] }));
+  fs.writeFileSync(path.join(dir, "songs-cache.json"), JSON.stringify({ format: 3, updated: 1, songs, eras: [] }));
+}
+
 const post = (url, body, token) => fetch(url, {
   method: "POST",
   headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -86,7 +91,9 @@ test("accounts hash passwords, reject duplicates, merge devices and rank players
   assert.equal(second.account.username, "yugpoog", "login with different case keeps the registered name");
   assert.deepEqual(second.account.progress.completed.stems, ["song1", "song2", "song3", "song4"]);
   assert.equal(second.account.progress.stats.stems.currentStreak, 3, "a blank device does not reset the streak");
-  assert.equal(second.account.metrics.karaokeTotalScore, 92000);
+  assert.equal(JSON.stringify(second.account.progress.karaoke["yeatle-karaoke-best:song2:hard"]), JSON.stringify({ score: 50000, name: "x" }), "local bests still sync between devices");
+  assert.equal(second.account.metrics.karaokeTotalScore, 0, "synced karaoke bests are never ranked; only verified runs are");
+  assert.equal(computeMetrics(second.account.progress, NOW).karaokeTotalScore, 92000, "the display total still adds the best per song");
 
   const other = await store.register({ username: "fewmet", password: "password2", progress: { completed: { stems: ["song1"] }, daily: { [day(0)]: won(day(0)) } } }, NOW);
   const boards = store.getLeaderboards(other.token, NOW);
@@ -143,8 +150,10 @@ test("rankings ignore self-reported stats, unknown song ids, backfilled and futu
     }
   }, NOW);
   assert.equal(ids.account.metrics.stemsSolved, 2, "former ids count once and invented ids not at all");
-  assert.equal(ids.account.metrics.karaokeSongs, 1, "equivalent/former karaoke song ids deduplicate and unknown songs are ignored");
-  assert.equal(ids.account.metrics.karaokeTotalScore, 40000);
+  const karaoke = computeMetrics(ids.account.progress, NOW, id => catalog.get(id) || null);
+  assert.equal(karaoke.karaokeSongs, 1, "equivalent/former karaoke song ids deduplicate and unknown songs are ignored");
+  assert.equal(karaoke.karaokeTotalScore, 40000);
+  assert.equal(ids.account.metrics.karaokeTotalScore, 0, "self-reported karaoke scores never rank");
 
   const daily = {};
   for (let i = 0; i < 300; i++) daily[day(-i)] = won(day(-i));
@@ -207,11 +216,14 @@ test("frontend helpers collect local progress and apply the server's copy", asyn
 });
 
 test("the server shares accounts through dailyAuthority and accepts a full-catalog sync", async t => {
-  const hostUrl = await startServer(t, tempDir(t), "");
+  const hostDir = tempDir(t);
+  // Solves only count for songs in the host's catalog, and none before it has loaded.
+  writeCatalog(hostDir, ["flawless", "talk"]);
+  const hostUrl = await startServer(t, hostDir, "");
   const clientDir = tempDir(t);
   const clientUrl = await startServer(t, clientDir, hostUrl);
 
-  const reg = await post(`${clientUrl}/api/account/register`, { username: "mat", password: "yeatfan1", progress: { completed: { stems: ["flawless", "talk"] } } });
+  const reg = await post(`${clientUrl}/api/account/register`, { username: "mat", password: "yeatfan1", progress: { completed: { stems: ["flawless", "talk", "invented"] } } });
   assert.equal(reg.status, 200);
   const regBody = await reg.json();
   assert.equal(regBody.scope, "global");

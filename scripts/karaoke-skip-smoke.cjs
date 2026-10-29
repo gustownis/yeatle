@@ -35,10 +35,13 @@ const base = `http://127.0.0.1:${PORT}`;
 fs.mkdirSync(OUT, { recursive: true });
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
+// Karaoke builds its audio in a hidden same-origin frame so a page script can't replace
+// the microphone. This test mic is installed in every frame (Playwright runs init scripts
+// in each one) and shares one control object with the top page.
 const fakeMic = `
 (() => {
   const PHRASES = [[2, 4], [5, 7], [8, 10]];
-  window.__mic = { silent: [], delay: 0, zero: null, calls: 0 };
+  window.__mic = window.top !== window && window.top.__mic ? window.top.__mic : { silent: [], delay: 0, zero: null, calls: 0 };
   const md = navigator.mediaDevices || (navigator.mediaDevices = {});
   md.getUserMedia = async () => { __mic.calls++; return { getTracks: () => [{ stop() {} }] }; };
   md.enumerateDevices = async () => [];

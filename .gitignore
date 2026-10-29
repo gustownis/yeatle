@@ -16,6 +16,10 @@
 /leaderboard-users.json.tmp
 /username-filters.json
 /username-filters.json.tmp
+/leaderboard-bans.json
+/leaderboard-bans.json.tmp
+/leaderboard-secret.json
+/leaderboard-secret.json.tmp
 /stems-hashes.json
 /joke-photos.json
 

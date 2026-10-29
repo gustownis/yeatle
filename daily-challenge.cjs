@@ -14,7 +14,7 @@ function createDailyChallenges(file) {
       throw new Error(`Could not read ${path.basename(file)}. Restore its saved daily choices before restarting.`);
     }
   }
-  return (songs, now = Date.now()) => {
+  const challengeFor = (songs, now = Date.now()) => {
     const date = new Date(now).toISOString().slice(0, 10);
     const resetsAt = Date.parse(`${date}T00:00:00Z`) + 86400000;
     if (!days[date]) {
@@ -36,6 +36,9 @@ function createDailyChallenges(file) {
     if (!entry?.song?.id || !Number.isInteger(entry.seed)) throw new Error("Invalid saved daily challenge.");
     return { ...entry, clipAt: entry.clipAt ?? 5 + (entry.seed % 5001) / 1000, date, resetsAt, serverTime: now };
   };
+  // The challenge this server issued on a date (kept for 32 days), or null.
+  challengeFor.saved = date => (days[date]?.song?.id ? days[date] : null);
+  return challengeFor;
 }
 
 module.exports = { createDailyChallenges };

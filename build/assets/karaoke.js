@@ -36,6 +36,7 @@ const RATINGS = [
   { min: 0.25, text: "Messy", cls: "messy" },
   { min: -1, text: "Awful", cls: "awful" }
 ];
+// The server re-scores ranked runs with karaoke-scoring.mjs; tests keep the two in step.
 const STREAK_MIN = 0.6;          // phrase accuracy that keeps the multiplier going
 const POINTS_PER_SECOND = 250;   // points for one second of perfectly sung notes, before the multiplier
 const LEAD = 4;                  // seconds of notes shown ahead of the now line
@@ -644,10 +645,104 @@ function showScreen(id) {
 
 /* ---------- audio context and microphones ---------- */
 
+/*
+  Clean audio. A script that runs before the game can replace the page's microphone and
+  Web Audio functions, so the game's pitch tracker "hears" a recording instead of the
+  singer. A hidden same-origin frame has its own untouched copies of those functions, so
+  the game opens the microphone and builds its whole audio graph from that frame. If the
+  frame's audio can't start (a browser that won't let it), the page's own audio is used
+  and the integrity check below still reports anything patched.
+*/
+let cleanFrame;
+function cleanRealm() {
+  if (cleanFrame !== undefined) return cleanFrame;
+  cleanFrame = null;
+  try {
+    const frame = document.createElement("iframe");
+    frame.hidden = true;
+    frame.tabIndex = -1;
+    frame.title = "audio";
+    frame.setAttribute("aria-hidden", "true");
+    frame.setAttribute("allow", "microphone; autoplay");
+    document.documentElement.appendChild(frame);
+    const w = frame.contentWindow;
+    if (w && w !== globalThis && (w.AudioContext || w.webkitAudioContext) && w.AudioContext !== globalThis.AudioContext) cleanFrame = w;
+  } catch { /* use the page's own audio */ }
+  return cleanFrame;
+}
+let useCleanAudio = typeof document !== "undefined";
+const audioRealm = () => (useCleanAudio && cleanRealm()) || globalThis;
+const mediaDevices = () => audioRealm().navigator.mediaDevices || navigator.mediaDevices;
+
 let audioContext = null;
 function audioCtx() {
-  if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
+  if (!audioContext) {
+    const realm = audioRealm();
+    audioContext = new (realm.AudioContext || realm.webkitAudioContext)({ latencyHint: "interactive" });
+  }
   return audioContext;
+}
+
+// Starts audio from a click. If the clean frame's audio stays suspended, switch to the
+// page's own audio and reopen the microphones on it.
+async function resumeAudio() {
+  const ctx = audioCtx();
+  await Promise.race([ctx.resume().catch(() => {}), new Promise(resolve => setTimeout(resolve, 1500))]);
+  if (ctx.state === "running" || !useCleanAudio || audioRealm() === globalThis) return;
+  useCleanAudio = false;
+  try { ctx.close(); } catch { /* already closed */ }
+  audioContext = null;
+  await audioCtx().resume().catch(() => {});
+  if (mics.allowed) await openAllMics();
+}
+
+/* ---------- integrity signals (unranked and reviewed, never a ban) ---------- */
+
+// Checked before a ranked run is submitted. Anything that runs first can also hide these
+// changes, so they only make cheating harder; the server decides what counts.
+const NATIVE_CODE = /\{\s*\[native code\]\s*\}\s*$/;
+export function patchedAudioFunctions(win = globalThis, toString = Function.prototype.toString) {
+  const failed = [];
+  const check = (name, fn) => {
+    let native = false;
+    try { native = typeof fn === "function" && NATIVE_CODE.test(toString.call(fn)); } catch { /* not inspectable */ }
+    if (!native) failed.push(name);
+  };
+  const proto = (name, key) => win[name] && win[name].prototype ? win[name].prototype[key] : undefined;
+  check("getUserMedia", win.navigator?.mediaDevices?.getUserMedia);
+  check("MediaDevices.getUserMedia", proto("MediaDevices", "getUserMedia"));
+  check("createMediaStreamSource", proto("AudioContext", "createMediaStreamSource") || proto("webkitAudioContext", "createMediaStreamSource"));
+  check("AudioBufferSourceNode.start", proto("AudioBufferSourceNode", "start"));
+  check("HTMLMediaElement.play", proto("HTMLMediaElement", "play"));
+  const frameGetter = win.HTMLIFrameElement ? Object.getOwnPropertyDescriptor(win.HTMLIFrameElement.prototype, "contentWindow")?.get : undefined;
+  check("iframe.contentWindow", frameGetter);
+  return failed;
+}
+
+function environmentFailures() {
+  const realm = audioRealm();
+  // The clean frame's toString can't have been replaced by a script in this page.
+  const toString = realm.Function?.prototype?.toString || Function.prototype.toString;
+  const failed = patchedAudioFunctions(globalThis, toString).map(name => `page ${name}`);
+  if (realm !== globalThis) failed.push(...patchedAudioFunctions(realm, toString).map(name => `audio frame ${name}`));
+  return failed;
+}
+
+// Is this stream a real input device the browser lists?
+async function trackFailures(stream) {
+  const failed = [];
+  try {
+    const track = stream.getAudioTracks?.()[0];
+    if (!track) return ["no audio track"];
+    if (!track.label) failed.push("unnamed track");
+    const id = track.getSettings?.().deviceId;
+    if (!id) failed.push("no device id");
+    else {
+      const devices = await mediaDevices().enumerateDevices();
+      if (!devices.some(d => d.kind === "audioinput" && d.deviceId === id)) failed.push("unlisted device");
+    }
+  } catch { failed.push("unreadable track"); }
+  return failed;
 }
 
 class MicDetector {
@@ -695,14 +790,14 @@ class MicDetector {
 const mics = { allowed: false, devices: [], detectors: [], requests: [], error: "" };
 
 async function enableMics() {
-  if (!navigator.mediaDevices?.getUserMedia) {
+  if (!mediaDevices()?.getUserMedia) {
     mics.error = window.isSecureContext ? "This browser can't use a microphone." : "Microphones only work on https:// or localhost addresses.";
     renderPlayers();
     return false;
   }
   try {
     audioCtx().resume();
-    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const probe = await mediaDevices().getUserMedia({ audio: true });
     probe.getTracks().forEach(track => track.stop());
     mics.allowed = true;
     mics.error = "";
@@ -717,7 +812,7 @@ async function enableMics() {
 }
 
 async function refreshDevices() {
-  try { mics.devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput"); }
+  try { mics.devices = (await mediaDevices().enumerateDevices()).filter(d => d.kind === "audioinput"); }
   catch { mics.devices = []; }
 }
 
@@ -730,7 +825,7 @@ async function openMic(index) {
   const deviceId = player.deviceId;
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
+    stream = await mediaDevices().getUserMedia({
       audio: {
         deviceId: player.deviceId ? { exact: player.deviceId } : undefined,
         echoCancellation: settings.speakers, noiseSuppression: false, autoGainControl: false, channelCount: 1
@@ -741,7 +836,10 @@ async function openMic(index) {
       stream.getTracks().forEach(track => track.stop());
       return;
     }
-    mics.detectors[index] = new MicDetector(audioCtx(), stream);
+    const detector = new MicDetector(audioCtx(), stream);
+    detector.integrity = await trackFailures(stream);
+    if (mics.requests[index] !== request) { detector.stop(); return; }
+    mics.detectors[index] = detector;
   } catch (err) {
     stream?.getTracks().forEach(track => track.stop());
     if (mics.requests[index] === request && settings.players[index] === player) mics.error = `${player.name}'s mic couldn't open (${err.message || err.name}).`;
@@ -1438,7 +1536,7 @@ async function startSong() {
   $("#load-title").textContent = song.display;
   showScreen("loading");
   try {
-    await audioCtx().resume();
+    await resumeAudio();
     job.check();
     if (!mics.allowed && settings.players.some(p => p.deviceId !== "none")) {
       job.status("Waiting for microphone access…", null);
@@ -1457,6 +1555,7 @@ async function startSong() {
     const analysis = await analyzeVocals(audio.vocals, SR, p => job.status("Mapping out the vocal notes…", p), () => job.cancelled);
     const chart = buildChart(analysis);
     if (!chart.phrases.length) throw new Error("Couldn't find any vocals to sing in this song.");
+    chart.analysis = analysis; // the vocal's own pitch and loudness, for the ranked-run trace
     if (job.cancelled) return;
     state.job = null;
     let lines = lyrics.lines.length ? lyrics.lines : timePlainLyrics(lyrics.plain, chart.phrases);
@@ -1512,6 +1611,7 @@ function beginGame(song, audio, chart, lyrics, lyricKind = "line") {
   if (game.whiteMode) state.foundSkips.set(song.id, game.foundSkips);
   buildStage();
   resetRun();
+  startRankedRun(game);
   playFrom(0, COUNT_IN);
   showScreen("stage");
   resizeCanvas();
@@ -1601,6 +1701,7 @@ function tick() {
     if (game.lastT == null) game.lastT = t;
     const dt = clamp(t - game.lastT, 0, 0.1);
     scoreFrame(game, t, dt, gate);
+    traceFrame(game, t);
     while (game.noteIdx < notes.length && notes[game.noteIdx].end <= t) game.noteIdx++;
     while (game.phraseIdx < phrases.length && phrases[game.phraseIdx].end <= t) finishPhrase(game.phraseIdx++);
     game.lastT = t;
@@ -1616,6 +1717,80 @@ function tick() {
 function finishPhrase(index) {
   const results = scorePhrase(game, index);
   game.players.forEach((p, pi) => popRating(p, results[pi].rating, results[pi].points));
+  if (game.trace) game.trace.phrases.push(tracePhrase(game, index, results[0]));
+}
+
+/* ---------- ranked runs ---------- */
+
+// Signed-in rounds are ranked from Singer 1's microphone. The server issues the run when
+// the song starts and checks the trace when it ends; local best scores work as before.
+const ranking = () => import("./leaderboard.mjs?v=1.12.0").then(m => m.rankedKaraoke);
+function startRankedRun(g) {
+  g.ranked = null;
+  g.trace = null;
+  if (!store.get("yeatle:account", null)?.token || !g.players[0]?.detector) return;
+  g.trace = { phrases: [], lags: null, lagPhrase: -1 };
+  g.ranked = ranking()
+    .then(ranked => ranked.signedIn() ? ranked.start({ songId: g.song.id, difficulty: g.difficulty, white: g.whiteMode }) : null)
+    .catch(err => ({ error: err.message || "Ranking is unavailable right now." }));
+}
+
+// For each phrase, compare Singer 1's loudness and pitch with the song's own vocal at a
+// range of time offsets: a live singer matches loosely, the record itself matches exactly.
+const TRACE_LAGS = 24; // vocal-analysis frames either side (about ±0.56 s)
+export function traceFrame(g, t) {
+  const p = g.players[0], a = g.chart.analysis;
+  if (!g.trace || !p?.detector || !a || !p.reading) return;
+  const index = g.phraseIdx, ph = g.chart.phrases[index];
+  if (!ph || t < ph.start || t > ph.end) return;
+  if (g.trace.lagPhrase !== index) {
+    g.trace.lagPhrase = index;
+    g.trace.lags = Array.from({ length: 2 * TRACE_LAGS + 1 }, () => ({ n: 0, x: 0, y: 0, xx: 0, yy: 0, xy: 0, cents: [] }));
+  }
+  const r = p.reading, base = Math.round((t - a.offset) / a.hop);
+  g.trace.lags.forEach((s, k) => {
+    const i = base + k - TRACE_LAGS;
+    if (i < 0 || i >= a.rms.length) return;
+    const x = r.rms, y = a.rms[i];
+    s.n++; s.x += x; s.y += y; s.xx += x * x; s.yy += y * y; s.xy += x * y;
+    if (r.voiced && a.conf[i] > 0.7 && !Number.isNaN(a.midi[i])) s.cents.push(Math.round(chromaDistance(r.midi, a.midi[i]) * 100));
+  });
+}
+
+export function tracePhrase(g, index, result) {
+  const ph = g.chart.phrases[index];
+  let corr = null, cents = null, lag = null;
+  const lags = g.trace.lagPhrase === index ? g.trace.lags : null;
+  (lags || []).forEach((s, k) => {
+    if (s.n < 20) return;
+    const den = Math.sqrt((s.n * s.xx - s.x * s.x) * (s.n * s.yy - s.y * s.y));
+    if (!(den > 0)) return;
+    const r = (s.n * s.xy - s.x * s.y) / den;
+    if (corr === null || r > corr) {
+      corr = r;
+      lag = Math.round((k - TRACE_LAGS) * g.chart.analysis.hop * 1000);
+      cents = s.cents.length >= 10 ? median(s.cents) : null;
+    }
+  });
+  const round3 = v => Math.round(v * 1000) / 1000;
+  return [round3(ph.start), round3(ph.end), ph.dur, result.skipped ? null : result.acc, corr === null ? null : Math.round(corr * 1000) / 1000, cents, lag];
+}
+
+async function submitRankedRun(g, note) {
+  const p = g.players[0];
+  const run = await g.ranked;
+  if (!run || run.error || !run.runId) { note.textContent = run?.error ? `Not ranked: ${run.error}` : ""; return; }
+  const failed = [...environmentFailures(), ...(p.detector?.integrity || [])];
+  note.textContent = "Checking your run for the leaderboard…";
+  try {
+    const res = await (await ranking()).submit({
+      runId: run.runId, score: p.score, duration: g.audio.duration, phrases: g.trace.phrases,
+      integrity: { ok: failed.length === 0, failed }
+    });
+    note.textContent = res.ranked ? `Ranked on the leaderboard · your verified best here is ${res.best.toLocaleString()}` : res.message || "This run wasn't ranked.";
+  } catch (err) {
+    note.textContent = `Not ranked: ${err.message}`;
+  }
 }
 
 function popRating(p, rating, points) {
@@ -1951,6 +2126,14 @@ function showResults() {
   $("#results-title").textContent = game.song.display;
   $("#results-sub").textContent = `${DIFFICULTIES[game.difficulty].label}${game.whiteMode ? " · White people mode" : ""}${newBest ? ` · New best: ${newBest.score.toLocaleString()} by ${newBest.name}` : previous ? ` · Best: ${previous.score.toLocaleString()} by ${previous.name}` : ""}`;
   $("#results-cards").replaceChildren(...cards);
+  let rankNote = $("#results-rank");
+  if (!rankNote) {
+    rankNote = el("p", { id: "results-rank", class: "muted", "aria-live": "polite" });
+    $("#results-sub").after(rankNote);
+  }
+  rankNote.textContent = "";
+  if (game.ranked) submitRankedRun(game, rankNote);
+  game.ranked = null;
   showScreen("results");
 }
 
@@ -2044,6 +2227,7 @@ function init() {
   $("#again").addEventListener("click", restart);
   $("#another").addEventListener("click", backToSetup);
   window.addEventListener("resize", resizeCanvas);
+  window.addEventListener("yeatle:banned", () => { if (state.job) state.job.cancel(); if (game) { game.ranked = null; endGame(); } });
   document.addEventListener("visibilitychange", () => { if (document.hidden) setPaused(true); });
   document.addEventListener("keydown", e => {
     if (!game || game.ended || $("#stage").hidden) return;

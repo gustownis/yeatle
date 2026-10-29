@@ -14,5 +14,8 @@
   "googleApiKey": "",
   "liveControl": true,
   "stemsHost": "https://playyeatle.duckdns.org",
-  "stemDownloads": false
+  "stemDownloads": false,
+  "trustedProxies": [],
+  "ipRestrictionDays": 30,
+  "bannedJobsUrl": "https://www.indeed.com/"
 }
