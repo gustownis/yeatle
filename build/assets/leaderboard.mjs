@@ -10,6 +10,11 @@ export const BANNED_SCREEN = {
   videoFallback: "The video couldn't play here."
 };
 const DEFAULT_JOBS_URL = "https://www.indeed.com/";
+const USERNAME_BLOCKED_MESSAGE = "This username was blocked because the song is dogshit";
+// How often an open leaderboard refreshes, and how often a signed-in page checks for an
+// admin rename or a newly blocked name. Both pause while the tab is hidden.
+const OPEN_REFRESH_MS = 10000;
+const ACCOUNT_CHECK_MS = 60000;
 
 const BOARD_META = {
   daily: {
@@ -347,6 +352,34 @@ function initLeaderboardUI() {
   let statusMessage = "";
   let statusError = false;
   let syncTimer = null;
+  let blockedNoticeShown = false;
+  const pageOpenedAt = Date.now();
+
+  // The server's view of this account: its current name (an admin may have changed it) and
+  // whether a username filter now blocks that name.
+  function rememberAccount(account, extra = {}) {
+    saveAccountState({
+      ...accountState,
+      ...extra,
+      username: account.username,
+      usernameBlocked: Boolean(account.usernameBlocked),
+      dailyStreak: account.metrics?.dailyStreak || 0
+    });
+    if (!account.usernameBlocked) return;
+    // Opens by itself only while the page is loading, so it never pops up mid-song;
+    // later the 🏆 button shows a warning until the name is changed.
+    if (!blockedNoticeShown && (isOpen || Date.now() - pageOpenedAt < 15000)) {
+      blockedNoticeShown = true;
+      renaming = true;
+      renameDraft = "";
+      focusRename = true;
+      if (!isOpen && !bannedShown) {
+        isOpen = true;
+        overlay.hidden = false;
+      }
+    }
+    if (isOpen) renderModal();
+  }
 
   function saveAccountState(next) {
     accountState = next;
@@ -398,6 +431,13 @@ function initLeaderboardUI() {
       badge.textContent = `🔥 ${streak}`;
       parts.push(badge);
     }
+    if (accountState?.usernameBlocked) {
+      const warn = document.createElement("span");
+      warn.className = "lb-blocked";
+      warn.textContent = "⚠️";
+      parts.push(warn);
+    }
+    triggerBtn.title = accountState?.usernameBlocked ? USERNAME_BLOCKED_MESSAGE : "Leaderboards & Account Sync";
     triggerBtn.replaceChildren(...parts);
   }
 
@@ -469,11 +509,7 @@ function initLeaderboardUI() {
       const data = await apiCall("api/leaderboard", "GET");
       leaderboardData = data;
       if (data.viewer) {
-        saveAccountState({
-          ...accountState,
-          username: data.viewer.username,
-          dailyStreak: data.viewer.metrics?.dailyStreak || 0
-        });
+        rememberAccount(data.viewer);
         if (applyServerProgress(data.viewer.progress, localStorage, rawSetItem)) {
           window.dispatchEvent(new CustomEvent("yeatle:progress-synced"));
         }
@@ -495,11 +531,7 @@ function initLeaderboardUI() {
       const progress = collectLocalProgress(localStorage);
       const res = await apiCall("api/account/sync", "POST", { progress });
       if (res.account) {
-        saveAccountState({
-          ...accountState,
-          username: res.account.username,
-          dailyStreak: res.account.metrics?.dailyStreak || 0
-        });
+        rememberAccount(res.account);
         if (applyServerProgress(res.account.progress, localStorage, rawSetItem)) {
           window.dispatchEvent(new CustomEvent("yeatle:progress-synced"));
         }
@@ -531,11 +563,8 @@ function initLeaderboardUI() {
       const progress = collectLocalProgress(localStorage);
       const endpoint = kind === "register" ? "api/account/register" : "api/account/login";
       const res = await apiCall(endpoint, "POST", { username, password, progress });
-      saveAccountState({
-        token: res.token,
-        username: res.account.username,
-        dailyStreak: res.account.metrics?.dailyStreak || 0
-      });
+      accountState = null;
+      rememberAccount(res.account, { token: res.token });
       if (applyServerProgress(res.account.progress, localStorage, rawSetItem)) {
         window.dispatchEvent(new CustomEvent("yeatle:progress-synced"));
       }
@@ -562,8 +591,8 @@ function initLeaderboardUI() {
     renderModal();
     try {
       const res = await apiCall("api/account/rename", "POST", { username });
-      saveAccountState({ ...accountState, username: res.account.username });
       renaming = false;
+      rememberAccount(res.account);
       statusMessage = `Username changed to ${res.account.username}.`;
       await refreshLeaderboard(false);
     } catch (err) {
@@ -582,6 +611,7 @@ function initLeaderboardUI() {
     } catch {}
     saveAccountState(null);
     renaming = false;
+    blockedNoticeShown = false;
     statusError = false;
     statusMessage = "Logged out on this device.";
     await refreshLeaderboard(false);
@@ -662,6 +692,14 @@ function initLeaderboardUI() {
       actions.append(syncBtn, renameBtn, outBtn);
       top.append(userLine, actions);
       accountBox.appendChild(top);
+
+      if (accountState.usernameBlocked) {
+        const blockedNote = document.createElement("p");
+        blockedNote.className = "yeatle-lb-status err";
+        blockedNote.setAttribute("role", "alert");
+        blockedNote.textContent = USERNAME_BLOCKED_MESSAGE;
+        accountBox.appendChild(blockedNote);
+      }
 
       if (renaming) {
         const form = document.createElement("form");
@@ -902,6 +940,30 @@ function initLeaderboardUI() {
   checkBanStatus().then(banned => {
     if (!banned && accountState?.token) setTimeout(() => refreshLeaderboard(true), 300);
   });
+
+  // Keeps names live: an open leaderboard shows renames within seconds, and a signed-in
+  // player learns about an admin rename or a blocked name without reopening anything.
+  let lastAccountCheck = Date.now();
+  let liveBusy = false;
+  setInterval(async () => {
+    if (bannedShown || liveBusy || document.hidden || busyAuth) return;
+    liveBusy = true;
+    try {
+      const typing = isOpen && modal.contains(document.activeElement) && document.activeElement.tagName === "INPUT";
+      if (isOpen && !typing) {
+        await refreshLeaderboard(false);
+        lastAccountCheck = Date.now();
+      } else if (!isOpen && accountState?.token && Date.now() - lastAccountCheck >= ACCOUNT_CHECK_MS) {
+        lastAccountCheck = Date.now();
+        const res = await apiCall("api/account/me", "GET");
+        if (res.account) rememberAccount(res.account);
+      }
+    } catch {
+      // A missed check is retried on the next tick.
+    } finally {
+      liveBusy = false;
+    }
+  }, OPEN_REFRESH_MS);
 }
 
 if (typeof document !== "undefined") {

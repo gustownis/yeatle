@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { fork } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
-const { createLeaderboardStore, computeMetrics, mergeProgress, BLOCKED_USERNAME_MESSAGE } = require("../leaderboard.cjs");
+const { createLeaderboardStore, computeMetrics, mergeProgress, BLOCKED_USERNAME_MESSAGE, USERNAME_BLOCKED_MESSAGE, BLOCKED_NAME_LABEL } = require("../leaderboard.cjs");
 const frontendModule = import(pathToFileURL(path.join(__dirname, "../build/assets/leaderboard.mjs")).href);
 
 const root = path.resolve(__dirname, "..");
@@ -345,4 +345,89 @@ test("alive 4 a min, regular person and terrified are blocked in any spelling", 
   const ok = await store.register({ username: "yeatfan", password: "yeatfan1" }, NOW);
   assert.throws(() => store.rename(ok.token, "t3rrified", NOW), { message: BLOCKED_USERNAME_MESSAGE });
   assert.deepEqual(store.getUsernameFilters().filters, [], "built-in blocks are not editable admin filters");
+});
+
+test("a filter that matches an existing name blocks it until the player or an admin changes it", async t => {
+  const dir = tempDir(t);
+  const file = path.join(dir, "leaderboard-users.json");
+  const store = createLeaderboardStore(file);
+  const mat = await store.register({ username: "mat_bad", password: "yeatfan1", progress: { daily: { [day(0)]: won(day(0)) } } }, NOW);
+  const ken = await store.register({ username: "ken", password: "yeatfan2", progress: { daily: { [day(0)]: won(day(0)) } } }, NOW);
+  assert.equal(store.me(mat.token, NOW).account.usernameBlocked, false);
+
+  store.setUsernameFilter("bad", true);
+  const blocked = store.me(mat.token, NOW).account;
+  assert.equal(blocked.usernameBlocked, true, "applies at once, without a restart");
+  assert.equal(blocked.usernameBlockedMessage, "This username was blocked because the song is dogshit");
+  assert.equal(USERNAME_BLOCKED_MESSAGE, blocked.usernameBlockedMessage);
+  assert.equal(blocked.username, "mat_bad", "the player still sees their own name and can still sign in");
+  assert.equal(store.me(ken.token, NOW).account.usernameBlocked, false);
+  let names = store.getLeaderboards("", NOW).boards.daily.entries.map(e => e.username);
+  assert.deepEqual(names.sort(), [BLOCKED_NAME_LABEL, "ken"].sort(), "others never see a blocked name");
+  assert.ok(!JSON.stringify(store.getLeaderboards(ken.token, NOW)).includes("mat_bad"));
+
+  // An admin can choose any valid name, even one a filter would catch, and it isn't blocked.
+  assert.throws(() => store.adminRename("nobody", "x1"), { status: 404 });
+  assert.throws(() => store.adminRename("mat_bad", "KEN"), { status: 409 });
+  assert.throws(() => store.adminRename("mat_bad", "a"), /2 to 20/);
+  const after = store.adminRename("mat_bad", "BadButAllowed", NOW);
+  assert.deepEqual(after.matches, [], "no blocked names left");
+  const renamed = store.me(mat.token, NOW).account;
+  assert.equal(renamed.username, "BadButAllowed", "existing sessions see the new name");
+  assert.equal(renamed.usernameBlocked, false);
+  names = store.getLeaderboards("", NOW).boards.daily.entries.map(e => e.username);
+  assert.ok(names.includes("BadButAllowed"));
+  assert.equal((await store.login({ username: "badbutallowed", password: "yeatfan1" }, NOW)).account.username, "BadButAllowed");
+  await assert.rejects(() => store.login({ username: "mat_bad", password: "yeatfan1" }, NOW), { status: 401 });
+
+  // The exemption only covers the name the admin set, and survives a restart.
+  const reopened = createLeaderboardStore(file);
+  assert.equal(reopened.me(mat.token, NOW).account.usernameBlocked, false);
+  assert.throws(() => reopened.rename(mat.token, "bad2", NOW), { message: BLOCKED_USERNAME_MESSAGE });
+  reopened.rename(mat.token, "matty", NOW);
+  reopened.setUsernameFilter("matt", true);
+  assert.equal(reopened.me(mat.token, NOW).account.usernameBlocked, true);
+  reopened.rename(mat.token, "yeatfan", NOW);
+  assert.equal(reopened.me(mat.token, NOW).account.usernameBlocked, false, "picking an allowed name clears it");
+  reopened.setUsernameFilter("yeat", true);
+  assert.equal(reopened.me(mat.token, NOW).account.usernameBlocked, true);
+  reopened.setUsernameFilter("yeat", false);
+  assert.equal(reopened.me(mat.token, NOW).account.usernameBlocked, false, "removing the filter clears it");
+});
+
+test("admins rename players on the shared host, and copies refuse", async t => {
+  const hostDir = tempDir(t);
+  fs.writeFileSync(path.join(hostDir, "admin.json"), JSON.stringify({ password: "letmein" }));
+  const hostUrl = await startServer(t, hostDir, "");
+  const clientDir = tempDir(t);
+  fs.writeFileSync(path.join(clientDir, "admin.json"), JSON.stringify({ password: "letmein" }));
+  const clientUrl = await startServer(t, clientDir, hostUrl);
+
+  const reg = await (await post(`${clientUrl}/api/account/register`, { username: "mat", password: "yeatfan1" })).json();
+  assert.equal((await post(`${hostUrl}/api/admin/rename-player`, { username: "mat", newUsername: "matty" })).status, 401, "admins only");
+
+  const adminFor = async url => {
+    const login = await post(`${url}/api/admin/login`, { password: "letmein" });
+    const cookie = login.headers.get("set-cookie").split(";")[0];
+    return body => fetch(`${url}/api/admin/rename-player`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify(body) });
+  };
+  const hostAdmin = await adminFor(hostUrl);
+  const renamed = await hostAdmin({ username: "mat", newUsername: "matty" });
+  assert.equal(renamed.status, 200, await renamed.clone().text());
+  assert.deepEqual((await renamed.json()).matches, []);
+  assert.equal((await hostAdmin({ username: "ghost", newUsername: "boo" })).status, 404);
+
+  const me = await (await fetch(`${clientUrl}/api/account/me`, { headers: { Authorization: `Bearer ${reg.token}` } })).json();
+  assert.equal(me.account.username, "matty", "the player's game sees the new name through the shared website");
+  assert.equal(me.account.usernameBlocked, false);
+
+  const clientAdmin = await adminFor(clientUrl);
+  const refused = await clientAdmin({ username: "matty", newUsername: "mat" });
+  assert.equal(refused.status, 409);
+  assert.match((await refused.json()).error, /Rename players in that website's admin panel/);
+});
+
+test("the game shows the same blocked-name message as the server", async () => {
+  const source = fs.readFileSync(path.join(root, "build/assets/leaderboard.mjs"), "utf8");
+  assert.ok(source.includes(JSON.stringify(USERNAME_BLOCKED_MESSAGE)));
 });

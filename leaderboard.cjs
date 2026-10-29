@@ -12,6 +12,9 @@ const LOGIN_FAILS_BEFORE_LOCK = 5;
 const LOGIN_LOCK_MS = 60000;
 const DAY_MS = 86400000;
 const BLOCKED_USERNAME_MESSAGE = "Error Username cannot be chosen because the song is dogshit";
+// Shown to a player whose existing name a filter now matches, until they pick another.
+const USERNAME_BLOCKED_MESSAGE = "This username was blocked because the song is dogshit";
+const BLOCKED_NAME_LABEL = "Blocked username";
 const MAX_USERNAME_FILTERS = 1000;
 // One documented answer for every banned account or device: HTTP 403 with
 // { banned: true, error }. It never says why, or which address or device matched.
@@ -464,6 +467,10 @@ function createLeaderboardStore(file, {
 
   const isBanned = user => Boolean(user && moderation.bans[user.id]);
 
+  // Checked live, so adding or removing a filter applies at once. A name an admin set is
+  // never blocked by a filter; the player loses that exemption by renaming themselves.
+  const isNameBlocked = user => Boolean(user && user.adminName !== user.username && usernameMatchesFilters(user.username, usernameFilters));
+
   // ctx carries this request's keyed address and device hashes (either may be empty).
   function checkDevice(ctx) {
     if (ctx?.deviceHash && moderation.deviceBlocks[ctx.deviceHash]) throw bannedError();
@@ -562,8 +569,11 @@ function createLeaderboardStore(file, {
   const metricsFor = (user, now) => computeMetrics(user.progress, now, canonicalSongId, rankedFor(user));
 
   function publicProfile(user, now = Date.now()) {
+    const blocked = isNameBlocked(user);
     return {
       username: user.username,
+      usernameBlocked: blocked,
+      ...(blocked ? { usernameBlockedMessage: USERNAME_BLOCKED_MESSAGE } : {}),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       progress: user.progress,
@@ -652,10 +662,27 @@ function createLeaderboardStore(file, {
     return { account: publicProfile(user, now) };
   }
 
+  // Admins can give any account any valid name, filtered or not. The player stays signed in
+  // and sees the new name the next time their game checks in.
+  function adminRename(currentUsername, newUsername, now = Date.now()) {
+    const user = state.users[String(currentUsername || "").trim().toLowerCase()];
+    if (!user) throw httpError(`No account is called "${String(currentUsername || "").trim().slice(0, 40)}".`, 404);
+    const { username: cleanName, key } = validateUsername(newUsername);
+    if (key !== user.key && state.users[key]) throw httpError(`${cleanName} is already taken. Pick another name.`, 409);
+    delete state.users[user.key];
+    user.username = cleanName;
+    user.key = key;
+    user.adminName = cleanName;
+    user.updatedAt = now;
+    state.users[key] = user;
+    save();
+    return getUsernameFilters();
+  }
+
   function getUsernameFilters() {
     const filters = [...usernameFilters].sort();
     const matches = Object.values(state.users)
-      .filter(u => usernameMatchesFilters(u.username, filters))
+      .filter(isNameBlocked)
       .map(u => u.username)
       .sort((a, b) => a.localeCompare(b));
     return { filters, matches };
@@ -703,7 +730,7 @@ function createLeaderboardStore(file, {
     let grandfathered = false;
     const allUsers = Object.values(state.users).filter(u => !isBanned(u)).map(u => {
       if (u.ranked?.grandfather && catalogReady()) { creditProgress(u, now); grandfathered = true; }
-      return { key: u.key, username: u.username, metrics: metricsFor(u, now) };
+      return { key: u.key, username: isNameBlocked(u) ? BLOCKED_NAME_LABEL : u.username, metrics: metricsFor(u, now) };
     });
     if (changed || grandfathered) save();
 
@@ -893,13 +920,15 @@ function createLeaderboardStore(file, {
   }
 
   return {
-    register, login, sync, rename, logout, me, status, getLeaderboards, getUsernameFilters, setUsernameFilter,
+    register, login, sync, rename, adminRename, logout, me, status, getLeaderboards, getUsernameFilters, setUsernameFilter,
     startKaraokeRun, submitKaraokeRun, banUser, unbanUser, listBans, dismissFlag
   };
 }
 
 module.exports = {
   BLOCKED_USERNAME_MESSAGE,
+  USERNAME_BLOCKED_MESSAGE,
+  BLOCKED_NAME_LABEL,
   BANNED_MESSAGE,
   NETWORK_BLOCKED_MESSAGE,
   MODES,

@@ -2549,7 +2549,7 @@ function buildScreen() {
       api("/api/admin/username-filters", { word: input.value, blocked: true }).then(renderFilters).catch(function (err) { alert(err.message); });
     }
     input.addEventListener("keydown", function (e) { if (e.key === "Enter") add(); });
-    namesPanel.appendChild(el("div", { class: "muted", text: "New accounts and username changes are refused when the name contains a filtered word. Case, dots, underscores and hyphens are ignored, so \"bad\" also blocks \"B.a_d-guy\". Alive 4 a min, Regular person and Terrified are always blocked in any spelling. Existing accounts keep their names." }));
+    namesPanel.appendChild(el("div", { class: "muted", text: "New accounts and username changes are refused when the name contains a filtered word. Case, dots, underscores and hyphens are ignored, so \"bad\" also blocks \"B.a_d-guy\". Alive 4 a min, Regular person and Terrified are always blocked in any spelling. An existing account whose name a filter matches shows as \"Blocked username\" on the leaderboard, and the player is told \"This username was blocked because the song is dogshit\" until they pick another name or you rename them below. A name you set here is never blocked." }));
     if (data.authority) namesPanel.appendChild(el("p", { class: "error", text: "This copy uses the accounts on " + data.authority + ". Add filters in that website's admin panel; this list does nothing here." }));
     namesPanel.appendChild(el("div", { class: "filter-add" }, [input, el("button", { class: "btn small solid", text: "Add", onclick: add })]));
     var list = el("div", { class: "filter-list" });
@@ -2563,7 +2563,40 @@ function buildScreen() {
       ]));
     });
     namesPanel.appendChild(list);
-    if (data.matches.length) namesPanel.appendChild(el("p", { class: "muted", text: "Existing accounts that match: " + data.matches.join(", ") }));
+
+    var renameStatus = el("p", { class: "error" });
+    var fromInput = el("input", { type: "text", maxlength: "20", placeholder: "Current username", "aria-label": "Current username" });
+    var toInput = el("input", { type: "text", maxlength: "20", placeholder: "New username", "aria-label": "New username" });
+    function renamePlayer(from, to) {
+      renameStatus.textContent = "";
+      api("/api/admin/rename-player", { username: from, newUsername: to }).then(function (next) {
+        renderFilters(next);
+        namesPanel.querySelector(".rename-status").textContent = "Renamed " + from + " to " + to + ". Leaderboards show it within a few seconds.";
+      }).catch(function (err) { renameStatus.textContent = err.message; });
+    }
+    function renameFromForm() {
+      if (fromInput.value.trim() && toInput.value.trim()) renamePlayer(fromInput.value.trim(), toInput.value.trim());
+    }
+    toInput.addEventListener("keydown", function (e) { if (e.key === "Enter") renameFromForm(); });
+    namesPanel.appendChild(el("h2", { text: "Rename a player" }));
+    namesPanel.appendChild(el("div", { class: "muted", text: "Use 2 to 20 letters, numbers, underscores, hyphens or dots. The player stays signed in and logs in with the new name from now on." }));
+    namesPanel.appendChild(el("div", { class: "filter-add" }, [fromInput, toInput, el("button", { class: "btn small solid", text: "Rename", disabled: Boolean(data.authority), onclick: renameFromForm })]));
+    namesPanel.appendChild(renameStatus);
+    namesPanel.appendChild(el("p", { class: "muted rename-status", style: "margin: 0" }));
+
+    if (data.matches.length) {
+      namesPanel.appendChild(el("h2", { text: "Blocked names on existing accounts" }));
+      data.matches.forEach(function (name) {
+        var newName = el("input", { type: "text", maxlength: "20", placeholder: "New username", "aria-label": "New username for " + name });
+        function go() { if (newName.value.trim()) renamePlayer(name, newName.value.trim()); }
+        newName.addEventListener("keydown", function (e) { if (e.key === "Enter") go(); });
+        namesPanel.appendChild(el("div", { class: "test-result" }, [
+          el("div", { class: "name", style: "flex: 0 1 auto; min-width: 9em; overflow-wrap: anywhere; word-break: normal", text: name }),
+          newName,
+          el("button", { class: "btn small solid", text: "Rename", disabled: Boolean(data.authority), onclick: go })
+        ]));
+      });
+    }
     input.focus();
   }
 
@@ -3012,6 +3045,19 @@ async function handleAdmin(req, res, pathname) {
     const body = await readJsonBody(req);
     try {
       sendJson(res, 200, { ...leaderboardStore.setUsernameFilter(body.word, body.blocked !== false), authority });
+    } catch (err) {
+      sendJson(res, err.status || 400, { error: err.message });
+    }
+    return true;
+  }
+
+  if (pathname === "/api/admin/rename-player") {
+    const authority = CONFIG.dailyAuthority || "";
+    if (req.method !== "POST" || !/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
+    const body = await readJsonBody(req);
+    if (authority) { sendJson(res, 409, { error: `This copy uses the accounts on ${authority}. Rename players in that website's admin panel.` }); return true; }
+    try {
+      sendJson(res, 200, { ...leaderboardStore.adminRename(body.username, body.newUsername), authority });
     } catch (err) {
       sendJson(res, err.status || 400, { error: err.message });
     }
