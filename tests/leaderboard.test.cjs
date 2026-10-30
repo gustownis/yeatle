@@ -431,3 +431,45 @@ test("the game shows the same blocked-name message as the server", async () => {
   const source = fs.readFileSync(path.join(root, "build/assets/leaderboard.mjs"), "utf8");
   assert.ok(source.includes(JSON.stringify(USERNAME_BLOCKED_MESSAGE)));
 });
+
+test("the public API shares leaderboards and yesterday's Daily answer, never today's", async t => {
+  const hostDir = tempDir(t);
+  writeCatalog(hostDir, ["flawless", "talk", "gettinold"]);
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - DAY).toISOString().slice(0, 10);
+  const daily = (date, id, title) => ({ song: { id, title, display: title, era: "2093", mode: "filter", source: { kind: "url", id: "https://audio.invalid/x" } }, seed: 7, clipAt: 6, id: `v1:${date}:${id}` });
+  fs.writeFileSync(path.join(hostDir, "daily-challenges.json"), JSON.stringify({ [yesterday]: daily(yesterday, "talk", "Talk"), [today]: daily(today, "secretsong", "Secret Song") }));
+  const hostUrl = await startServer(t, hostDir, "");
+  const clientUrl = await startServer(t, tempDir(t), hostUrl);
+
+  await post(`${hostUrl}/api/account/register`, { username: "mat", password: "yeatfan1", progress: { completed: { stems: ["flawless", "talk"] } } });
+  await post(`${hostUrl}/api/account/register`, { username: "ken", password: "yeatfan2", progress: { completed: { stems: ["flawless"] } } });
+
+  const index = await fetch(`${hostUrl}/api/v1`);
+  assert.equal(index.headers.get("access-control-allow-origin"), "*");
+  assert.equal((await index.json()).version, 1);
+
+  const board = await (await fetch(`${hostUrl}/api/v1/leaderboard?board=stems&limit=5`)).json();
+  assert.equal(board.board, "stems");
+  assert.equal(board.totalPlayers, 2);
+  assert.deepEqual(board.entries, [{ rank: 1, username: "mat", songs: 2, prestige: 0 }, { rank: 2, username: "ken", songs: 1, prestige: 0 }]);
+  assert.equal((await (await fetch(`${hostUrl}/api/v1/leaderboard?board=stems&limit=1`)).json()).entries.length, 1);
+  assert.equal((await fetch(`${hostUrl}/api/v1/leaderboard?board=secret`)).status, 400);
+
+  const dailyRes = await fetch(`${hostUrl}/api/v1/daily`);
+  const dailyText = await dailyRes.clone().text();
+  const info = await dailyRes.json();
+  assert.equal(info.date, today);
+  assert.deepEqual(info.yesterday, { date: yesterday, answer: "Talk", era: "2093" });
+  assert.ok(info.secondsUntilReset > 0 && info.secondsUntilReset <= 86400);
+  assert.ok(!/secret/i.test(dailyText), "today's answer never appears");
+
+  // A copy of the game answers with the shared website's data.
+  const copied = await (await fetch(`${clientUrl}/api/v1/leaderboard?board=stems`)).json();
+  assert.deepEqual(copied.entries.map(e => e.username), ["mat", "ken"]);
+  assert.equal((await (await fetch(`${clientUrl}/api/v1/daily`)).json()).yesterday.answer, "Talk");
+
+  assert.equal((await fetch(`${hostUrl}/api/v1/daily`, { method: "POST" })).status, 405, "read-only");
+  assert.equal((await fetch(`${hostUrl}/api/v1/accounts`)).status, 404);
+  for (const text of [JSON.stringify(board), dailyText]) assert.ok(!/token|hash|progress|"id"/.test(text), "nothing private");
+});

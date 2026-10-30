@@ -700,6 +700,8 @@ Yeatle originated in the [Yeat Hub Discord community](https://discord.gg/twizz).
 Please report remaining song or playback issues, suggest additions, and share
 ideas for improvements in the server's Yeatle feedback channel.
 
+Building a Discord bot or another site? The read-only [Yeatle API](docs/api.md) shares the leaderboards and the Daily's reset time and previous answer.
+
 The original creator describes development as an enjoyable but challenging
 process and appreciates everyone who plays the game and shares feedback.
 Your reports help improve future updates.

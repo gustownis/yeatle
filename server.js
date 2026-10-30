@@ -3379,6 +3379,80 @@ async function handleLeaderboard(req, res, pathname) {
   return true;
 }
 
+/* ------------------------------------------------------------------ *
+ *  Public API (docs/api.md)
+ *
+ *  Read-only data for Discord bots and other sites: the leaderboards and the Daily's
+ *  date, reset time and yesterday's answer. It never includes today's answer, accounts'
+ *  progress, ids or anything the admin panel keeps private. Copies of the game answer
+ *  with the shared website's data, like the leaderboard itself.
+ * ------------------------------------------------------------------ */
+
+const API_BOARDS = {
+  daily: { title: "Daily streaks", entry: e => ({ streak: e.dailyStreak, bestStreak: e.bestDailyStreak, wins: e.dailyWins, played: e.dailyPlayed }) },
+  stems: { title: "Stems songs solved", entry: e => ({ songs: e.primary, prestige: e.prestige }) },
+  snippet: { title: "Snippets songs solved", entry: e => ({ songs: e.primary, prestige: e.prestige }) },
+  karaoke: { title: "Karaoke total score", entry: e => ({ totalScore: e.primary, songs: e.secondary, bestScore: e.bestScore }) }
+};
+const API_LIMIT_PER_MINUTE = 120;
+
+function apiDaily(now = Date.now()) {
+  const day = 86400000;
+  const date = new Date(now).toISOString().slice(0, 10);
+  const resetsAt = Date.parse(`${date}T00:00:00Z`) + day;
+  const yesterdayDate = new Date(resetsAt - 2 * day).toISOString().slice(0, 10);
+  const saved = dailyChallenge.saved(yesterdayDate);
+  const song = saved ? publicSong(saved.song) : null;
+  return {
+    date, resetsAt: new Date(resetsAt).toISOString(), secondsUntilReset: Math.ceil((resetsAt - now) / 1000),
+    yesterday: song ? { date: yesterdayDate, answer: song.display || song.title, era: song.era || null } : null
+  };
+}
+
+async function handlePublicApi(req, res, pathname, searchParams) {
+  if (pathname !== "/api/v1" && !pathname.startsWith("/api/v1/")) return false;
+  const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS" };
+  if (req.method === "OPTIONS") { res.writeHead(204, cors); res.end(); return true; }
+  for (const [name, value] of Object.entries(cors)) res.setHeader(name, value);
+  if (req.method !== "GET" && req.method !== "HEAD") { sendJson(res, 405, { error: "The Yeatle API is read-only. Use GET." }); return true; }
+  if (!accountLimiter.take("api:ip", requestSignals(req).ipHash, API_LIMIT_PER_MINUTE, MINUTE)) {
+    sendJson(res, 429, { error: `Too many requests. The API allows ${API_LIMIT_PER_MINUTE} a minute per network.` });
+    return true;
+  }
+  if (CONFIG.dailyAuthority) {
+    const proxied = await proxyLeaderboardAuthority(req, pathname + (searchParams.size ? `?${searchParams}` : ""), null, "");
+    sendJson(res, proxied.status, proxied.body);
+    return true;
+  }
+
+  if (pathname === "/api/v1" || pathname === "/api/v1/") {
+    sendJson(res, 200, {
+      name: "Yeatle API", version: 1,
+      endpoints: {
+        "/api/v1/leaderboard?board=daily|stems|snippet|karaoke&limit=1-50": "A leaderboard's top players",
+        "/api/v1/daily": "Today's Daily date and reset time, and yesterday's answer"
+      }
+    });
+    return true;
+  }
+  if (pathname === "/api/v1/daily") { sendJson(res, 200, apiDaily()); return true; }
+  if (pathname === "/api/v1/leaderboard") {
+    const board = searchParams.get("board") || "daily";
+    const meta = API_BOARDS[board];
+    if (!meta) { sendJson(res, 400, { error: `Unknown board. Use one of: ${Object.keys(API_BOARDS).join(", ")}.` }); return true; }
+    const limit = Math.max(1, Math.min(50, Number.parseInt(searchParams.get("limit") || "10", 10) || 10));
+    const data = leaderboardStore.getLeaderboards("");
+    const found = data.boards[board];
+    sendJson(res, 200, {
+      board, title: meta.title, updatedAt: new Date(data.serverTime).toISOString(), totalPlayers: found.totalPlayers,
+      entries: found.entries.slice(0, limit).map(e => ({ rank: e.rank, username: e.username, ...meta.entry(e) }))
+    });
+    return true;
+  }
+  sendJson(res, 404, { error: "Not found. See /api/v1 for what the API offers." });
+  return true;
+}
+
 // Account and leaderboard endpoints with their per-address and per-device limits.
 const MINUTE = 60000, HOUR = 3600000;
 const ACCOUNT_ROUTES = Object.fromEntries([
@@ -3428,6 +3502,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (await handleAdmin(req, res, pathname)) return;
     if (await handleLeaderboard(req, res, pathname)) return;
+    if (await handlePublicApi(req, res, pathname, searchParams)) return;
 
     const model = /^\/models\/(\w+)\.fp16\.onnx$/.exec(pathname);
     if (model) return serveModel(req, res, model[1]);
