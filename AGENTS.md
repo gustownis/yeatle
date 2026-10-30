@@ -22,8 +22,8 @@ it is safe, rather than only telling the user an update exists.
    do not guess a new branch relationship or discard local commits.
 3. Check the latest published regular GitHub release, for example with
    `gh api repos/gustownis/yeatle/releases/latest`, and compare its tag with
-   the version in the root `package.json`. A tag like `v1.12` is equal to
-   `package.json` version `1.12.0`. Compare version numbers correctly;
+   the version in the root `package.json`. Tags keep three numbers (`v1.12.0`);
+   treat `X.Y` as `X.Y.0`. Compare version numbers correctly;
 4. If the checkout is clean and its branch is behind its upstream with no
    local-only commits, automatically run `git merge --ff-only '@{upstream}'`.
    This updates tracked
@@ -78,9 +78,11 @@ private notes intact throughout synchronization.
 
 ## Version numbering
 
-- Name releases with two numbers, X.Y (for example 1.12, then 1.13). Use this form in git tags, GitHub release titles, release notes and the README. Do not add a trailing ".0" (write 1.12, not 1.12.0).
+- Name releases with two numbers, X.Y (for example 1.12, then 1.13), in GitHub release titles, release notes (`docs/releases/1.13.md`) and README text. Do not add a trailing ".0" there (write 1.12, not 1.12.0).
+- Git tags and installer file names keep all three numbers (`v1.13.0`, `Yeatle-Setup-1.13.0-windows-x64.exe`). Installed desktop apps read the latest release's tag and look for assets named with that full version; a tag like `v1.13` or a file named `…-1.13-…` makes every installed app's update check fail. `scripts/builder.cjs` names installers with the full version, and a test checks those names match the updater's.
 - `package.json` and `package-lock.json` must keep a valid three-part semver (1.12.0), because npm and electron-builder reject "1.12". Treat X.Y as X.Y.0 when comparing versions.
 - Use a third number only for a real patch release (for example 1.12.1).
+- Releases are built and published by the **Desktop builds** workflow: run it with **release** ticked to build all five targets and create a draft release (tag `v` + the `package.json` version, notes from `docs/releases/X.Y.md`, all 14 files checked), then run it again with **publish** ticked to make that draft the Latest release.
 
 ## Important project constraints
 

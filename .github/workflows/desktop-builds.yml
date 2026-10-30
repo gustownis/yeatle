@@ -1,10 +1,20 @@
 name: Desktop builds
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: Also create a draft GitHub release (tag v + package.json version) from these builds
+        type: boolean
+        default: false
+      publish:
+        description: Only publish the existing draft release for this version as Latest (builds nothing)
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   build:
+    if: ${{ !inputs.publish }}
     strategy:
       fail-fast: false
       matrix:
@@ -33,7 +43,8 @@ jobs:
           cache: npm
       - run: npm ci --no-fund --no-audit
       - run: npm test
-      - run: npx electron-builder --${{ matrix.target }} --${{ matrix.arch }} --publish never
+      # builder.cjs names installers with the full version, as installed apps' updaters expect.
+      - run: node scripts/builder.cjs --${{ matrix.target }} --${{ matrix.arch }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - uses: actions/upload-artifact@v7.0.2
@@ -47,3 +58,60 @@ jobs:
             release/*.deb
           if-no-files-found: error
           retention-days: 14
+
+  # A draft release with all 14 files (10 downloads, checksums, 3 updater feeds), checked
+  # after upload. Nobody is offered it until the publish run below.
+  release:
+    needs: build
+    if: ${{ inputs.release && !inputs.publish }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          path: release/github-builds
+      - name: Prepare the release files
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "SHORT=${version%.0}" >> "$GITHUB_ENV"
+          node scripts/prepare-release.cjs "$version" release/github-builds release/out
+          ls -l release/out
+          test "$(ls release/out | wc -l)" -eq 14
+          test -f "docs/releases/${version%.0}.md"
+          if gh release view "v$version" >/dev/null 2>&1; then echo "A release for v$version already exists."; exit 1; fi
+      - name: Create the draft release
+        run: gh release create "v$VERSION" release/out/* --draft --target "$GITHUB_SHA" --title "Yeatle $SHORT" --notes-file "docs/releases/$SHORT.md"
+      - name: Check the uploads
+        run: |
+          gh release view "v$VERSION" --json isDraft,assets --jq '"draft: \(.isDraft)", (.assets[] | "\(.size) \(.name)")' | tee uploaded.txt
+          test "$(grep -c '^[0-9]' uploaded.txt)" -eq 14
+          if awk '$1 == "0"' uploaded.txt | grep -q .; then echo "An upload is empty."; exit 1; fi
+          name="Yeatle-Setup-$VERSION-windows-x64.exe"
+          gh release download "v$VERSION" --pattern "$name" --dir check
+          (cd check && grep "  $name\$" ../release/out/SHA256SUMS.txt | sha256sum -c -)
+
+  publish:
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Publish the draft as the Latest release
+        run: |
+          version=$(node -p "require('./package.json').version")
+          state=$(gh release view "v$version" --json isDraft,assets --jq '"\(.isDraft) \(.assets | length)"')
+          echo "v$version: draft and asset count = $state"
+          test "$state" = "true 14"
+          gh release edit "v$version" --draft=false --latest
+          gh release view "v$version" --json isDraft,isPrerelease,url --jq '"draft: \(.isDraft), prerelease: \(.isPrerelease), \(.url)"'

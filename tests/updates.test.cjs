@@ -101,3 +101,19 @@ test("Developer menu owns developer tools and admin; Help exposes updates", () =
   assert.equal(opened, true);
   assert.equal(menus.find(item => item.label === "Help").submenu[0].label, "Check for Updates");
 });
+
+test("installers are built with the names installed apps' updaters look for", () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+  // scripts/builder.cjs sets YEATLE_VERSION; it must be the full three-part version.
+  assert.match(fs.readFileSync(path.join(__dirname, "..", "scripts", "builder.cjs"), "utf8"), /YEATLE_VERSION: version\b/);
+  const name = (template, arch, ext) => template.replace("${env.YEATLE_VERSION}", pkg.version).replace("${version}", pkg.version).replace("${arch}", arch).replace("${ext}", ext);
+  const b = pkg.build;
+  assert.equal(name(b.nsis.artifactName, "x64", "exe"), assetName(pkg.version, "win32", "x64", "nsis"));
+  assert.equal(name(b.portable.artifactName, "x64", "exe"), assetName(pkg.version, "win32", "x64", "portable"));
+  for (const arch of ["x64", "arm64"]) {
+    assert.equal(name(b.mac.artifactName, arch, "dmg"), assetName(pkg.version, "darwin", arch, "dmg"));
+    assert.equal(name(b.linux.artifactName, arch, "AppImage"), assetName(pkg.version, "linux", arch, "appimage"));
+    assert.equal(name(b.linux.artifactName, arch, "deb"), assetName(pkg.version, "linux", arch, "deb"));
+  }
+  assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
+});
