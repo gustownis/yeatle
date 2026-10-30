@@ -17,5 +17,6 @@
   "stemDownloads": false,
   "trustedProxies": [],
   "ipRestrictionDays": 30,
-  "bannedJobsUrl": "https://www.indeed.com/"
+  "bannedJobsUrl": "https://www.indeed.com/",
+  "dailyFromEra": "Alive"
 }

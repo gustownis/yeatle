@@ -516,6 +516,7 @@ text editor, and restart. For example:
 | `trustedProxies` | Server: addresses of a reverse proxy in front of this server whose `X-Forwarded-For` is trusted, for example `["127.0.0.1", "::1"]` for Caddy or nginx on the same machine; default `[]`. Only the right-most entry, the one the proxy adds, is used. Without it, a server behind a local proxy turns address limits and restrictions off and logs a warning |
 | `ipRestrictionDays` | Server: how long a banned account's recent network addresses can't sign up or sign in; default 30. Device and account bans last until an unban |
 | `bannedJobsUrl` | The http(s) link under the banned screen's message; default `https://www.indeed.com/` |
+| `dailyFromEra` | The Daily only picks songs from this era and later ones, by the tracker's dates; default `"Alive"` (Alivë), `""` for every era. A day's song never changes once chosen. Only the `dailyAuthority` website picks the Daily |
 
 A server with `stemDownloads` on lists only folders holding all four stems as
 real files inside its Songs folder (symlinks are skipped), hashes them once in

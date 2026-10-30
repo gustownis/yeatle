@@ -81,7 +81,10 @@ const DEFAULT_CONFIG = {
   // How long a banned account's recent network addresses can't sign up or sign in.
   ipRestrictionDays: 30,
   // The link under the banned screen's message.
-  bannedJobsUrl: "https://www.indeed.com/"
+  bannedJobsUrl: "https://www.indeed.com/",
+  // The Daily only picks songs from this era and the eras after it (by the tracker's
+  // dates). "" lets it pick from every era. A day's song never changes once chosen.
+  dailyFromEra: "Alive"
 };
 
 function loadJson(file, fallback) {
@@ -114,8 +117,8 @@ if (!Number.isInteger(CONFIG.port) || CONFIG.port < 0 || CONFIG.port > 65535 ||
 const httpUrl = value => { try { return ["http:", "https:"].includes(new URL(value).protocol); } catch { return false; } };
 if (!Array.isArray(CONFIG.trustedProxies) || CONFIG.trustedProxies.some(ip => typeof ip !== "string" || !normalIp(ip)) ||
     !Number.isFinite(CONFIG.ipRestrictionDays) || CONFIG.ipRestrictionDays < 0 || CONFIG.ipRestrictionDays > 3650 ||
-    typeof CONFIG.bannedJobsUrl !== "string" || !httpUrl(CONFIG.bannedJobsUrl)) {
-  console.error("Invalid Yeatle settings. trustedProxies must be a list of IP addresses, ipRestrictionDays a number from 0 to 3650, and bannedJobsUrl an http(s) address.");
+    typeof CONFIG.bannedJobsUrl !== "string" || !httpUrl(CONFIG.bannedJobsUrl) || typeof CONFIG.dailyFromEra !== "string") {
+  console.error("Invalid Yeatle settings. trustedProxies must be a list of IP addresses, ipRestrictionDays a number from 0 to 3650, bannedJobsUrl an http(s) address, and dailyFromEra an era name or \"\".");
   process.exit(1);
 }
 const TRUSTED_PROXIES = CONFIG.trustedProxies.map(normalIp);
@@ -2176,6 +2179,23 @@ function publicSong(song) {
     ...(poolVariants ? { poolVariants: Object.fromEntries(Object.entries(poolVariants).map(([pool, variant]) => [pool, publicSong(variant)])) } : {}) };
 }
 
+// Songs from dailyFromEra onwards (ERAS is oldest first). If that era isn't on the tracker,
+// or none of its songs can be picked, the Daily uses every era rather than having no song.
+let warnedDailyEra = false;
+function dailyEraSongs(songs) {
+  if (!CONFIG.dailyFromEra) return songs;
+  const wanted = looseEraKey(CONFIG.dailyFromEra);
+  const first = ERAS.findIndex(era => looseEraKey(era.name) === wanted || (era.aliases || []).some(alias => looseEraKey(alias) === wanted));
+  const allowed = first < 0 ? null : new Set(ERAS.slice(first).map(era => era.name));
+  const picked = allowed ? songs.filter(song => allowed.has(song.era)) : [];
+  if (picked.length) return picked;
+  if (!warnedDailyEra && ERAS.length) {
+    warnedDailyEra = true;
+    console.warn(`[daily] No songs from the "${CONFIG.dailyFromEra}" era onwards were found, so the Daily uses every era. Check dailyFromEra in config.json.`);
+  }
+  return songs;
+}
+
 // A song as a Snippets round in one pool sees it: the public entry the page would have
 // used (with that pool's recording, as songsForPool builds it) and the recording itself.
 function snippetEntry(id, pool = "all") {
@@ -3548,7 +3568,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
       if (!SONGS.length) await refreshOnce();
-      const daily = dailyChallenge(SONGS.filter(s => !isHidden(s) && isGuessingEligible(s)));
+      const daily = dailyChallenge(dailyEraSongs(SONGS.filter(s => !isHidden(s) && isGuessingEligible(s))));
       if (!daily) return sendJson(res, 503, { error: "No daily songs are available yet. Sync the tracker or add a local stem pack, then try again." });
       // A withdrawn song is unavailable for the rest of the day; never give
       // different players a replacement challenge under the same date.

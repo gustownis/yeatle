@@ -173,3 +173,21 @@ test("authority failures never select a local substitute and invalid host respon
   await assert.rejects(createDailyAuthority("https://example.test", async () => ({})).get(), /valid 1.11 challenge/);
   assert.throws(() => createDailyAuthority("file:///private", async () => ({})), /http/);
 });
+
+test("the Daily only picks songs from dailyFromEra onwards, and falls back to every era if it isn't listed", async t => {
+  const song = (id, era) => ({ id, title: id, display: id, era, mode: "filter", length: "2:30", source: { kind: "url", id: `https://audio.invalid/${id}` } });
+  const catalog = {
+    format: 3, updated: 1,
+    eras: ["Hold Ön", "Alivë", "2 Alivë", "2093"].map((name, i) => ({ name, aliases: [], start: `${2019 + i}-01-01`, end: `${2019 + i}-12-31` })),
+    songs: [...Array.from({ length: 60 }, (_, i) => song(`oldsong${i}`, "Hold Ön")), song("alivesong", "Alivë"), song("futuresong", "2093")]
+  };
+  const daily = async config => {
+    const dir = folder(t);
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "", ...config }));
+    fs.writeFileSync(path.join(dir, "songs-cache.json"), JSON.stringify(catalog));
+    return (await (await fetch(`${await server(t, dir)}/api/daily`)).json()).song.id;
+  };
+  assert.ok(["alivesong", "futuresong"].includes(await daily({})), "Alive (Alivë) and later by default; 60 older songs are never picked");
+  assert.equal(await daily({ dailyFromEra: "2093" }), "futuresong");
+  assert.ok(/^(oldsong\d+|alivesong|futuresong)$/.test(await daily({ dailyFromEra: "Not an era" })), "an unknown era leaves the Daily working");
+});
