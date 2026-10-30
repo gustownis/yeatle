@@ -58,6 +58,10 @@ const FIRST_CLIP_MAX_RATE = 0.85;
 const SHORT_FIRST_CLIP = ["base", "hard", "extreme"];
 // Cheat tools the page recognises by their own on-screen text or element ids. Only the
 // signed-in player's own page can report its account.
+// Evidence pages send when something is injected: kept for admins, one file per report.
+const MAX_EVIDENCE = 300;
+const EVIDENCE_PER_ACCOUNT_PER_DAY = 3;
+const MAX_EVIDENCE_BYTES = 800000;
 const KNOWN_CHEAT_TOOLS = {
   "yeatle-cracked": "the \"Yeatle Cracked\" cheat panel",
   "snippets-solver": "a Snippets answer solver",
@@ -430,7 +434,8 @@ function createLeaderboardStore(file, {
   snippetReveal = () => null,
   matchesAnswer = () => false,
   filtersFile = path.join(path.dirname(file), "username-filters.json"),
-  bansFile = path.join(path.dirname(file), "leaderboard-bans.json")
+  bansFile = path.join(path.dirname(file), "leaderboard-bans.json"),
+  evidenceDir = path.join(path.dirname(file), "cheat-evidence")
 } = {}) {
   let state = { users: {} };
   const parsed = readJsonFile(file, null);
@@ -447,7 +452,8 @@ function createLeaderboardStore(file, {
     ipBlocks: savedBans?.ipBlocks && typeof savedBans.ipBlocks === "object" ? savedBans.ipBlocks : {},
     deviceBlocks: savedBans?.deviceBlocks && typeof savedBans.deviceBlocks === "object" ? savedBans.deviceBlocks : {},
     flags: Array.isArray(savedBans?.flags) ? savedBans.flags : [],
-    strikes: savedBans?.strikes && typeof savedBans.strikes === "object" ? savedBans.strikes : {}
+    strikes: savedBans?.strikes && typeof savedBans.strikes === "object" ? savedBans.strikes : {},
+    evidence: Array.isArray(savedBans?.evidence) ? savedBans.evidence : []
   };
 
   const save = () => writeJsonFile(file, state);
@@ -1094,13 +1100,54 @@ function createLeaderboardStore(file, {
     return ranked;
   }
 
-  // A signed-in page that finds a known cheat tool on itself reports it once.
+  // A signed-in page reports a known cheat tool, or code injected into the game, once per
+  // load with what it could see of it. A known tool bans; anything else is only kept for
+  // an admin to look at.
   function reportCheatTool(token, body, now = Date.now(), ctx = {}) {
     const { user } = authUser(token, ctx, now);
-    const tools = (Array.isArray(body?.tools) ? body.tools : []).filter(t => Object.hasOwn(KNOWN_CHEAT_TOOLS, t));
+    const tools = [...new Set((Array.isArray(body?.tools) ? body.tools : []).filter(t => Object.hasOwn(KNOWN_CHEAT_TOOLS, t)))];
+    const evidenceId = saveEvidence(user, tools, body?.evidence, now);
     if (!tools.length) return { ok: true };
-    autoBan(user, [...new Set(tools)].map(t => `cheat tool on the page: ${KNOWN_CHEAT_TOOLS[t]}`), now);
+    autoBan(user, [...tools.map(t => `cheat tool on the page: ${KNOWN_CHEAT_TOOLS[t]}`), ...(evidenceId ? ["its code was captured; see Captured from players' pages"] : [])], now);
     throw bannedError();
+  }
+
+  // Stores a report's evidence as its own file and a short summary for the admin list.
+  // Returns its id, or "" when there was nothing usable or the account hit its daily limit.
+  function saveEvidence(user, tools, raw, now) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
+    const recent = moderation.evidence.filter(e => e.accountId === user.id && e.at > now - DAY_MS).length;
+    if (recent >= EVIDENCE_PER_ACCOUNT_PER_DAY && !tools.length) return "";
+    const json = JSON.stringify({ username: user.username, receivedAt: new Date(now).toISOString(), evidence: raw });
+    if (Buffer.byteLength(json) > MAX_EVIDENCE_BYTES) return "";
+    const list = key => (Array.isArray(raw[key]) ? raw[key] : []);
+    const id = crypto.randomBytes(8).toString("hex");
+    fs.mkdirSync(evidenceDir, { recursive: true });
+    writeJsonFile(path.join(evidenceDir, `${id}.json`), JSON.parse(json));
+    moderation.evidence.unshift({
+      id, accountId: user.id, username: user.username, at: now, tools, page: String(raw.page || "").slice(0, 60),
+      functions: list("functions").map(f => String(f?.name || "").slice(0, 60)).slice(0, 20),
+      scripts: list("scripts").length, panels: list("panels").length,
+      storage: list("storage").map(s => String(s?.key || "").slice(0, 60)).slice(0, 20), bytes: Buffer.byteLength(json)
+    });
+    for (const old of moderation.evidence.splice(MAX_EVIDENCE)) fs.rmSync(path.join(evidenceDir, `${old.id}.json`), { force: true });
+    saveModeration(now);
+    return id;
+  }
+
+  function readEvidence(id) {
+    const entry = moderation.evidence.find(e => e.id === String(id || ""));
+    if (!entry) throw httpError("That capture is no longer kept.", 404);
+    return { entry, json: fs.readFileSync(path.join(evidenceDir, `${entry.id}.json`), "utf8") };
+  }
+
+  function deleteEvidence(id, now = Date.now()) {
+    const entry = moderation.evidence.find(e => e.id === String(id || ""));
+    if (!entry) throw httpError("That capture is no longer kept.", 404);
+    moderation.evidence = moderation.evidence.filter(e => e !== entry);
+    fs.rmSync(path.join(evidenceDir, `${entry.id}.json`), { force: true });
+    saveModeration(now);
+    return listBans();
   }
 
   // Every account, newest first, for the admin panel. No addresses, devices or progress.
@@ -1151,7 +1198,8 @@ function createLeaderboardStore(file, {
       id: f.id, accountId: f.accountId, username: byId.get(f.accountId)?.username || f.username, songId: f.songId, difficulty: f.difficulty,
       white: Boolean(f.white), score: f.score, reasons: f.reasons, at: f.at, banned: Boolean(moderation.bans[f.accountId])
     }));
-    return { bans, flags };
+    const evidence = moderation.evidence.map(e => ({ ...e, banned: Boolean(moderation.bans[e.accountId]) }));
+    return { bans, flags, evidence };
   }
 
   function dismissFlag(id, now = Date.now()) {
@@ -1165,7 +1213,7 @@ function createLeaderboardStore(file, {
   return {
     register, login, sync, rename, adminRename, logout, me, status, getLeaderboards, getUsernameFilters, setUsernameFilter,
     startKaraokeRun, submitKaraokeRun, banUser, unbanUser, confirmBan, listBans, dismissFlag,
-    startSnippetRound, snippetRoundAudio, snippetRoundAct, reportCheatTool, listPlayers
+    startSnippetRound, snippetRoundAudio, snippetRoundAct, reportCheatTool, listPlayers, readEvidence, deleteEvidence
   };
 }
 

@@ -2404,6 +2404,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
   .muted { color: rgba(255,255,255,.6); font-size: .85rem; }
   .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
   .btn { padding: 8px 14px; background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.3); border-radius: 6px; cursor: pointer; }
+  a.btn { display: inline-block; text-decoration: none; }
   .btn:hover:not(:disabled) { background: rgba(255,255,255,.1); }
   .btn:disabled { opacity: .4; cursor: not-allowed; }
   .btn.solid { background: #fff; color: #000; border-color: #fff; font-weight: 600; }
@@ -2804,6 +2805,34 @@ function buildScreen() {
         } })
       ]));
     });
+    var captures = el("div", { class: "ban-list" });
+    var evidence = data.evidence || [];
+    if (!evidence.length) captures.appendChild(el("span", { class: "muted", text: "Nothing captured." }));
+    evidence.forEach(function (cap) {
+      var found = [];
+      if (cap.tools.length) found.push("known tool: " + cap.tools.join(", "));
+      if (cap.functions.length) found.push("replaced " + cap.functions.join(", "));
+      if (cap.scripts) found.push(cap.scripts + " injected script" + (cap.scripts === 1 ? "" : "s"));
+      if (cap.panels) found.push(cap.panels + " injected panel" + (cap.panels === 1 ? "" : "s"));
+      if (cap.storage.length) found.push("saved " + cap.storage.join(", "));
+      captures.appendChild(el("div", { class: "ban-row" }, [
+        el("div", { class: "grow" }, [
+          el("div", { class: "name" }, [document.createTextNode(cap.username + " · " + (cap.page || "/") + " "), cap.banned ? el("span", { class: "tag hid", text: "Banned" }) : null]),
+          el("div", { class: "muted", text: when(cap.at) + " · " + Math.ceil(cap.bytes / 1024) + " KB · " + found.join("; ") })
+        ]),
+        el("a", { class: "btn small solid", href: "/api/admin/evidence/" + cap.id, text: "Download" }),
+        cap.banned ? null : el("button", { class: "btn small red", text: "Ban", disabled: !local, onclick: function () {
+          name.value = cap.username; form.style.display = "grid"; reason.value = "Injected cheat code"; name.focus();
+        } }),
+        el("button", { class: "btn small", text: "Delete", disabled: !local, onclick: function () {
+          api("/api/admin/evidence-delete", { id: cap.id }).then(renderBans).catch(function (err) { status.textContent = err.message; });
+        } })
+      ]));
+    });
+    bansPanel.appendChild(el("h2", { text: "Captured from players' pages" }));
+    bansPanel.appendChild(el("div", { class: "muted", text: "When a signed-in player's page has code injected into the game, it sends what it can see: the replaced functions' code, injected scripts and panels, and storage the game doesn't use. A known cheat panel also bans automatically; anything else is only kept here, since browser extensions can show up too. Downloads are JSON files to read, never to run. The newest 300 are kept." }));
+    bansPanel.appendChild(captures);
+
     bansPanel.appendChild(el("h2", { text: "Flagged karaoke runs" }));
     bansPanel.appendChild(el("div", { class: "muted", text: "Runs that looked like the song's own vocal or a modified microphone. They aren't ranked. A run that matched the song's own vocal also bans the player automatically; that ban waits above for review." }));
     bansPanel.appendChild(flags);
@@ -3192,6 +3221,29 @@ async function handleAdmin(req, res, pathname) {
     if (authority) { sendJson(res, 409, { error: `This copy uses the accounts on ${authority}. Rename players in that website's admin panel.` }); return true; }
     try {
       sendJson(res, 200, { ...leaderboardStore.adminRename(body.username, body.newUsername), authority });
+    } catch (err) {
+      sendJson(res, err.status || 400, { error: err.message });
+    }
+    return true;
+  }
+
+  const evidenceFile = /^\/api\/admin\/evidence\/([a-f0-9]{16})$/.exec(pathname);
+  if (evidenceFile || pathname === "/api/admin/evidence-delete") {
+    try {
+      if (evidenceFile && req.method === "GET") {
+        const { entry, json } = leaderboardStore.readEvidence(evidenceFile[1]);
+        const name = `yeatle-capture-${entry.username.replace(/[^\w.-]/g, "_")}-${new Date(entry.at).toISOString().slice(0, 10)}-${entry.id}.json`;
+        // Captured code is shown as a download, never run or rendered by the admin page.
+        res.writeHead(200, { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="${name}"`, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+        res.end(json);
+        return true;
+      }
+      if (pathname === "/api/admin/evidence-delete" && req.method === "POST" && /application\/json/.test(req.headers["content-type"] || "")) {
+        const body = await readJsonBody(req);
+        sendJson(res, 200, { ...leaderboardStore.deleteEvidence(body.id), authority: CONFIG.dailyAuthority || "" });
+        return true;
+      }
+      sendJson(res, 400, { error: "Bad request" });
     } catch (err) {
       sendJson(res, err.status || 400, { error: err.message });
     }

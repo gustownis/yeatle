@@ -98,8 +98,13 @@ function startServer() {
 
   // The next round starts on its own and is a different, still hidden, song.
   await page.locator("text=Next song").first().click().catch(() => {});
-  // A known cheat panel on the page bans the account and shows the banned screen.
+  // A clean page never reports anything.
+  assert.ok(!seen.some(entry => entry.includes("/api/account/report")), "nothing was reported before the injection");
+  // A known cheat panel and a patched fetch: the account is banned and the code captured.
   await page.evaluate(() => {
+    const realFetch = window.fetch;
+    window.fetch = function solverFetch(...args) { return realFetch.apply(this, args); };
+    localStorage.setItem("solver_settings", JSON.stringify({ autoInsert: true }));
     const panel = document.createElement("div");
     panel.textContent = "Yeatle Cracked by krankez · Snippets Solver · Captured Song Answer";
     document.body.appendChild(panel);
@@ -112,6 +117,18 @@ function startServer() {
   await admin.click("text=Banned users");
   await admin.waitForSelector("text=Automatic · needs review");
   assert.ok(await admin.locator("text=Yeatle Cracked").count());
+  await admin.waitForSelector("text=replaced fetch");
+  const capture = await admin.evaluate(async () => {
+    const link = document.querySelector('a[href^="/api/admin/evidence/"]');
+    const res = await fetch(link.getAttribute("href"));
+    return { disposition: res.headers.get("content-disposition"), text: await res.text() };
+  });
+  assert.match(capture.disposition, /^attachment; filename="yeatle-capture-smoketester-/);
+  assert.match(capture.text, /solverFetch/);
+  assert.match(capture.text, /solver_settings/);
+  assert.match(capture.text, /Yeatle Cracked/);
+  assert.ok(!/yeatle:account|"token"/.test(capture.text), "the player's own Yeatle data isn't captured");
+  result.checks.captured = true;
   await admin.click("text=Players");
   await admin.waitForSelector("text=smoketester");
   result.checks.autoBan = true;

@@ -320,14 +320,121 @@ export function findCheatTools(root = document.body) {
   return CHEAT_TOOL_SIGNS.filter(([, test]) => { try { return test(root); } catch { return false; } }).map(([name]) => name);
 }
 
+// Evidence for the admins when something has been injected into the game. The game loads
+// only same-origin files from /assets/, has no inline scripts and replaces no built-in
+// function except Storage.setItem (for syncing), so anything else here came from outside.
+// Only the injected code, the injected panel and storage the game doesn't use are sent;
+// never the player's own Yeatle data. See the README's privacy section.
+const WATCHED_FUNCTIONS = [
+  ["fetch", () => window.fetch],
+  ["XMLHttpRequest.open", () => XMLHttpRequest.prototype.open],
+  ["XMLHttpRequest.send", () => XMLHttpRequest.prototype.send],
+  ["Response.json", () => Response.prototype.json],
+  ["JSON.parse", () => JSON.parse],
+  ["Storage.getItem", () => Storage.prototype.getItem],
+  ["Audio", () => window.Audio],
+  ["HTMLMediaElement.play", () => HTMLMediaElement.prototype.play],
+  ["HTMLMediaElement.pause", () => HTMLMediaElement.prototype.pause],
+  ["HTMLMediaElement.src", () => Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "src")?.set],
+  ["AudioBufferSourceNode.start", () => window.AudioBufferSourceNode?.prototype.start],
+  ["BaseAudioContext.decodeAudioData", () => window.BaseAudioContext?.prototype.decodeAudioData],
+  ["AudioContext.createMediaStreamSource", () => window.AudioContext?.prototype.createMediaStreamSource],
+  ["MediaDevices.getUserMedia", () => window.MediaDevices?.prototype.getUserMedia],
+  ["navigator.mediaDevices.getUserMedia", () => navigator.mediaDevices?.getUserMedia],
+  ["EventTarget.addEventListener", () => EventTarget.prototype.addEventListener],
+  ["Function.toString", () => Function.prototype.toString]
+];
+const clip = (text, max) => { text = String(text ?? ""); return text.length > max ? `${text.slice(0, max)}\n…[${text.length - max} more characters]` : text; };
+let cleanToString = null;
+
+// A toString from a fresh frame, so a script that patches the page's own toString to look
+// native doesn't hide from it.
+function nativeSource(fn) {
+  try {
+    if (!cleanToString) {
+      const frame = document.createElement("iframe");
+      frame.style.display = "none";
+      document.documentElement.appendChild(frame);
+      cleanToString = frame.contentWindow.Function.prototype.toString;
+      frame.remove();
+    }
+    return cleanToString.call(fn);
+  } catch { return ""; }
+}
+
+function modifiedFunctions() {
+  const out = [];
+  for (const [name, get] of WATCHED_FUNCTIONS) {
+    let fn;
+    try { fn = get(); } catch { continue; }
+    if (typeof fn !== "function") continue;
+    const source = nativeSource(fn);
+    if (source && !/\{\s*\[native code\]\s*\}\s*$/.test(source)) out.push({ name, source: clip(source, 40000) });
+  }
+  return out;
+}
+
+function foreignScripts() {
+  return [...document.scripts].filter(script => {
+    if (!script.src) return true;
+    try { const url = new URL(script.src); return url.origin !== location.origin || !url.pathname.startsWith("/assets/"); } catch { return true; }
+  });
+}
+
+function foreignStorage() {
+  const keys = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && !/^yeatle[:-]/.test(key)) keys.push(key);
+    }
+  } catch {}
+  return keys;
+}
+
+// The injected panel: the page's top-level element holding a known tool's text, or any
+// fixed element stacked above everything that isn't the game's own.
+function injectedPanels() {
+  const found = new Set();
+  for (const node of document.body?.children || []) {
+    if (/^yeatle/.test(String(node.className || "")) || node.id === "root") continue;
+    const style = getComputedStyle(node);
+    if (/Yeatle Cracked|Captured Song Answer|Snippets? (Song )?Solver|Yeatle Stem Deck|Stem Injector/i.test(node.textContent || "") ||
+        node.querySelector?.('[id^="yksi-"]') || (style.position === "fixed" && Number(style.zIndex) >= 100000)) found.add(node);
+  }
+  return [...found].slice(0, 5).map(node => clip(node.outerHTML, 60000));
+}
+
+async function collectEvidence(tools) {
+  const scripts = [];
+  for (const script of foreignScripts().slice(0, 10)) {
+    let text = script.textContent || "";
+    if (!text && /^blob:/.test(script.src)) { try { text = await (await fetch(script.src)).text(); } catch {} }
+    scripts.push({ src: script.src ? clip(script.src, 500) : "(inline)", text: clip(text, 150000) });
+  }
+  const storage = foreignStorage().slice(0, 20).map(key => {
+    let value = "";
+    try { value = localStorage.getItem(key); } catch {}
+    return { key: clip(key, 200), value: clip(value, 4000) };
+  });
+  let databases = [];
+  try { databases = (await indexedDB.databases?.() || []).map(db => db.name).filter(name => name && !/^yeatle/.test(name)).slice(0, 20); } catch {}
+  return {
+    page: location.pathname, at: new Date().toISOString(), userAgent: clip(navigator.userAgent, 300), tools,
+    functions: modifiedFunctions(), scripts, panels: injectedPanels(), storage, databases
+  };
+}
+
 function watchForCheatTools() {
   let reported = false;
   const check = async () => {
     if (reported || bannedShown || document.hidden || !savedToken()) return;
     const tools = findCheatTools();
-    if (!tools.length) return;
+    // Without a known tool, a page sends evidence only when something is actually
+    // injected; the server keeps it for review and bans nobody for it.
+    if (!tools.length && !modifiedFunctions().length && !foreignScripts().length && !foreignStorage().length) return;
     reported = true;
-    try { await requestJson("api/account/report", { method: "POST", body: { tools } }); } catch {}
+    try { await requestJson("api/account/report", { method: "POST", body: { tools, evidence: await collectEvidence(tools) } }); } catch {}
   };
   setInterval(check, 4000);
   setTimeout(check, 1500);

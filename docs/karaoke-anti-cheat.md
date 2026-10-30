@@ -56,6 +56,8 @@ These ban the account at once, sign it out everywhere, reset its progress and bl
 | Known cheat panel | the signed-in page finds "Yeatle Cracked", "Captured Song Answer", "Snippets Solver", "Yeatle Stem Deck" or an element id starting `yksi-` on itself. These phrases can't appear in the game: usernames have no spaces |
 | Karaoke vocal | a karaoke run meets a similarity rule below (it is the song's own vocal) |
 
+A signed-in page that finds a known cheat panel, or any of the browser functions the game relies on replaced (`fetch`, `XMLHttpRequest`, `JSON.parse`, storage reads, media playback, Web Audio and microphone functions, `Function.prototype.toString`), scripts the game didn't load, or browser storage it doesn't use, sends a capture once per page load: the replaced functions' code (read with a clean `toString` from a fresh frame), injected scripts, injected panels' HTML, and the extra storage keys and values. Admins download captures from **Captured from players' pages**. Only a known panel bans; the rest is evidence for review, since extensions also patch some of these. This keeps the next version of a cheat even when its panel is renamed.
+
 Strikes expire after a week. Integrity failures on their own (a patched audio function) still only flag a karaoke run, because browser extensions patch those functions too. The thresholds are constants at the top of `leaderboard.cjs`.
 
 ## Integrity and similarity checks

@@ -219,3 +219,43 @@ test("the game finds known cheat panels by their own text", async () => {
     delete globalThis.document;
   }
 });
+
+test("captured cheat code is kept for admins; a known tool bans and other injections only report", async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-evidence-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = createLeaderboardStore(path.join(dir, "leaderboard-users.json"));
+  const ext = await store.register({ username: "extuser", password: "pass1234" }, NOW, ip);
+  const other = { ipHash: "b".repeat(32), deviceHash: "c".repeat(32) };
+  const cheat = await store.register({ username: "krankez", password: "pass1234" }, NOW, other);
+  const evidence = { page: "/", functions: [{ name: "fetch", source: "function(u){ steal(u) }" }], scripts: [], panels: [], storage: [{ key: "solver_settings", value: "{}" }] };
+
+  // Something injected but unrecognised (it could be an extension): kept, nobody banned.
+  for (let i = 0; i < 4; i++) assert.deepEqual(store.reportCheatTool(ext.token, { tools: [], evidence }, NOW + i, ip), { ok: true });
+  let list = store.listBans().evidence;
+  assert.equal(list.length, 3, "at most three unrecognised reports per account a day");
+  assert.deepEqual(list[0].functions, ["fetch"]);
+  assert.deepEqual(list[0].storage, ["solver_settings"]);
+  assert.equal(store.listBans().bans.length, 0);
+
+  // A known tool bans, and its capture is kept with the ban.
+  const panel = { ...evidence, panels: ["<div>Yeatle Cracked · Captured Song Answer</div>"], scripts: [{ src: "(inline)", text: "/* solver */" }] };
+  assert.throws(() => store.reportCheatTool(cheat.token, { tools: ["yeatle-cracked"], evidence: panel }, NOW, other), err => err.banned === true);
+  list = store.listBans().evidence;
+  assert.equal(list[0].username, "krankez");
+  assert.equal(list[0].banned, true);
+  assert.match(store.listBans().bans[0].evidence.join(" "), /code was captured/);
+  const saved = store.readEvidence(list[0].id);
+  assert.match(saved.json, /Yeatle Cracked/);
+  assert.match(saved.json, /solver/);
+  assert.ok(fs.existsSync(path.join(dir, "cheat-evidence", `${list[0].id}.json`)));
+
+  // Oversized or malformed evidence isn't stored; deleting removes the file.
+  const big = await store.register({ username: "bigsender", password: "pass1234" }, NOW, ip);
+  store.reportCheatTool(big.token, { tools: [], evidence: { functions: [{ name: "x", source: "a".repeat(900000) }] } }, NOW, ip);
+  store.reportCheatTool(big.token, { tools: [], evidence: "nope" }, NOW, ip);
+  assert.equal(store.listBans().evidence.filter(e => e.username === "bigsender").length, 0);
+  store.deleteEvidence(list[0].id);
+  assert.ok(!fs.existsSync(path.join(dir, "cheat-evidence", `${list[0].id}.json`)));
+  assert.throws(() => store.readEvidence(list[0].id), { status: 404 });
+  assert.throws(() => store.reportCheatTool("", { tools: [], evidence }, NOW, ip), { status: 401 }, "only signed-in pages report");
+});
