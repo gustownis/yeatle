@@ -64,14 +64,14 @@ You can play without the optional stems. The built-in audio separation files dow
 
 | Computer | Downloads |
 | --- | --- |
-| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.12.0/Yeatle-Setup-1.12.0-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.12.0/Yeatle-1.12.0-windows-x64-portable.exe) |
-| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.12.0/Yeatle-1.12.0-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.12.0/Yeatle-1.12.0-mac-arm64.zip) |
-| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.12.0/Yeatle-1.12.0-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.12.0/Yeatle-1.12.0-mac-x64.zip) |
-| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.12.0/Yeatle-1.12.0-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.12.0/Yeatle-1.12.0-linux-x64.deb) |
-| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.12.0/Yeatle-1.12.0-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.12.0/Yeatle-1.12.0-linux-arm64.deb) |
+| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-Setup-1.13.0-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-windows-x64-portable.exe) |
+| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-mac-arm64.zip) |
+| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-mac-x64.zip) |
+| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-linux-x64.deb) |
+| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-linux-arm64.deb) |
 
 Installation steps for each OS are below.
-[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.12.0/SHA256SUMS.txt)
+[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.13.0/SHA256SUMS.txt)
 are provided with the release.
 
 ## Requirements
@@ -119,7 +119,7 @@ Cloning this public repository does not require authentication.
 
 ### Desktop app
 
-1. Download the Windows **x64 installer** (`Yeatle-Setup-1.12.0-windows-x64.exe`) for a usual
+1. Download the Windows **x64 installer** (`Yeatle-Setup-1.13.0-windows-x64.exe`) for a usual
    Intel/AMD Windows PC, or the matching portable `.exe` if offered.
 2. Run the installer, choose the installation folder if prompted, and open
    **Yeatle** from Start. The portable app runs directly without installation.
@@ -209,7 +209,7 @@ use the matching `.deb` on Debian/Ubuntu or the browser version.
 For a Debian/Ubuntu package, install the exact downloaded filename:
 
 ```sh
-sudo apt install ./Yeatle-1.12.0-linux-x64.deb
+sudo apt install ./Yeatle-1.13.0-linux-x64.deb
 ```
 
 For ARM64, use the package ending in `-arm64.deb`. Open Yeatle from your desktop
@@ -474,7 +474,7 @@ admin password, downloaded models, or stems. Game progress stays in the same
 desktop profile. If GitHub or your connection is unavailable, you can keep
 playing and try again later.
 
-**Upgrading from 1.9.0:** download and install 1.12.0 once using the links above.
+**Upgrading from 1.9.0:** download and install 1.13 once using the links above.
 The updater is available from 1.9.1 onward. The browser version has no desktop
 menu or installer updater; download the new browser ZIP or update your Git
 checkout, keeping your local settings and song folders.
@@ -648,22 +648,15 @@ AI-split playback without restarts when new chunks arrive, exact separation outp
 
 ### Publishing updates
 
-After all five desktop builds finish, download their artifacts into a folder
-and prepare the checksums and updater metadata:
+Bump the version in `package.json`, `package-lock.json` and the `?v=` asset links, and add release notes as `docs/releases/X.Y.md`. Then run the **Desktop builds** workflow on GitHub (Actions → Desktop builds → Run workflow) with **release** ticked. It runs the tests and builds all five desktop targets, then prepares checksums and updater feeds and creates a draft release tagged `v` + the full version (for example `v1.13.0`, titled "Yeatle 1.13") with all fourteen files: ten downloads, `SHA256SUMS.txt` and three `latest*.yml` updater feeds. It checks every upload and one installer's checksum. Run the workflow again with **publish** ticked to make the draft the Latest release, then point the download links above at the new files.
+
+Keep three numbers in tags and file names: installed apps only recognise tags like `v1.13.0` and assets named with that version. To prepare the files by hand instead, download the five build artifacts and run:
 
 ```sh
-npm run prepare:release -- 1.12.0 release/github-builds-1.12.0 release/update-metadata-1.12.0
+npm run prepare:release -- 1.13.0 release/github-builds-1.13.0 release/update-metadata-1.13.0
 ```
 
-For a future release, replace `1.12.0` in the version and folder names. The script
-requires all ten installers/archive files and fails if any are missing. It
-copies them into the output folder with consistent download names, including
-normalizing Linux's `amd64`/`x86_64` names to `x64`. Attach all fourteen files
-from that output folder (ten downloads, checksums, and three updater feeds)
-to a draft GitHub Release. Verify all uploads before
-publishing it as a regular **Latest** release. The metadata must match the
-installer bytes; rerun the script if you rebuild anything. Do not rename the
-installer files after generating metadata.
+The script requires all ten installers/archive files and fails if any are missing. It copies them into the output folder with consistent download names, including normalizing Linux's `amd64`/`x86_64` names to `x64`. The metadata must match the installer bytes; rerun the script if you rebuild anything. Do not rename the installer files after generating metadata.
 
 ### Original frontend source is incomplete
 
