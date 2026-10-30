@@ -74,6 +74,7 @@ private notes intact throughout synchronization.
 
 - Let prose wrap naturally to the reader's available page width. Keep each paragraph on one source line instead of manually wrapping at a fixed column count or putting each sentence on a new line. Apply this to release notes, README text, documentation, shared instructions, and release or pull-request descriptions.
 - Keep each list item on one source line unless it contains a real nested list, separate paragraph, or code block. Use blank lines for actual paragraph breaks and preserve meaningful structure such as headings, tables, and code; do not add forced line breaks just to shorten a line.
+- Release notes (in `docs/releases/` and on GitHub releases) describe what players and admins can see and use. Never mention anti-cheat, cheat detection, bans, banned screens, captured or injected code, or how answers are protected or checked against cheating, and don't name the rules or thresholds behind them; describe such changes neutrally (for example "Snippets rounds run on the server") or leave them out. To correct a published release's notes, edit its `docs/releases` file, push it, and run the **Desktop builds** workflow with **notes** set to the release's tag.
 - GitHub release descriptions can display source newlines as visible line breaks. When copying notes from Markdown files, join wrapped paragraph and list-continuation lines before publishing, and check the rendered notes for unnecessary breaks.
 
 ## Version numbering

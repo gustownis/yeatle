@@ -10,11 +10,16 @@ on:
         description: Only publish the existing draft release for this version as Latest (builds nothing)
         type: boolean
         default: false
+      notes:
+        description: Only replace the notes of this release tag (for example v1.13.0) with its docs/releases file (builds nothing)
+        type: string
+        default: ''
+
 permissions:
   contents: read
 jobs:
   build:
-    if: ${{ !inputs.publish }}
+    if: ${{ !inputs.publish && inputs.notes == '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -63,7 +68,7 @@ jobs:
   # after upload. Nobody is offered it until the publish run below.
   release:
     needs: build
-    if: ${{ inputs.release && !inputs.publish }}
+    if: ${{ inputs.release && !inputs.publish && inputs.notes == '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -88,7 +93,10 @@ jobs:
           test -f "docs/releases/${version%.0}.md"
           if gh release view "v$version" >/dev/null 2>&1; then echo "A release for v$version already exists."; exit 1; fi
       - name: Create the draft release
-        run: gh release create "v$VERSION" release/out/* --draft --target "$GITHUB_SHA" --title "Yeatle $SHORT" --notes-file "docs/releases/$SHORT.md"
+        run: |
+          # GitHub shows the title above the notes, so the file's own "# Yeatle X.Y" heading is left out.
+          sed '1{/^# /d}' "docs/releases/$SHORT.md" | sed '1{/^$/d}' > notes.md
+          gh release create "v$VERSION" release/out/* --draft --target "$GITHUB_SHA" --title "Yeatle $SHORT" --notes-file notes.md
       - name: Check the uploads
         run: |
           gh release view "v$VERSION" --json isDraft,assets --jq '"draft: \(.isDraft)", (.assets[] | "\(.size) \(.name)")' | tee uploaded.txt
@@ -99,7 +107,7 @@ jobs:
           (cd check && grep "  $name\$" ../release/out/SHA256SUMS.txt | sha256sum -c -)
 
   publish:
-    if: ${{ inputs.publish }}
+    if: ${{ inputs.publish && inputs.notes == '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -115,3 +123,26 @@ jobs:
           test "$state" = "true 14"
           gh release edit "v$version" --draft=false --latest
           gh release view "v$version" --json isDraft,isPrerelease,url --jq '"draft: \(.isDraft), prerelease: \(.isPrerelease), \(.url)"'
+
+  # Corrects a published release's notes after its docs/releases file was edited.
+  notes:
+    if: ${{ inputs.notes != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.notes }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Replace the release notes
+        run: |
+          case "$TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "Give a tag like v1.13.0."; exit 1;; esac
+          version=${TAG#v}
+          file="docs/releases/${version%.0}.md"
+          test -f "$file" || file="docs/releases/$version.md"
+          test -f "$file" || { echo "No docs/releases file for $TAG."; exit 1; }
+          gh release view "$TAG" --json tagName >/dev/null
+          sed '1{/^# /d}' "$file" | sed '1{/^$/d}' > notes.md
+          gh release edit "$TAG" --notes-file notes.md
+          echo "Replaced the notes of $TAG with $file."
