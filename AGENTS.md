@@ -74,7 +74,7 @@ private notes intact throughout synchronization.
 
 - Let prose wrap naturally to the reader's available page width. Keep each paragraph on one source line instead of manually wrapping at a fixed column count or putting each sentence on a new line. Apply this to release notes, README text, documentation, shared instructions, and release or pull-request descriptions.
 - Keep each list item on one source line unless it contains a real nested list, separate paragraph, or code block. Use blank lines for actual paragraph breaks and preserve meaningful structure such as headings, tables, and code; do not add forced line breaks just to shorten a line.
-- Release notes (in `docs/releases/` and on GitHub releases) describe what players and admins can see and use. Never mention anti-cheat, cheat detection, bans, banned screens, captured or injected code, or how answers are protected or checked against cheating, and don't name the rules or thresholds behind them; describe such changes neutrally (for example "Snippets rounds run on the server") or leave them out. To correct a published release's notes, edit its `docs/releases` file, push it, and run the **Desktop builds** workflow with **notes** set to the release's tag.
+- Release notes (in `docs/releases/` and on GitHub releases) describe what players and admins can see and use. Never mention anti-cheat, bans or how answers are protected, and don't name the rules behind them; describe such changes neutrally (for example "Snippets rounds run on the server") or leave them out. To correct a published release's notes, edit its `docs/releases` file, push it, and run the **Desktop builds** workflow with **notes** set to the release's tag.
 - GitHub release descriptions can display source newlines as visible line breaks. When copying notes from Markdown files, join wrapped paragraph and list-continuation lines before publishing, and check the rendered notes for unnecessary breaks.
 
 ## Version numbering
@@ -124,6 +124,7 @@ private notes intact throughout synchronization.
   from future rounds, including Stems only. Preserve existing ids, files and
   pinned challenges when correcting metadata. Shared instrumentals alone do
   not establish equivalent vocal recordings.
+- Don't document anti-cheat rules or thresholds anywhere in this public repository (docs, README, release notes, the admin page's text). The values in use live in the `antiCheat` object of the website's private `config.json`; the code only holds defaults.
 - Admin Hide/Show is manual curation of eligible entries. Catalog exclusions use the same eligibility policy in gameplay, admin status and live control; do not duplicate them in default hidden-song settings or bypass them through Play in game. Clearing an old duplicate manual hide must not restore an excluded recording.
 
 ## Run and verify
@@ -152,9 +153,9 @@ under `docs/` for prerequisites and limits. `scripts/desktop-stems-smoke.cjs`
 covers HQ stem downloads in the desktop app, and `scripts/karaoke-skip-smoke.cjs`
 covers Karaoke White people mode with a synthetic microphone. `scripts/bans-browser-smoke.cjs`
 covers the banned screen and admin ban panel, and `scripts/karaoke-injector-smoke.cjs` checks
-ranked karaoke against a known cheat userscript; run it only against a local server, and see
-`docs/karaoke-anti-cheat.md`. `scripts/snippet-rounds-smoke.cjs` (needs ffmpeg) checks that
-Snippets rounds never reveal the song before they end. Verify platform-specific behavior
+ranked karaoke against a known cheat userscript; run it only against a local server.
+`scripts/snippet-rounds-smoke.cjs` (needs ffmpeg) checks that Snippets rounds never reveal
+the song before they end. Verify platform-specific behavior
 on that platform, and report anything not exercised. Do not call an unrun check
 passed or present a package build as proof of device behavior.
 

@@ -28,7 +28,7 @@ const { createActiveSongFeed } = require("./live-control.cjs");
 const { createStemCatalog } = require("./stem-catalog.cjs");
 const { createDailyChallenges } = require("./daily-challenge.cjs");
 const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs");
-const { createLeaderboardStore } = require("./leaderboard.cjs");
+const { createLeaderboardStore, DEFAULT_ANTI_CHEAT } = require("./leaderboard.cjs");
 const { DEVICE_HEADER, cleanDeviceId, clientIp, normalIp, loadSecret, createSignalHasher, createRateLimiter } = require("./client-signals.cjs");
 const { pathToFileURL } = require("url");
 const { creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
@@ -89,7 +89,10 @@ const DEFAULT_CONFIG = {
   // and accounts' Daily results come only from those checks. Desktop apps older than 1.13
   // can't play a Daily like this, so turn it on once 1.13 is out. Only the website that
   // picks the Daily (dailyAuthority "") uses it.
-  dailyHideAnswer: false
+  dailyHideAnswer: false,
+  // Private limits for ranked rounds and automatic bans (see DEFAULT_ANTI_CHEAT in
+  // leaderboard.cjs for the names). Set them only in the website's own config.json.
+  antiCheat: {}
 };
 
 function loadJson(file, fallback) {
@@ -119,11 +122,19 @@ if (!Number.isInteger(CONFIG.port) || CONFIG.port < 0 || CONFIG.port > 65535 ||
   console.error("Invalid Yeatle settings. Use a port from 0 to 65535, a non-negative refreshMinutes number, and the format shown in config.example.json.");
   process.exit(1);
 }
+// Every antiCheat value is a positive number under a known name (karaoke: an object of them).
+function validAntiCheat(value) {
+  const plain = v => v && typeof v === "object" && !Array.isArray(v);
+  const numbers = (obj, allowed) => Object.entries(obj).every(([k, v]) => (!allowed || k in allowed) && typeof v === "number" && Number.isFinite(v) && v > 0);
+  if (!plain(value)) return false;
+  const { karaoke = {}, ...rest } = value;
+  return plain(karaoke) && numbers(rest, DEFAULT_ANTI_CHEAT) && numbers(karaoke);
+}
 const httpUrl = value => { try { return ["http:", "https:"].includes(new URL(value).protocol); } catch { return false; } };
 if (!Array.isArray(CONFIG.trustedProxies) || CONFIG.trustedProxies.some(ip => typeof ip !== "string" || !normalIp(ip)) ||
     !Number.isFinite(CONFIG.ipRestrictionDays) || CONFIG.ipRestrictionDays < 0 || CONFIG.ipRestrictionDays > 3650 ||
-    typeof CONFIG.bannedJobsUrl !== "string" || !httpUrl(CONFIG.bannedJobsUrl) || typeof CONFIG.dailyFromEra !== "string" || typeof CONFIG.dailyHideAnswer !== "boolean") {
-  console.error("Invalid Yeatle settings. trustedProxies must be a list of IP addresses, ipRestrictionDays a number from 0 to 3650, bannedJobsUrl an http(s) address, dailyFromEra an era name or \"\", and dailyHideAnswer true or false.");
+    typeof CONFIG.bannedJobsUrl !== "string" || !httpUrl(CONFIG.bannedJobsUrl) || typeof CONFIG.dailyFromEra !== "string" || typeof CONFIG.dailyHideAnswer !== "boolean" || !validAntiCheat(CONFIG.antiCheat)) {
+  console.error("Invalid Yeatle settings. trustedProxies must be a list of IP addresses, ipRestrictionDays a number from 0 to 3650, bannedJobsUrl an http(s) address, dailyFromEra an era name or \"\", dailyHideAnswer true or false, and antiCheat an object of positive numbers.");
   process.exit(1);
 }
 const TRUSTED_PROXIES = CONFIG.trustedProxies.map(normalIp);
@@ -148,6 +159,7 @@ try {
   LEADERBOARD_SECRET = loadSecret(path.join(DATA_DIR, "leaderboard-secret.json"));
   signalHasher = createSignalHasher(LEADERBOARD_SECRET);
   leaderboardStore = createLeaderboardStore(path.join(DATA_DIR, "leaderboard-users.json"), {
+    antiCheat: CONFIG.antiCheat,
     canonicalSongId: id => {
       const song = SONG_INDEX.get(id);
       if (!song) return null;
@@ -2778,7 +2790,7 @@ function buildScreen() {
     bansPanel.textContent = "";
     var local = !data.authority;
     var status = el("p", { class: "error", "aria-live": "polite" });
-    bansPanel.appendChild(el("div", { class: "muted", text: "A ban signs the account out on every device and resets its progress to a new account's. Its devices can't use accounts until it is unbanned, and its recent networks can't sign up or sign in for a while; other people on those networks can still play. Bans only take effect on the dailyAuthority website. Reasons are only shown here. The anti-cheat also bans automatically (a known cheat panel on the page, Snippets answers that arrive before or within moments of the audio, or a karaoke run that is the song's own vocal); those bans block devices straight away and networks once you confirm them. Unban with Restore progress undoes one completely." }));
+    bansPanel.appendChild(el("div", { class: "muted", text: "A ban signs the account out on every device and resets its progress to a new account's. Its devices can't use accounts until it is unbanned, and its recent networks can't sign up or sign in for a while; other people on those networks can still play. Bans only take effect on the dailyAuthority website. Reasons are only shown here. Bans the server made itself are marked for review: they block devices straight away and networks once you confirm them. Unban with Restore progress undoes one completely." }));
     if (!local) bansPanel.appendChild(el("p", { class: "error", text: "This copy uses the accounts on " + data.authority + ". Ban players in that website's admin panel; bans can't be added here." }));
 
     var name = el("input", { type: "text", maxlength: "20", placeholder: "Username", "aria-label": "Username to ban" });
@@ -2872,11 +2884,11 @@ function buildScreen() {
       ]));
     });
     bansPanel.appendChild(el("h2", { text: "Captured from players' pages" }));
-    bansPanel.appendChild(el("div", { class: "muted", text: "When a signed-in player's page has code injected into the game, it sends what it can see: the replaced functions' code, injected scripts and panels, and storage the game doesn't use. A known cheat panel also bans automatically; anything else is only kept here, since browser extensions can show up too. Downloads are JSON files to read, never to run. The newest 300 are kept." }));
+    bansPanel.appendChild(el("div", { class: "muted", text: "Reports pages sent about code added to the game. Some come from ordinary browser extensions, so check one before acting on it. Downloads are JSON files to read, never to run. The newest 300 are kept." }));
     bansPanel.appendChild(captures);
 
     bansPanel.appendChild(el("h2", { text: "Flagged karaoke runs" }));
-    bansPanel.appendChild(el("div", { class: "muted", text: "Runs that looked like the song's own vocal or a modified microphone. They aren't ranked. A run that matched the song's own vocal also bans the player automatically; that ban waits above for review." }));
+    bansPanel.appendChild(el("div", { class: "muted", text: "Ranked karaoke runs the server didn't rank, for review." }));
     bansPanel.appendChild(flags);
   }
 

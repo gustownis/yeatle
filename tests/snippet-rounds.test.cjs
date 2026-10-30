@@ -3,7 +3,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createLeaderboardStore, SNIPPET_TRIES, FAST_FIRST_TRY_MS, BANNED_MESSAGE } = require("../leaderboard.cjs");
+const { createLeaderboardStore, SNIPPET_TRIES, DEFAULT_ANTI_CHEAT, BANNED_MESSAGE } = require("../leaderboard.cjs");
+const FAST_FIRST_TRY_MS = DEFAULT_ANTI_CHEAT.fastFirstTryMs;
 
 const NOW = Date.parse("2026-10-27T12:00:00Z");
 const SONGS = ["flawless", "talk", "gettinold", "monë", "sorry", "wat", "ruby", "outside", "nun", "go2work"];
@@ -309,4 +310,27 @@ test("guessing titles faster than anyone can type is a strike", async t => {
   assert.equal(store.listBans().bans.length, 0);
   assert.throws(() => spray(NOW + 120000), err => err.banned === true);
   assert.match(store.listBans().bans[0].evidence.join(" "), /guesses in a row less than 700 ms apart/);
+});
+
+test("the website's private antiCheat settings replace the defaults", async t => {
+  const store = newStore(t, { antiCheat: { fastFirstTryMs: 5000, strikesToBan: 1 } });
+  const user = await store.register({ username: "quickfan", password: "pass1234" }, NOW, ip);
+  // 3 s is past the default but inside this website's own limit, and one strike now bans.
+  assert.throws(() => play(store, user.token, { listenMs: 3000, guesses: id => [id] }), isBanned);
+  assert.match(store.listBans().bans[0].evidence[0], /first clip 3000 ms after/);
+
+  const relaxed = newStore(t, { antiCheat: { fastFirstTryMs: 100 } });
+  const fan = await relaxed.register({ username: "fastfan", password: "pass1234" }, NOW, ip);
+  for (let i = 0; i < 3; i++) play(relaxed, fan.token, { at: NOW + i * 60000, listenMs: 400, guesses: id => [id], difficulty: "easy" });
+  assert.equal(relaxed.listBans().bans.length, 0);
+});
+
+test("a malformed antiCheat setting stops the server with a clear message", async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-accfg-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], openBrowser: false, dailyAuthority: "", antiCheat: { fastFirstTryMs: "fast" } }));
+  const { spawnSync } = require("node:child_process");
+  const run = spawnSync(process.execPath, [path.join(__dirname, "..", "server.js")], { env: { ...process.env, YEATLE_DATA_DIR: dir, YEATLE_PORT: "0", YEATLE_DESKTOP: "1" }, encoding: "utf8", timeout: 10000 });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /antiCheat an object of positive numbers/);
 });

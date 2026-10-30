@@ -36,14 +36,8 @@ export function rescoreTrace(phrases) {
 // The most any singing of these phrases could score: every phrase perfect.
 export const maxTraceScore = phrases => rescoreTrace(phrases.map(ph => [ph[0], ph[1], ph[2], 1]));
 
-// A real singer can't reproduce one particular recording: their loudness follows the words
-// loosely, their pitch wanders from the record by tens of cents, and their timing drifts
-// phrase to phrase. The song's own vocal fed in as a "microphone" matches on all three.
-// These are starting thresholds, documented in docs/karaoke-anti-cheat.md; a match only
-// unranks the run and lists it for an admin to review.
-// Measured in Chrome against the stem injector (scripts/karaoke-injector-smoke.cjs): median
-// loudness correlation 0.92, median pitch difference 0.25 cents, timing spread 0 ms. A live
-// singer's pitch differs from the record by tens of cents and their timing by tens of ms.
+// How closely a run may follow the song's own recording. Defaults only; the website sets
+// its own values privately.
 export const SIMILARITY_RULES = Object.freeze({
   minPhrases: 6,      // measured phrases needed before any rule applies
   identicalCorr: 0.97,// loudness this close to the record on most phrases

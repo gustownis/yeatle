@@ -42,26 +42,15 @@ const SNIPPET_TRIES = { base: 6, easy: 7, medium: 7, hard: 7, extreme: 3 };
 const SNIPPET_HINTS = [["era", 3], ["year", 4], ["producers", 5]];
 const SNIPPET_ROUND_MS = 3 * 3600000;
 const SNIPPET_MAX_CANDIDATES = 6000;
-// A ranked round picks from at least this many songs. The server rebuilds the list from the
-// pool and excluded eras and tops a shorter list up from the rest of the pool, so a page
-// can't offer one song it already knows. A pool this small (one era, say) plays unranked.
-const RANKED_MIN_CANDIDATES = 100;
-// Guesses this close together are faster than anyone types a song name; two such gaps in a
-// round is one strike (a script trying titles until one fits).
-const RAPID_GUESS_MS = 700;
 const SNIPPET_ROUNDS_PER_PLAYER = 20;
 const MAX_SNIPPET_ROUNDS = 50000;
-// Automatic bans. Pressing play, hearing a clip and typing a title takes a person
-// seconds; a right answer before the audio was even requested can only come from
-// somewhere other than the song. Strikes expire after a week.
-const FAST_FIRST_TRY_MS = 1500;
-const STRIKE_WINDOW_MS = 7 * DAY_MS;
-const STRIKES_TO_BAN = 3;
-// Over the last rounds whose first clip is a quarter second or less, nearly always
-// naming the song from that first clip is beyond anyone playing by ear.
-const FIRST_CLIP_RECENT = 25;
-const FIRST_CLIP_MIN_ROUNDS = 20;
-const FIRST_CLIP_MAX_RATE = 0.85;
+// Limits for ranked rounds and automatic bans. These are only defaults: the website sets its
+// own in the antiCheat object of its private config.json, so the public code doesn't show
+// the values in use. karaoke overrides karaoke-scoring.mjs's SIMILARITY_RULES.
+const DEFAULT_ANTI_CHEAT = Object.freeze({
+  rankedMinCandidates: 100, rapidGuessMs: 700, fastFirstTryMs: 1500, strikeWindowDays: 7, strikesToBan: 3,
+  firstClipRecent: 25, firstClipMinRounds: 20, firstClipMaxRate: 0.85, karaoke: {}
+});
 const SHORT_FIRST_CLIP = ["base", "hard", "extreme"];
 // Cheat tools the page recognises by their own on-screen text or element ids. Only the
 // signed-in player's own page can report its account.
@@ -439,6 +428,7 @@ function createLeaderboardStore(file, {
   checkDailyWin = null,
   currentDailyId = null,
   ipBlockMs = DEFAULT_IP_BLOCK_MS,
+  antiCheat = {},
   snippetSong = () => null,
   snippetPool = () => null,
   dailyToday = () => null,
@@ -449,6 +439,7 @@ function createLeaderboardStore(file, {
   bansFile = path.join(path.dirname(file), "leaderboard-bans.json"),
   evidenceDir = path.join(path.dirname(file), "cheat-evidence")
 } = {}) {
+  const ac = { ...DEFAULT_ANTI_CHEAT, ...antiCheat, karaoke: { ...antiCheat.karaoke } };
   let state = { users: {} };
   const parsed = readJsonFile(file, null);
   if (parsed && typeof parsed === "object" && parsed.users && typeof parsed.users === "object" && !Array.isArray(parsed.users)) {
@@ -879,7 +870,7 @@ function createLeaderboardStore(file, {
     if (scoring.rescoreTrace(phrases) !== score) throw httpError("This karaoke run's score doesn't match its phrases.", 400);
 
     const reasons = [];
-    const similarity = scoring.similarityVerdict(phrases);
+    const similarity = scoring.similarityVerdict(phrases, { ...scoring.SIMILARITY_RULES, ...ac.karaoke });
     reasons.push(...similarity.reasons);
     const integrity = body?.integrity && typeof body.integrity === "object" ? body.integrity : { ok: false, failed: ["missing"] };
     if (integrity.ok !== true) {
@@ -974,13 +965,13 @@ function createLeaderboardStore(file, {
     return listBans();
   }
 
-  // Adds weighted strikes and bans once they reach STRIKES_TO_BAN within the window.
+  // Adds weighted strikes and bans once they reach strikesToBan within the window.
   function addStrike(user, weight, reason, now) {
-    const list = (moderation.strikes[user.id] || []).filter(s => s.at > now - STRIKE_WINDOW_MS);
+    const list = (moderation.strikes[user.id] || []).filter(s => s.at > now - ac.strikeWindowDays * DAY_MS);
     list.push({ at: now, weight, reason: String(reason).slice(0, 200) });
     moderation.strikes[user.id] = list.slice(-50);
     const total = list.reduce((sum, s) => sum + s.weight, 0);
-    if (total >= STRIKES_TO_BAN) autoBan(user, list.map(s => s.reason), now);
+    if (total >= ac.strikesToBan) autoBan(user, list.map(s => s.reason), now);
     else saveModeration(now);
   }
 
@@ -1020,15 +1011,15 @@ function createLeaderboardStore(file, {
     if (universe) {
       const allowed = new Set(universe);
       ids = ids.filter(id => allowed.has(id));
-      if (ids.length < RANKED_MIN_CANDIDATES) {
+      if (ids.length < ac.rankedMinCandidates) {
         const have = new Set(ids);
         const rest = universe.filter(id => !have.has(id));
         for (let i = rest.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [rest[i], rest[j]] = [rest[j], rest[i]]; }
-        ids = [...ids, ...rest.slice(0, RANKED_MIN_CANDIDATES - ids.length)];
+        ids = [...ids, ...rest.slice(0, ac.rankedMinCandidates - ids.length)];
       }
     }
     const playable = ids.filter(id => snippetSong(id, pool)?.playable);
-    const ranked = !universe || playable.length >= RANKED_MIN_CANDIDATES;
+    const ranked = !universe || playable.length >= ac.rankedMinCandidates;
     if (!playable.length) throw httpError("None of these songs can be played right now. Refresh the game and try again.", 404);
     sweepRounds(now);
     const owner = user ? `a:${user.id}` : ctx.deviceHash ? `d:${ctx.deviceHash}` : "";
@@ -1067,7 +1058,7 @@ function createLeaderboardStore(file, {
     if (kind === "guess") {
       const text = String(body?.text || "").trim().slice(0, 200);
       if (!text) throw httpError("Type a guess first.", 400);
-      if (round.lastGuessAt && now - round.lastGuessAt < RAPID_GUESS_MS) round.rapid = (round.rapid || 0) + 1;
+      if (round.lastGuessAt && now - round.lastGuessAt < ac.rapidGuessMs) round.rapid = (round.rapid || 0) + 1;
       round.lastGuessAt = now;
       if (matchesAnswer(round.songId, text, round.pool)) {
         round.attempts.push({ kind: "right", text });
@@ -1099,17 +1090,17 @@ function createLeaderboardStore(file, {
     // Two strikes, not three: iOS may not request audio until Play is tapped, so one lucky
     // blind guess mustn't ban anyone. A tool that answers every round is banned on its second.
     if (won && !round.audioAt) addStrike(user, 2, "Snippets: named the song before its audio was requested", now);
-    else if (won && round.attempts.length === 1 && now - round.audioAt < FAST_FIRST_TRY_MS) {
+    else if (won && round.attempts.length === 1 && now - round.audioAt < ac.fastFirstTryMs) {
       addStrike(user, 1, `Snippets: named the song from the first clip ${now - round.audioAt} ms after its audio was requested`, now);
     }
-    if (round.rapid >= 2) addStrike(user, 1, `Snippets: ${round.rapid + 1} guesses in a row less than ${RAPID_GUESS_MS} ms apart`, now);
+    if (round.rapid >= 2) addStrike(user, 1, `Snippets: ${round.rapid + 1} guesses in a row less than ${ac.rapidGuessMs} ms apart`, now);
     if (isBanned(user)) throw bannedError();
 
     const r = user.ranked || (user.ranked = freshRanked(now));
     if (SHORT_FIRST_CLIP.includes(round.difficulty)) {
-      r.firstClip = [...(r.firstClip || []), won && round.attempts.length === 1 ? 1 : 0].slice(-FIRST_CLIP_RECENT);
+      r.firstClip = [...(r.firstClip || []), won && round.attempts.length === 1 ? 1 : 0].slice(-ac.firstClipRecent);
       const rate = r.firstClip.reduce((a, b) => a + b, 0) / r.firstClip.length;
-      if (r.firstClip.length >= FIRST_CLIP_MIN_ROUNDS && rate >= FIRST_CLIP_MAX_RATE) {
+      if (r.firstClip.length >= ac.firstClipMinRounds && rate >= ac.firstClipMaxRate) {
         autoBan(user, [`Snippets: named ${Math.round(rate * 100)}% of the last ${r.firstClip.length} songs from a clip of a quarter second or less`], now);
         throw bannedError();
       }
@@ -1302,7 +1293,7 @@ module.exports = {
   SOLVE_CREDIT_PER_HOUR,
   SOLVE_CREDIT_BURST,
   SNIPPET_TRIES,
-  FAST_FIRST_TRY_MS,
+  DEFAULT_ANTI_CHEAT,
   KNOWN_CHEAT_TOOLS,
   validateUsername,
   validatePassword,
