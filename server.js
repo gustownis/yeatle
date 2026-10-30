@@ -152,6 +152,7 @@ try {
       const right = entry.attempts[entry.attempts.length - 1];
       return Boolean(saved && snippetRules && entry.id === saved.id && right?.kind === "right" && snippetRules.matchesSong(publicSong(saved.song), right.text));
     },
+    currentDailyId: date => dailyChallenge.saved(date)?.id || null,
     snippetSong: (id, pool) => {
       const entry = snippetEntry(id, pool);
       if (!entry) return null;
@@ -2675,6 +2676,13 @@ function buildScreen() {
     input.focus();
   }
 
+  var dailyToggle = el("button", { class: "btn", text: "Replace today's Daily", onclick: function () {
+    if (!confirm("Replace today's Daily with a different song?\n\nUse this only when today's song shouldn't have been picked (for example it's from before the Daily's first era). Everyone gets a fresh Daily on their next load, including people who already finished today's. Their accounts keep their result for the new song instead of the old one.")) return;
+    api("/api/admin/daily-replace", {}).then(function (data) {
+      alert("Replaced " + data.date + "'s Daily (" + data.replaced + (data.replacedEra ? ", " + data.replacedEra : "") + "). The new song is from " + (data.newEra || "an unlisted era") + ". Open Daily pages pick it up when they reload.");
+    }).catch(function (err) { alert(err.message); });
+  } });
+
   var playersPanel = el("div", { class: "test-search", style: "display:none" });
   var playersToggle = el("button", { class: "btn", text: "Players", onclick: function () {
     var open = playersPanel.style.display === "none";
@@ -2836,7 +2844,8 @@ function buildScreen() {
     testToggle,
     namesToggle,
     bansToggle,
-    playersToggle
+    playersToggle,
+    dailyToggle
   ]));
   app.appendChild(testPanel);
   app.appendChild(namesPanel);
@@ -3185,6 +3194,24 @@ async function handleAdmin(req, res, pathname) {
       sendJson(res, 200, { ...leaderboardStore.adminRename(body.username, body.newUsername), authority });
     } catch (err) {
       sendJson(res, err.status || 400, { error: err.message });
+    }
+    return true;
+  }
+
+  if (pathname === "/api/admin/daily-replace") {
+    // Only the website that picks the Daily can replace it; copies show the shared one.
+    if (req.method !== "POST") { sendJson(res, 405, { error: "Use POST." }); return true; }
+    if (CONFIG.dailyAuthority) { sendJson(res, 409, { error: `This copy shows the Daily from ${CONFIG.dailyAuthority}. Replace it in that website's admin panel.` }); return true; }
+    try {
+      if (!SONGS.length) await refreshOnce();
+      const date = new Date().toISOString().slice(0, 10);
+      const { replaced, entry } = dailyChallenge.replace(date, dailyEraSongs(SONGS.filter(s => !isHidden(s) && isGuessingEligible(s))));
+      const old = publicSong(replaced);
+      console.log(`[daily] An admin replaced ${date}'s Daily (${old.display || old.title}).`);
+      // The new song stays hidden from the admin too; only its era is shown.
+      sendJson(res, 200, { date, replaced: old.display || old.title, replacedEra: old.era || "", newEra: publicSong(entry.song).era || "" });
+    } catch (err) {
+      sendJson(res, 409, { error: err.message });
     }
     return true;
   }

@@ -191,3 +191,60 @@ test("the Daily only picks songs from dailyFromEra onwards, and falls back to ev
   assert.equal(await daily({ dailyFromEra: "2093" }), "futuresong");
   assert.ok(/^(oldsong\d+|alivesong|futuresong)$/.test(await daily({ dailyFromEra: "Not an era" })), "an unknown era leaves the Daily working");
 });
+
+test("an admin can replace a day's Daily with a different song, never a replaced one", t => {
+  const file = path.join(folder(t), "daily-challenges.json");
+  const now = Date.parse("2026-10-30T15:00:00Z");
+  const get = createDailyChallenges(file);
+  assert.throws(() => get.replace("2026-10-30", pool), /No Daily has been picked/);
+  const first = get(pool, now);
+  const { replaced, entry } = get.replace("2026-10-30", pool);
+  assert.equal(replaced.id, first.song.id);
+  assert.notEqual(entry.song.id, first.song.id);
+  assert.notEqual(entry.id, first.id, "a new id gives every player a fresh round");
+  const reopened = createDailyChallenges(file)(pool, now);
+  assert.equal(reopened.id, entry.id, "the replacement survives a restart");
+  const third = get.replace("2026-10-30", pool).entry;
+  assert.ok(![first.song.id, entry.song.id].includes(third.song.id), "neither replaced song comes back");
+  assert.throws(() => get.replace("2026-10-30", pool), /No other song/);
+  assert.equal(get(pool, now).id, third.id);
+});
+
+test("replacing today's Daily from the admin panel moves accounts to the new song's result", async t => {
+  const dir = folder(t);
+  const today = new Date().toISOString().slice(0, 10);
+  const song = (id, era) => ({ id, title: id, display: id, era, keys: [id], mode: "filter", length: "2:30", source: { kind: "url", id: `https://audio.invalid/${id}` } });
+  fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "" }));
+  fs.writeFileSync(path.join(dir, "admin.json"), JSON.stringify({ password: "letmein" }));
+  fs.writeFileSync(path.join(dir, "songs-cache.json"), JSON.stringify({
+    format: 3, updated: 1,
+    eras: ["Hold Ön", "Alivë", "2093"].map((name, i) => ({ name, aliases: [], start: `${2019 + i}-01-01`, end: `${2019 + i}-12-31` })),
+    songs: [song("oldsong", "Hold Ön"), song("alivesong", "Alivë"), song("futuresong", "2093")]
+  }));
+  // Today's Daily was picked before the era rule existed.
+  fs.writeFileSync(path.join(dir, "daily-challenges.json"), JSON.stringify({ [today]: { song: song("oldsong", "Hold Ön"), seed: 5, clipAt: 6, id: `v1:${today}:oldsong` } }));
+  const url = await server(t, dir);
+  const post = (pathname, body, headers = {}) => fetch(`${url}${pathname}`, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
+
+  const reg = await (await post("/api/account/register", { username: "mat", password: "yeatfan1" })).json();
+  const sync = round => post("/api/account/sync", { progress: { daily: { [today]: round } } }, { Authorization: `Bearer ${reg.token}` }).then(r => r.json());
+  const lostOld = { id: `v1:${today}:oldsong`, attempts: Array(6).fill({ kind: "skip", text: "" }), status: "lost" };
+  assert.equal((await sync(lostOld)).account.progress.daily[today].status, "lost");
+
+  assert.equal((await post("/api/admin/daily-replace", {})).status, 401, "admins only");
+  const cookie = (await post("/api/admin/login", { password: "letmein" })).headers.get("set-cookie").split(";")[0];
+  const res = await post("/api/admin/daily-replace", {}, { Cookie: cookie });
+  const body = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(body.replaced, "oldsong");
+  assert.ok(["Alivë", "2093"].includes(body.newEra));
+  assert.ok(!JSON.stringify(body).includes("alivesong") && !JSON.stringify(body).includes("futuresong"), "the admin isn't told the new answer");
+
+  const daily = await (await fetch(`${url}/api/daily`)).json();
+  assert.notEqual(daily.id, lostOld.id);
+  const wonNew = { id: daily.id, attempts: [{ kind: "right", text: daily.song.title }], status: "won" };
+  const after = (await sync(wonNew)).account;
+  assert.equal(after.progress.daily[today].id, daily.id, "the new song's result replaces the old one");
+  assert.equal(after.progress.daily[today].status, "won");
+  assert.equal((await sync(lostOld)).account.progress.daily[today].status, "won", "a stale device can't put the old result back");
+});

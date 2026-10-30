@@ -192,7 +192,7 @@ const finished = entry => entry && (entry.status === "won" || entry.status === "
 
 // checkDailyWin(date, entry), when given, confirms a won Daily's right guess against that
 // day's answer. A win it rejects is kept for the player's own history but never verified.
-function mergeProgress(existingRaw, incomingRaw, now = Date.now(), { checkDailyWin = null } = {}) {
+function mergeProgress(existingRaw, incomingRaw, now = Date.now(), { checkDailyWin = null, currentDailyId = null } = {}) {
   const base = existingRaw && typeof existingRaw === "object" ? existingRaw : emptyProgress();
   const inc = incomingRaw && typeof incomingRaw === "object" ? incomingRaw : {};
 
@@ -239,7 +239,10 @@ function mergeProgress(existingRaw, incomingRaw, now = Date.now(), { checkDailyW
       const age = today - utcDayNumber(date);
       if (age < 0) continue; // a future Daily cannot have been played
       const existing = dailyMap[date];
-      if (finished(existing)) continue; // a finished Daily never changes result
+      // A finished Daily never changes result, unless an admin replaced that day's song:
+      // then the result for the current song takes over from the replaced one.
+      const current = finished(existing) && currentDailyId ? currentDailyId(date) : null;
+      if (finished(existing) && !(current && existing.id !== current && cleaned.id === current)) continue;
       if (!existing || finished(cleaned) || cleaned.attempts.length >= existing.attempts.length) {
         if (finished(cleaned) && age <= 1 && (cleaned.status !== "won" || !checkDailyWin || checkDailyWin(date, cleaned))) cleaned.verified = true;
         dailyMap[date] = cleaned;
@@ -420,6 +423,7 @@ function createLeaderboardStore(file, {
   catalogReady = () => true,
   songSeconds = () => null,
   checkDailyWin = null,
+  currentDailyId = null,
   ipBlockMs = DEFAULT_IP_BLOCK_MS,
   snippetSong = () => null,
   snippetHints = () => ({}),
@@ -616,7 +620,7 @@ function createLeaderboardStore(file, {
     };
   }
 
-  const merge = (base, incoming, now) => mergeProgress(base, incoming, now, { checkDailyWin });
+  const merge = (base, incoming, now) => mergeProgress(base, incoming, now, { checkDailyWin, currentDailyId });
 
   async function register({ username, password, progress }, now = Date.now(), ctx = {}) {
     checkDevice(ctx);
