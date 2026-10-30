@@ -44,25 +44,27 @@ const SNIPPET_ROUND_MS = 3 * 3600000;
 const SNIPPET_MAX_CANDIDATES = 6000;
 const SNIPPET_ROUNDS_PER_PLAYER = 20;
 const MAX_SNIPPET_ROUNDS = 50000;
-// Limits for ranked rounds and automatic bans. These are only defaults: the website sets its
-// own in the antiCheat object of its private config.json, so the public code doesn't show
-// the values in use. karaoke overrides karaoke-scoring.mjs's SIMILARITY_RULES.
-const DEFAULT_ANTI_CHEAT = Object.freeze({
-  rankedMinCandidates: 100, rapidGuessMs: 700, fastFirstTryMs: 1500, strikeWindowDays: 7, strikesToBan: 3,
-  firstClipRecent: 25, firstClipMinRounds: 20, firstClipMaxRate: 0.85, karaoke: {}
+// A ranked Snippets round picks from at least this many songs, unless the judge says otherwise.
+const RANKED_MIN_CANDIDATES = 100;
+// The judge decides what play counts as cheating. The website loads its own from a private
+// module (antiCheatModule in config.json); everywhere else this stand-in is used, and it
+// never strikes, flags or bans anyone. Each hook gets plain facts, plus `scratch` (kept for
+// one round) and `memory` (kept with the account, cleared by a ban), which it may change,
+// and returns what should happen: { strikes: [{ weight, reason }], ban: [reasons], flag: [reasons] }.
+const STAND_IN_JUDGE = Object.freeze({
+  strikePolicy: { windowDays: 7, toBan: Infinity },
+  snippetGuess() {},
+  snippetFinished() { return {}; },
+  karaokeRun() { return {}; },
+  cheatToolReport() { return {}; }
 });
-const SHORT_FIRST_CLIP = ["base", "hard", "extreme"];
-// Cheat tools the page recognises by their own on-screen text or element ids. Only the
-// signed-in player's own page can report its account.
+const JUDGE_HOOKS = ["snippetGuess", "snippetFinished", "karaokeRun", "cheatToolReport"];
+// Tools the page can name in a report (see leaderboard.mjs); anything else is ignored.
 // Evidence pages send when something is injected: kept for admins, one file per report.
 const MAX_EVIDENCE = 300;
 const EVIDENCE_PER_ACCOUNT_PER_DAY = 3;
 const MAX_EVIDENCE_BYTES = 800000;
-const KNOWN_CHEAT_TOOLS = {
-  "yeatle-cracked": "the \"Yeatle Cracked\" cheat panel",
-  "snippets-solver": "a Snippets answer solver",
-  "stem-injector": "the karaoke stem injector"
-};
+const KNOWN_CHEAT_TOOLS = ["yeatle-cracked", "snippets-solver", "stem-injector"];
 
 function emptyStats() {
   return { songsAttempted: 0, correctlyGuessed: 0, totalStars: 0, currentStreak: 0, highestStreak: 0 };
@@ -428,7 +430,7 @@ function createLeaderboardStore(file, {
   checkDailyWin = null,
   currentDailyId = null,
   ipBlockMs = DEFAULT_IP_BLOCK_MS,
-  antiCheat = {},
+  judge = STAND_IN_JUDGE,
   snippetSong = () => null,
   snippetPool = () => null,
   dailyToday = () => null,
@@ -439,7 +441,10 @@ function createLeaderboardStore(file, {
   bansFile = path.join(path.dirname(file), "leaderboard-bans.json"),
   evidenceDir = path.join(path.dirname(file), "cheat-evidence")
 } = {}) {
-  const ac = { ...DEFAULT_ANTI_CHEAT, ...antiCheat, karaoke: { ...antiCheat.karaoke } };
+  for (const hook of JUDGE_HOOKS) if (typeof judge?.[hook] !== "function") throw new Error(`The anti-cheat module has no ${hook}() hook.`);
+  const strikePolicy = { ...STAND_IN_JUDGE.strikePolicy, ...judge.strikePolicy };
+  const rankedMinCandidates = judge.rankedMinCandidates || RANKED_MIN_CANDIDATES;
+  const asList = value => (Array.isArray(value) ? value.filter(r => typeof r === "string" && r).map(r => r.slice(0, 200)).slice(0, 10) : []);
   let state = { users: {} };
   const parsed = readJsonFile(file, null);
   if (parsed && typeof parsed === "object" && parsed.users && typeof parsed.users === "object" && !Array.isArray(parsed.users)) {
@@ -869,22 +874,17 @@ function createLeaderboardStore(file, {
     }
     if (scoring.rescoreTrace(phrases) !== score) throw httpError("This karaoke run's score doesn't match its phrases.", 400);
 
-    const reasons = [];
-    const similarity = scoring.similarityVerdict(phrases, { ...scoring.SIMILARITY_RULES, ...ac.karaoke });
-    reasons.push(...similarity.reasons);
     const integrity = body?.integrity && typeof body.integrity === "object" ? body.integrity : { ok: false, failed: ["missing"] };
-    if (integrity.ok !== true) {
-      const failed = Array.isArray(integrity.failed) ? integrity.failed.filter(f => typeof f === "string").slice(0, 10).map(f => f.slice(0, 60)) : [];
-      reasons.push(`modified browser audio or microphone (${failed.join(", ") || "unknown"})`);
-    }
-    if (similarity.reasons.length) {
-      flagRun(user, run, score, reasons, now);
-      autoBan(user, reasons.map(r => `karaoke: ${r}`), now);
+    const verdict = judge.karaokeRun({ phrases, integrity, difficulty: run.difficulty, white: Boolean(run.white), memory: judgeMemory(user) }) || {};
+    const banFor = asList(verdict.ban), flagFor = asList(verdict.flag);
+    if (banFor.length || flagFor.length) flagRun(user, run, score, [...flagFor, ...banFor], now);
+    if (banFor.length) {
+      autoBan(user, banFor.map(r => `karaoke: ${r}`), now);
       throw bannedError();
     }
-    if (reasons.length) {
-      flagRun(user, run, score, reasons, now);
-      return { ranked: false, flagged: true, message: "This run wasn't ranked: the microphone or audio looked modified, or too much like the song's own vocal. An admin will review it." };
+    if (flagFor.length) {
+      save();
+      return { ranked: false, flagged: true, message: "This run wasn't ranked. An admin will review it." };
     }
     // Skipping is part of White people mode, but a run that is mostly skipped isn't singing.
     const skipped = phrases.filter(ph => ph[3] === null).length;
@@ -965,13 +965,32 @@ function createLeaderboardStore(file, {
     return listBans();
   }
 
-  // Adds weighted strikes and bans once they reach strikesToBan within the window.
+  // The judge's per-account memory, kept with the account's ranked data.
+  function judgeMemory(user) {
+    const r = user.ranked || (user.ranked = { karaoke: {} });
+    if (!r.judge || typeof r.judge !== "object") r.judge = {};
+    return r.judge;
+  }
+
+  // Applies a judge's answer: strikes (banning once they add up), then any outright ban.
+  function applyVerdict(user, verdict, now) {
+    for (const strike of Array.isArray(verdict?.strikes) ? verdict.strikes.slice(0, 5) : []) {
+      if (isBanned(user)) break;
+      const weight = Number(strike?.weight);
+      if (Number.isFinite(weight) && weight > 0) addStrike(user, weight, String(strike.reason || "strike"), now);
+    }
+    const banFor = asList(verdict?.ban);
+    if (banFor.length) autoBan(user, banFor, now);
+    if (isBanned(user)) throw bannedError();
+  }
+
+  // Adds weighted strikes and bans once they reach the judge's total within its window.
   function addStrike(user, weight, reason, now) {
-    const list = (moderation.strikes[user.id] || []).filter(s => s.at > now - ac.strikeWindowDays * DAY_MS);
+    const list = (moderation.strikes[user.id] || []).filter(s => s.at > now - strikePolicy.windowDays * DAY_MS);
     list.push({ at: now, weight, reason: String(reason).slice(0, 200) });
     moderation.strikes[user.id] = list.slice(-50);
     const total = list.reduce((sum, s) => sum + s.weight, 0);
-    if (total >= ac.strikesToBan) autoBan(user, list.map(s => s.reason), now);
+    if (total >= strikePolicy.toBan) autoBan(user, list.map(s => s.reason), now);
     else saveModeration(now);
   }
 
@@ -1011,15 +1030,15 @@ function createLeaderboardStore(file, {
     if (universe) {
       const allowed = new Set(universe);
       ids = ids.filter(id => allowed.has(id));
-      if (ids.length < ac.rankedMinCandidates) {
+      if (ids.length < rankedMinCandidates) {
         const have = new Set(ids);
         const rest = universe.filter(id => !have.has(id));
         for (let i = rest.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [rest[i], rest[j]] = [rest[j], rest[i]]; }
-        ids = [...ids, ...rest.slice(0, ac.rankedMinCandidates - ids.length)];
+        ids = [...ids, ...rest.slice(0, rankedMinCandidates - ids.length)];
       }
     }
     const playable = ids.filter(id => snippetSong(id, pool)?.playable);
-    const ranked = !universe || playable.length >= ac.rankedMinCandidates;
+    const ranked = !universe || playable.length >= rankedMinCandidates;
     if (!playable.length) throw httpError("None of these songs can be played right now. Refresh the game and try again.", 404);
     sweepRounds(now);
     const owner = user ? `a:${user.id}` : ctx.deviceHash ? `d:${ctx.deviceHash}` : "";
@@ -1058,8 +1077,7 @@ function createLeaderboardStore(file, {
     if (kind === "guess") {
       const text = String(body?.text || "").trim().slice(0, 200);
       if (!text) throw httpError("Type a guess first.", 400);
-      if (round.lastGuessAt && now - round.lastGuessAt < ac.rapidGuessMs) round.rapid = (round.rapid || 0) + 1;
-      round.lastGuessAt = now;
+      judge.snippetGuess({ now, attempt: round.attempts.length, audioAt: round.audioAt, scratch: round.scratch || (round.scratch = {}) });
       if (matchesAnswer(round.songId, text, round.pool)) {
         round.attempts.push({ kind: "right", text });
         round.status = "won";
@@ -1087,24 +1105,13 @@ function createLeaderboardStore(file, {
   // Credits a won round and checks how it was won. Returns whether it ranked.
   function finishRound(user, round, now) {
     const won = round.status === "won";
-    // Two strikes, not three: iOS may not request audio until Play is tapped, so one lucky
-    // blind guess mustn't ban anyone. A tool that answers every round is banned on its second.
-    if (won && !round.audioAt) addStrike(user, 2, "Snippets: named the song before its audio was requested", now);
-    else if (won && round.attempts.length === 1 && now - round.audioAt < ac.fastFirstTryMs) {
-      addStrike(user, 1, `Snippets: named the song from the first clip ${now - round.audioAt} ms after its audio was requested`, now);
-    }
-    if (round.rapid >= 2) addStrike(user, 1, `Snippets: ${round.rapid + 1} guesses in a row less than ${ac.rapidGuessMs} ms apart`, now);
-    if (isBanned(user)) throw bannedError();
+    const verdict = judge.snippetFinished({
+      won, attempts: round.attempts.length, tries: round.tries, difficulty: round.difficulty, ranked: round.ranked,
+      startedAt: round.startedAt, audioAt: round.audioAt, now, scratch: round.scratch || {}, memory: judgeMemory(user)
+    });
+    applyVerdict(user, verdict, now);
 
-    const r = user.ranked || (user.ranked = freshRanked(now));
-    if (SHORT_FIRST_CLIP.includes(round.difficulty)) {
-      r.firstClip = [...(r.firstClip || []), won && round.attempts.length === 1 ? 1 : 0].slice(-ac.firstClipRecent);
-      const rate = r.firstClip.reduce((a, b) => a + b, 0) / r.firstClip.length;
-      if (r.firstClip.length >= ac.firstClipMinRounds && rate >= ac.firstClipMaxRate) {
-        autoBan(user, [`Snippets: named ${Math.round(rate * 100)}% of the last ${r.firstClip.length} songs from a clip of a quarter second or less`], now);
-        throw bannedError();
-      }
-    }
+    const r = user.ranked;
     let ranked = false;
     if (won && round.ranked) {
       const song = snippetSong(round.songId, round.pool);
@@ -1170,11 +1177,12 @@ function createLeaderboardStore(file, {
   // an admin to look at.
   function reportCheatTool(token, body, now = Date.now(), ctx = {}) {
     const { user } = authUser(token, ctx, now);
-    const tools = [...new Set((Array.isArray(body?.tools) ? body.tools : []).filter(t => Object.hasOwn(KNOWN_CHEAT_TOOLS, t)))];
+    const tools = [...new Set((Array.isArray(body?.tools) ? body.tools : []).filter(t => KNOWN_CHEAT_TOOLS.includes(t)))];
     const evidenceId = saveEvidence(user, tools, body?.evidence, now);
-    if (!tools.length) return { ok: true };
-    autoBan(user, [...tools.map(t => `cheat tool on the page: ${KNOWN_CHEAT_TOOLS[t]}`), ...(evidenceId ? ["its code was captured; see Captured from players' pages"] : [])], now);
-    throw bannedError();
+    const verdict = judge.cheatToolReport({ tools, captured: Boolean(evidenceId), memory: judgeMemory(user) }) || {};
+    applyVerdict(user, verdict, now);
+    save();
+    return { ok: true };
   }
 
   // Stores a report's evidence as its own file and a short summary for the admin list.
@@ -1293,7 +1301,7 @@ module.exports = {
   SOLVE_CREDIT_PER_HOUR,
   SOLVE_CREDIT_BURST,
   SNIPPET_TRIES,
-  DEFAULT_ANTI_CHEAT,
+  STAND_IN_JUDGE,
   KNOWN_CHEAT_TOOLS,
   validateUsername,
   validatePassword,

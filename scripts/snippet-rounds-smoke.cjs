@@ -2,6 +2,8 @@
 // Requires ffmpeg on PATH (to make short test stems) and Playwright with Chromium; set
 // YEATLE_PLAYWRIGHT_MODULE / YEATLE_TEST_BROWSER like scripts/browser-smoke.cjs if needed.
 // Run: node scripts/snippet-rounds-smoke.cjs
+// With YEATLE_ANTICHEAT_MODULE set to the website's private module, it also checks that a
+// known cheat panel bans the account; without it, the stand-in judge bans nobody.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -10,6 +12,7 @@ const { fork, execFileSync } = require("node:child_process");
 const { chromium } = require(process.env.YEATLE_PLAYWRIGHT_MODULE || "playwright");
 
 const root = path.resolve(__dirname, "..");
+const JUDGE = process.env.YEATLE_ANTICHEAT_MODULE ? path.resolve(process.env.YEATLE_ANTICHEAT_MODULE) : "";
 const TITLES = ["Flawless", "Talk", "Gettin Old", "Sorry Bout That"];
 const data = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-rounds-smoke-"));
 const result = { checks: {} };
@@ -26,7 +29,7 @@ function makeStems() {
 }
 
 function startServer() {
-  fs.writeFileSync(path.join(data, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "" }));
+  fs.writeFileSync(path.join(data, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "", antiCheatModule: JUDGE }));
   fs.writeFileSync(path.join(data, "admin.json"), JSON.stringify({ password: "smoke" }));
   backend = fork(path.join(root, "server.js"), [], { silent: true, env: { ...process.env, YEATLE_DATA_DIR: data, YEATLE_PORT: "0", YEATLE_DESKTOP: "1" } });
   return new Promise((resolve, reject) => {
@@ -58,6 +61,9 @@ function startServer() {
   await page.waitForSelector("text=Change username");
   await page.keyboard.press("Escape");
 
+  // The page opens on Stems, which still picks its own song in the page; only what Snippets
+  // receives from here on counts.
+  seen.length = 0;
   const started = page.waitForResponse(res => res.url().includes("/api/account/round/start"));
   await page.getByRole("tab", { name: "Snippets", exact: true }).click();
   const start = await (await started).json();
@@ -83,9 +89,11 @@ function startServer() {
   const answer = finish.song.display;
   result.checks.answer = answer;
   const leak = new RegExp(answer.replace(/[^a-z0-9]/gi, ".?"), "i");
-  assert.ok(!leak.test(before.seen), "no response before the end named the song");
+  const leaked = before.seen.split("\n").filter(line => leak.test(line)).map(line => line.slice(0, 200));
+  assert.deepEqual(leaked, [], "no response before the end named the song");
   // yeatle:song-list is the whole catalog the page keeps for suggestions; it names every song.
-  const stored = Object.entries(JSON.parse(before.storage)).filter(([k, v]) => k !== "yeatle:song-list" && leak.test(v)).map(([k, v]) => `${k}=${v.slice(0, 300)}`);
+  // yeatle:round:stems is the Stems tab's own round from before switching.
+  const stored = Object.entries(JSON.parse(before.storage)).filter(([k, v]) => !["yeatle:song-list", "yeatle:round:stems"].includes(k) && leak.test(v)).map(([k, v]) => `${k}=${v.slice(0, 300)}`);
   assert.deepEqual(stored, [], "nothing saved on the device named the song");
   assert.ok(!leak.test(before.dom), "the page didn't show the song");
   await page.waitForFunction(name => document.body.innerText.includes(name), answer);
@@ -103,7 +111,7 @@ function startServer() {
   await page.locator("text=Next song").first().click().catch(() => {});
   // A clean page never reports anything.
   assert.ok(!seen.some(entry => entry.includes("/api/account/report")), "nothing was reported before the injection");
-  // A known cheat panel and a patched fetch: the account is banned and the code captured.
+  // A known cheat panel and a patched fetch: the code is captured, and the private judge bans.
   await page.evaluate(() => {
     const realFetch = window.fetch;
     window.fetch = function solverFetch(...args) { return realFetch.apply(this, args); };
@@ -112,14 +120,15 @@ function startServer() {
     panel.textContent = "Yeatle Cracked by krankez · Snippets Solver · Captured Song Answer";
     document.body.appendChild(panel);
   });
-  await page.waitForSelector("text=Indeed", { timeout: 15000 });
+  if (JUDGE) await page.waitForSelector("text=Indeed", { timeout: 15000 });
+  else await page.waitForResponse(res => res.url().includes("/api/account/report"), { timeout: 15000 });
   const admin = await browser.newPage();
   await admin.goto(`${base}/admin`);
   await admin.fill("input[type=password]", "smoke");
   await admin.click("text=Log in");
   await admin.click("text=Banned users");
-  await admin.waitForSelector("text=Automatic · needs review");
-  assert.ok(await admin.locator("text=Yeatle Cracked").count());
+  if (JUDGE) await admin.waitForSelector("text=Automatic · needs review");
+  else assert.equal(await admin.locator("text=Automatic · needs review").count(), 0, "the stand-in bans nobody");
   await admin.waitForSelector("text=replaced fetch");
   const capture = await admin.evaluate(async () => {
     const link = document.querySelector('a[href^="/api/admin/evidence/"]');
@@ -134,7 +143,7 @@ function startServer() {
   result.checks.captured = true;
   await admin.click("text=Players");
   await admin.waitForSelector("text=smoketester");
-  result.checks.autoBan = true;
+  result.checks.autoBan = JUDGE ? true : "skipped (no YEATLE_ANTICHEAT_MODULE)";
   assert.deepEqual(errors, []);
   result.passed = true;
 })().catch(error => { result.passed = false; result.failure = error.stack; process.exitCode = 1; })

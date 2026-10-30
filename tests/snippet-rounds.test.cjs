@@ -3,8 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createLeaderboardStore, SNIPPET_TRIES, DEFAULT_ANTI_CHEAT, BANNED_MESSAGE } = require("../leaderboard.cjs");
-const FAST_FIRST_TRY_MS = DEFAULT_ANTI_CHEAT.fastFirstTryMs;
+const { createLeaderboardStore, SNIPPET_TRIES, STAND_IN_JUDGE, BANNED_MESSAGE } = require("../leaderboard.cjs");
 
 const NOW = Date.parse("2026-10-27T12:00:00Z");
 const SONGS = ["flawless", "talk", "gettinold", "monë", "sorry", "wat", "ruby", "outside", "nun", "go2work"];
@@ -111,87 +110,6 @@ test("a signed-in win ranks once, and only the round's own account can play it",
   assert.equal(anon.result.ranked, undefined, "a signed-out win isn't ranked anywhere");
 });
 
-test("right answers before the audio was requested ban automatically, pending review", async t => {
-  const store = newStore(t);
-  const cheat = await store.register({ username: "krank", password: "pass1234", progress: { completed: { stems: ["talk"] } } }, NOW, ip);
-  const blind = round => store.snippetRoundAct(cheat.token, { roundId: round.roundId, kind: "guess", text: "outside" }, NOW + 300, ip);
-  const first = blind(store.startSnippetRound(cheat.token, { candidates: ["outside"] }, NOW, ip));
-  assert.equal(first.status, "won", "one blind answer could be luck (iOS may not have asked for the audio yet)");
-  assert.equal(store.listBans().bans.length, 0);
-  assert.throws(() => blind(store.startSnippetRound(cheat.token, { candidates: ["outside"] }, NOW + 1000, ip)), isBanned, "a second one bans");
-
-  const { bans } = store.listBans();
-  assert.equal(bans.length, 1);
-  assert.equal(bans[0].username, "krank");
-  assert.equal(bans[0].auto, true);
-  assert.equal(bans[0].confirmed, false);
-  assert.match(bans[0].evidence[0], /before its audio was requested/);
-  assert.throws(() => store.me(cheat.token, NOW + 1000, ip), isBanned, "every session is signed out");
-  assert.throws(() => store.startSnippetRound("", { candidates: SONGS }, NOW + 1000, ip), isBanned, "and the device is blocked");
-
-  // Automatic bans block addresses only once an admin confirms them.
-  const other = { ipHash: ip.ipHash, deviceHash: "e".repeat(32) };
-  await store.register({ username: "roommate", password: "pass1234" }, NOW + 2000, other);
-  assert.equal(store.confirmBan(bans[0].accountId, NOW + 3000).bans[0].confirmed, true);
-  await assert.rejects(() => store.register({ username: "roommate2", password: "pass1234" }, NOW + 4000, other), { status: 403 });
-  assert.throws(() => store.confirmBan(bans[0].accountId), /doesn't need confirming/);
-
-  const restored = store.unbanUser(bans[0].accountId, { restore: true }, NOW + 5000);
-  assert.equal(restored.bans.length, 0);
-  const back = await store.login({ username: "krank", password: "pass1234" }, NOW + 6000, ip);
-  assert.deepEqual(back.account.progress.completed.stems, ["talk"], "Unban with Restore progress undoes it completely");
-});
-
-test("three instant first-clip answers in a week ban; normal speed never does", async t => {
-  const store = newStore(t);
-  const fast = await store.register({ username: "bot", password: "pass1234" }, NOW, ip);
-  const human = await store.register({ username: "fan", password: "pass1234" }, NOW, { ipHash: "b".repeat(32), deviceHash: "c".repeat(32) });
-  const fanCtx = { ipHash: "b".repeat(32), deviceHash: "c".repeat(32) };
-
-  for (let i = 0; i < 12; i++) {
-    const { result } = play(store, human.token, { at: NOW + i * 60000, listenMs: FAST_FIRST_TRY_MS + 500, guesses: id => [id], ctx: fanCtx, difficulty: "easy" });
-    assert.equal(result.status, "won");
-  }
-  assert.equal(store.listBans().bans.length, 0, "a fast human isn't struck");
-
-  play(store, fast.token, { at: NOW, listenMs: 400, guesses: id => [id] });
-  play(store, fast.token, { at: NOW + 60000, listenMs: 400, guesses: id => [id] });
-  assert.equal(store.listBans().bans.length, 0, "two strikes aren't enough");
-  assert.throws(() => play(store, fast.token, { at: NOW + 120000, listenMs: 400, guesses: id => [id] }), isBanned);
-  assert.match(store.listBans().bans[0].evidence.join(" "), /first clip \d+ ms after/);
-});
-
-test("naming nearly every song from a tiny first clip bans, while a strong player doesn't", async t => {
-  const store = newStore(t);
-  const solver = await store.register({ username: "solver", password: "pass1234" }, NOW, ip);
-  const strong = { ipHash: "b".repeat(32), deviceHash: "c".repeat(32) };
-  const expert = await store.register({ username: "expert", password: "pass1234" }, NOW, strong);
-
-  // The expert gets 60% on the first clip and needs more clips for the rest.
-  for (let i = 0; i < 30; i++) {
-    const { result } = play(store, expert.token, { at: NOW + i * 60000, ctx: strong, guesses: id => (i % 5 < 3 ? [id] : [null, id]) });
-    assert.equal(result.status, "won");
-  }
-  assert.equal(store.listBans().bans.length, 0);
-
-  let banned = false;
-  for (let i = 0; i < 25 && !banned; i++) {
-    try { play(store, solver.token, { at: NOW + i * 60000, guesses: id => [id] }); }
-    catch (err) { assert.ok(isBanned(err)); banned = i; }
-  }
-  assert.equal(banned, 19, "banned at the 20th straight first-clip answer");
-  assert.match(store.listBans().bans[0].evidence[0], /100% of the last 20/);
-});
-
-test("a known cheat panel on the page bans its own account", async t => {
-  const store = newStore(t);
-  const user = await store.register({ username: "krankez", password: "pass1234" }, NOW, ip);
-  assert.deepEqual(store.reportCheatTool(user.token, { tools: ["something-else"] }, NOW, ip), { ok: true });
-  assert.throws(() => store.reportCheatTool(user.token, { tools: ["yeatle-cracked", "snippets-solver"] }, NOW, ip), isBanned);
-  assert.match(store.listBans().bans[0].evidence.join(" "), /Yeatle Cracked.*Snippets answer solver/);
-  assert.throws(() => store.reportCheatTool("", { tools: ["yeatle-cracked"] }, NOW, { ipHash: "", deviceHash: "" }), { status: 401 }, "nobody can report someone else");
-});
-
 test("the players list shows when each account was made, newest first, and nothing private", async t => {
   const store = newStore(t);
   await store.register({ username: "first", password: "pass1234" }, NOW, ip);
@@ -221,10 +139,12 @@ test("the game finds known cheat panels by their own text", async () => {
   }
 });
 
-test("captured cheat code is kept for admins; a known tool bans and other injections only report", async t => {
+test("captured cheat code is kept for admins, and the judge decides whether a report bans", async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-evidence-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const store = createLeaderboardStore(path.join(dir, "leaderboard-users.json"));
+  // A judge that bans for any named tool, as the website's private module may.
+  const judge = { ...STAND_IN_JUDGE, cheatToolReport: ({ tools, captured }) => (tools.length ? { ban: [`tool: ${tools.join(", ")}`, ...(captured ? ["code captured"] : [])] } : {}) };
+  const store = createLeaderboardStore(path.join(dir, "leaderboard-users.json"), { judge });
   const ext = await store.register({ username: "extuser", password: "pass1234" }, NOW, ip);
   const other = { ipHash: "b".repeat(32), deviceHash: "c".repeat(32) };
   const cheat = await store.register({ username: "krankez", password: "pass1234" }, NOW, other);
@@ -244,7 +164,7 @@ test("captured cheat code is kept for admins; a known tool bans and other inject
   list = store.listBans().evidence;
   assert.equal(list[0].username, "krankez");
   assert.equal(list[0].banned, true);
-  assert.match(store.listBans().bans[0].evidence.join(" "), /code was captured/);
+  assert.match(store.listBans().bans[0].evidence.join(" "), /tool: yeatle-cracked.*code captured/);
   const saved = store.readEvidence(list[0].id);
   assert.match(saved.json, /Yeatle Cracked/);
   assert.match(saved.json, /solver/);
@@ -295,42 +215,73 @@ test("the server rebuilds the song list, so a page can't offer one song it knows
   assert.equal(won.ranked, false);
 });
 
-test("guessing titles faster than anyone can type is a strike", async t => {
-  const store = newStore(t);
-  const bot = await store.register({ username: "bruteforce", password: "pass1234" }, NOW, ip);
-  const spray = at => {
-    const round = store.startSnippetRound(bot.token, { candidates: SONGS }, at, ip);
-    const songId = store.snippetRoundAudio(round.roundId, at).songId;
-    const wrong = SONGS.filter(id => id !== songId);
-    for (let i = 0; i < 3; i++) store.snippetRoundAct(bot.token, { roundId: round.roundId, kind: "guess", text: wrong[i] }, at + 3000 + i * 200, ip);
-    return store.snippetRoundAct(bot.token, { roundId: round.roundId, kind: "guess", text: songId }, at + 3600, ip);
+// A judge for testing the plumbing: it strikes or bans exactly when told to.
+function scriptedJudge(overrides = {}) {
+  const calls = [];
+  return {
+    calls,
+    strikePolicy: { windowDays: 7, toBan: 3 },
+    rankedMinCandidates: 5,
+    snippetGuess(facts) { calls.push(["guess", facts.attempt]); facts.scratch.guesses = (facts.scratch.guesses || 0) + 1; },
+    snippetFinished(facts) {
+      calls.push(["finished", facts.won, facts.attempts, facts.scratch.guesses]);
+      facts.memory.rounds = (facts.memory.rounds || 0) + 1;
+      return overrides.snippetFinished ? overrides.snippetFinished(facts) : {};
+    },
+    karaokeRun() { return {}; },
+    cheatToolReport() { return {}; }
   };
-  spray(NOW);
-  spray(NOW + 60000);
+}
+
+test("without a private judge nobody is ever struck, flagged or banned automatically", async t => {
+  const store = newStore(t);
+  const fast = await store.register({ username: "anyone", password: "pass1234" }, NOW, ip);
+  for (let i = 0; i < 30; i++) play(store, fast.token, { at: NOW + i * 1000, listenMs: 1, audio: i % 2 === 0, guesses: id => [id] });
+  assert.deepEqual(store.reportCheatTool(fast.token, { tools: ["yeatle-cracked"] }, NOW, ip), { ok: true });
   assert.equal(store.listBans().bans.length, 0);
-  assert.throws(() => spray(NOW + 120000), err => err.banned === true);
-  assert.match(store.listBans().bans[0].evidence.join(" "), /guesses in a row less than 700 ms apart/);
+  assert.equal(store.me(fast.token, NOW).account.username, "anyone");
 });
 
-test("the website's private antiCheat settings replace the defaults", async t => {
-  const store = newStore(t, { antiCheat: { fastFirstTryMs: 5000, strikesToBan: 1 } });
-  const user = await store.register({ username: "quickfan", password: "pass1234" }, NOW, ip);
-  // 3 s is past the default but inside this website's own limit, and one strike now bans.
-  assert.throws(() => play(store, user.token, { listenMs: 3000, guesses: id => [id] }), isBanned);
-  assert.match(store.listBans().bans[0].evidence[0], /first clip 3000 ms after/);
-
-  const relaxed = newStore(t, { antiCheat: { fastFirstTryMs: 100 } });
-  const fan = await relaxed.register({ username: "fastfan", password: "pass1234" }, NOW, ip);
-  for (let i = 0; i < 3; i++) play(relaxed, fan.token, { at: NOW + i * 60000, listenMs: 400, guesses: id => [id], difficulty: "easy" });
-  assert.equal(relaxed.listBans().bans.length, 0);
+test("the judge sees each round's guesses and result, keeps memory per account, and its strikes add up to a ban", async t => {
+  const judge = scriptedJudge({ snippetFinished: f => (f.won ? { strikes: [{ weight: 1, reason: `round ${f.memory.rounds}` }] } : {}) });
+  const store = newStore(t, { judge });
+  const user = await store.register({ username: "watched", password: "pass1234" }, NOW, ip);
+  const first = play(store, user.token, { guesses: id => ["nope", id] });
+  assert.equal(first.result.status, "won");
+  assert.deepEqual(judge.calls, [["guess", 0], ["guess", 1], ["finished", true, 2, 2]]);
+  play(store, user.token, { at: NOW + 60000, guesses: id => [id] });
+  assert.equal(store.listBans().bans.length, 0, "two strikes are under the judge's limit of three");
+  assert.throws(() => play(store, user.token, { at: NOW + 120000, guesses: id => [id] }), isBanned);
+  const ban = store.listBans().bans[0];
+  assert.equal(ban.auto, true);
+  assert.deepEqual(ban.evidence, ["round 1", "round 2", "round 3"], "memory was kept between rounds");
 });
 
-test("a malformed antiCheat setting stops the server with a clear message", async t => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-accfg-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], openBrowser: false, dailyAuthority: "", antiCheat: { fastFirstTryMs: "fast" } }));
+test("a judge's ban verdict bans at once, and a judge missing a hook is refused", async t => {
+  const store = newStore(t, { judge: scriptedJudge({ snippetFinished: () => ({ ban: ["told to"] }) }) });
+  const user = await store.register({ username: "banme", password: "pass1234" }, NOW, ip);
+  assert.throws(() => play(store, user.token, { guesses: id => [id] }), isBanned);
+  assert.deepEqual(store.listBans().bans[0].evidence, ["told to"]);
+  assert.throws(() => newStore(t, { judge: { snippetGuess() {} } }), /has no snippetFinished\(\) hook/);
+});
+
+test("the website loads its judge from antiCheatModule, and a broken one stops it", async t => {
   const { spawnSync } = require("node:child_process");
-  const run = spawnSync(process.execPath, [path.join(__dirname, "..", "server.js")], { env: { ...process.env, YEATLE_DATA_DIR: dir, YEATLE_PORT: "0", YEATLE_DESKTOP: "1" }, encoding: "utf8", timeout: 10000 });
-  assert.notEqual(run.status, 0);
-  assert.match(run.stderr, /antiCheat an object of positive numbers/);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-judge-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const start = config => {
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], openBrowser: false, dailyAuthority: "", ...config }));
+    return spawnSync(process.execPath, ["-e", `process.on("message",()=>{});const s=require(${JSON.stringify(path.join(__dirname, "..", "server.js"))});setTimeout(()=>process.exit(0),1500)`], {
+      env: { ...process.env, YEATLE_DATA_DIR: dir, YEATLE_PORT: "0", YEATLE_DESKTOP: "1" }, encoding: "utf8", timeout: 15000
+    });
+  };
+  fs.writeFileSync(path.join(dir, "judge.cjs"), `module.exports = { createAntiCheat: settings => ({ snippetGuess() {}, snippetFinished() { return {}; }, karaokeRun() { return {}; }, cheatToolReport() { return {}; }, strikePolicy: { windowDays: 1, toBan: settings.toBan } }) };`);
+  const loaded = start({ antiCheatModule: "judge.cjs", antiCheat: { toBan: 2 } });
+  assert.match(loaded.stdout, /Loaded the private module/);
+  assert.match(loaded.stdout, /Yeatle is running/);
+  const missing = start({ antiCheatModule: "nope.cjs" });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /anti-cheat module .*nope\.cjs could not load/);
+  const none = start({});
+  assert.match(none.stderr + none.stdout, /No antiCheatModule is set/);
 });

@@ -79,7 +79,6 @@ test("a realistic human run is ranked; forged and replayed runs are rejected", a
 
   const human = humanTrace();
   const score = scoring.rescoreTrace(human);
-  assert.equal(scoring.similarityVerdict(human).flagged, false, "a strong human singer isn't flagged");
   const run = store.startKaraokeRun(singer.token, { songId: "song", difficulty: "hard", white: false }, NOW);
   const body = { runId: run.runId, score, duration: 180, phrases: human, integrity };
   assert.throws(() => store.submitKaraokeRun(other.token, body, scoring, NOW + 4 * MIN), { status: 403 }, "another account's run");
@@ -108,49 +107,6 @@ test("a realistic human run is ranked; forged and replayed runs are rejected", a
   store.sync(other.token, { karaoke: { "yeatle-karaoke-best:song:expert": { score: 9999999, name: "x" } } }, NOW);
   const board = store.getLeaderboards("", NOW).boards.karaoke.entries;
   assert.deepEqual(board.map(e => [e.username, e.primary]), [["singer", score]]);
-});
-
-test("tampered runs are flagged for review, and a run that is the song's own vocal bans automatically", async t => {
-  const scoring = await scoringModule;
-  const store = newStore(t);
-  const { token } = await store.register({ username: "krank", password: "pass1234", progress: { completed: { stems: ["a"] } } }, NOW);
-  const tryRun = (trace, extra = {}) => {
-    const run = store.startKaraokeRun(token, { songId: "song", difficulty: "expert" }, NOW);
-    return store.submitKaraokeRun(token, { runId: run.runId, score: scoring.rescoreTrace(trace), duration: 180, phrases: trace, integrity, ...extra }, scoring, NOW + 4 * MIN);
-  };
-  const patched = tryRun(humanTrace(11), { integrity: { ok: false, failed: ["page getUserMedia"] } });
-  assert.equal(patched.ranked, false);
-  assert.equal(patched.flagged, true, "a patched microphone function unranks the run");
-  const missing = tryRun(humanTrace(12), { integrity: undefined });
-  assert.equal(missing.flagged, true);
-  assert.equal(store.listBans().bans.length, 0, "integrity flags alone never ban: extensions patch these functions too");
-
-  assert.throws(() => tryRun(injectorTrace()), err => err.banned === true);
-  const { flags, bans } = store.listBans();
-  assert.equal(flags.length, 3);
-  assert.match(flags[0].reasons.join(" "), /original vocal/);
-  assert.match(flags[2].reasons.join(" "), /getUserMedia/, "newest first");
-  assert.equal(bans.length, 1);
-  assert.equal(bans[0].auto, true);
-  assert.equal(bans[0].confirmed, false, "automatic bans wait for an admin to review them");
-  assert.match(bans[0].evidence.join(" "), /karaoke: .*original vocal/);
-  assert.throws(() => store.me(token, NOW), err => err.banned === true);
-  assert.equal(store.getLeaderboards("", NOW).boards.karaoke.entries.length, 0);
-  assert.equal(store.dismissFlag(flags[0].id).flags.length, 2);
-});
-
-test("similarity thresholds leave a range of strong human singers ranked", async () => {
-  const { similarityVerdict } = await scoringModule;
-  let flagged = 0;
-  for (let seed = 1; seed <= 200; seed++) {
-    const rand = random(seed * 31);
-    // Better than most: loudness correlation up to 0.85, pitch 15-45 cents off, 40-120 ms drift.
-    const skill = rand();
-    const trace = phrases(rand).map(ph => [ph.start, ph.end, ph.dur, 0.8, 0.45 + skill * 0.3 + rand() * 0.1, Math.round(15 + (1 - skill) * 20 + rand() * 10), Math.round((rand() - 0.5) * (80 + 160 * rand()))]);
-    if (similarityVerdict(trace).flagged) flagged++;
-  }
-  assert.equal(flagged, 0);
-  for (let seed = 1; seed <= 50; seed++) assert.equal(similarityVerdict(injectorTrace(seed)).flagged, true, `injector seed ${seed}`);
 });
 
 test("White people mode runs that are mostly skipped aren't ranked", async t => {

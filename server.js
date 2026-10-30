@@ -28,7 +28,7 @@ const { createActiveSongFeed } = require("./live-control.cjs");
 const { createStemCatalog } = require("./stem-catalog.cjs");
 const { createDailyChallenges } = require("./daily-challenge.cjs");
 const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs");
-const { createLeaderboardStore, DEFAULT_ANTI_CHEAT } = require("./leaderboard.cjs");
+const { createLeaderboardStore } = require("./leaderboard.cjs");
 const { DEVICE_HEADER, cleanDeviceId, clientIp, normalIp, loadSecret, createSignalHasher, createRateLimiter } = require("./client-signals.cjs");
 const { pathToFileURL } = require("url");
 const { creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
@@ -90,8 +90,10 @@ const DEFAULT_CONFIG = {
   // can't play a Daily like this, so turn it on once 1.13 is out. Only the website that
   // picks the Daily (dailyAuthority "") uses it.
   dailyHideAnswer: false,
-  // Private limits for ranked rounds and automatic bans (see DEFAULT_ANTI_CHEAT in
-  // leaderboard.cjs for the names). Set them only in the website's own config.json.
+  // The website's private anti-cheat module: a path (absolute, or relative to the data
+  // folder) to a CommonJS file exporting createAntiCheat(settings), and the settings it
+  // gets. Copies without one use a stand-in that never flags or bans anyone.
+  antiCheatModule: "",
   antiCheat: {}
 };
 
@@ -122,19 +124,11 @@ if (!Number.isInteger(CONFIG.port) || CONFIG.port < 0 || CONFIG.port > 65535 ||
   console.error("Invalid Yeatle settings. Use a port from 0 to 65535, a non-negative refreshMinutes number, and the format shown in config.example.json.");
   process.exit(1);
 }
-// Every antiCheat value is a positive number under a known name (karaoke: an object of them).
-function validAntiCheat(value) {
-  const plain = v => v && typeof v === "object" && !Array.isArray(v);
-  const numbers = (obj, allowed) => Object.entries(obj).every(([k, v]) => (!allowed || k in allowed) && typeof v === "number" && Number.isFinite(v) && v > 0);
-  if (!plain(value)) return false;
-  const { karaoke = {}, ...rest } = value;
-  return plain(karaoke) && numbers(rest, DEFAULT_ANTI_CHEAT) && numbers(karaoke);
-}
 const httpUrl = value => { try { return ["http:", "https:"].includes(new URL(value).protocol); } catch { return false; } };
 if (!Array.isArray(CONFIG.trustedProxies) || CONFIG.trustedProxies.some(ip => typeof ip !== "string" || !normalIp(ip)) ||
     !Number.isFinite(CONFIG.ipRestrictionDays) || CONFIG.ipRestrictionDays < 0 || CONFIG.ipRestrictionDays > 3650 ||
-    typeof CONFIG.bannedJobsUrl !== "string" || !httpUrl(CONFIG.bannedJobsUrl) || typeof CONFIG.dailyFromEra !== "string" || typeof CONFIG.dailyHideAnswer !== "boolean" || !validAntiCheat(CONFIG.antiCheat)) {
-  console.error("Invalid Yeatle settings. trustedProxies must be a list of IP addresses, ipRestrictionDays a number from 0 to 3650, bannedJobsUrl an http(s) address, dailyFromEra an era name or \"\", dailyHideAnswer true or false, and antiCheat an object of positive numbers.");
+    typeof CONFIG.bannedJobsUrl !== "string" || !httpUrl(CONFIG.bannedJobsUrl) || typeof CONFIG.dailyFromEra !== "string" || typeof CONFIG.dailyHideAnswer !== "boolean" || typeof CONFIG.antiCheatModule !== "string" || !CONFIG.antiCheat || typeof CONFIG.antiCheat !== "object" || Array.isArray(CONFIG.antiCheat)) {
+  console.error("Invalid Yeatle settings. trustedProxies must be a list of IP addresses, ipRestrictionDays a number from 0 to 3650, bannedJobsUrl an http(s) address, dailyFromEra an era name or \"\", dailyHideAnswer true or false, antiCheatModule a path or \"\", and antiCheat an object.");
   process.exit(1);
 }
 const TRUSTED_PROXIES = CONFIG.trustedProxies.map(normalIp);
@@ -142,6 +136,20 @@ const TRUSTED_PROXIES = CONFIG.trustedProxies.map(normalIp);
 // Leaderboard rankings only count songs that exist in this server's catalog (current or
 // former ids). Until the catalog has loaded no id counts, so invented ids never slip through.
 let leaderboardStore, signalHasher, LEADERBOARD_SECRET;
+// A named module that can't load stops the server, so the website never runs without it by
+// accident; with none named, the account store's stand-in is used.
+function loadAntiCheat() {
+  if (!CONFIG.antiCheatModule) {
+    if (!CONFIG.dailyAuthority) console.warn("[anti-cheat] No antiCheatModule is set, so nothing is flagged or banned automatically.");
+    return undefined;
+  }
+  const file = path.resolve(DATA_DIR, CONFIG.antiCheatModule);
+  let judge;
+  try { judge = require(file).createAntiCheat(CONFIG.antiCheat); }
+  catch (err) { throw new Error(`the anti-cheat module ${file} could not load (${err.message}). Fix antiCheatModule or antiCheat in config.json`); }
+  console.log("[anti-cheat] Loaded the private module.");
+  return judge;
+}
 // A day's Daily id. Saved ids name the song (v1:date:songId), so with the answer kept on
 // the server the page gets a keyed hash of it instead.
 const publicDailyId = (saved, date) => CONFIG.dailyHideAnswer
@@ -159,7 +167,7 @@ try {
   LEADERBOARD_SECRET = loadSecret(path.join(DATA_DIR, "leaderboard-secret.json"));
   signalHasher = createSignalHasher(LEADERBOARD_SECRET);
   leaderboardStore = createLeaderboardStore(path.join(DATA_DIR, "leaderboard-users.json"), {
-    antiCheat: CONFIG.antiCheat,
+    judge: loadAntiCheat(),
     canonicalSongId: id => {
       const song = SONG_INDEX.get(id);
       if (!song) return null;

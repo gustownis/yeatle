@@ -518,6 +518,7 @@ text editor, and restart. For example:
 | `bannedJobsUrl` | The http(s) link under the banned screen's message; default `https://www.indeed.com/` |
 | `dailyFromEra` | The Daily only picks songs from this era and later ones, by the tracker's dates; default `"Alive"` (Alivë), `""` for every era. A day's song never changes once chosen. Only the `dailyAuthority` website picks the Daily |
 | `dailyHideAnswer` | Website only: keep the Daily's answer on the server and check guesses there, so nothing in the browser can read it; default `false`. Desktop apps before 1.13 can't play a Daily like this, so turn it on once 1.13 is released |
+| `antiCheatModule`, `antiCheat` | Website only: the path to its private anti-cheat module and that module's settings. If a module is named but can't load, the server won't start. Without one, nothing is flagged or banned automatically |
 
 A server with `stemDownloads` on lists only folders holding all four stems as
 real files inside its Songs folder (symlinks are skipped), hashes them once in
