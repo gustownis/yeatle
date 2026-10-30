@@ -42,6 +42,13 @@ const SNIPPET_TRIES = { base: 6, easy: 7, medium: 7, hard: 7, extreme: 3 };
 const SNIPPET_HINTS = [["era", 3], ["year", 4], ["producers", 5]];
 const SNIPPET_ROUND_MS = 3 * 3600000;
 const SNIPPET_MAX_CANDIDATES = 6000;
+// A ranked round picks from at least this many songs. The server rebuilds the list from the
+// pool and excluded eras and tops a shorter list up from the rest of the pool, so a page
+// can't offer one song it already knows. A pool this small (one era, say) plays unranked.
+const RANKED_MIN_CANDIDATES = 100;
+// Guesses this close together are faster than anyone types a song name; two such gaps in a
+// round is one strike (a script trying titles until one fits).
+const RAPID_GUESS_MS = 700;
 const SNIPPET_ROUNDS_PER_PLAYER = 20;
 const MAX_SNIPPET_ROUNDS = 50000;
 // Automatic bans. Pressing play, hearing a clip and typing a title takes a person
@@ -196,7 +203,7 @@ const finished = entry => entry && (entry.status === "won" || entry.status === "
 
 // checkDailyWin(date, entry), when given, confirms a won Daily's right guess against that
 // day's answer. A win it rejects is kept for the player's own history but never verified.
-function mergeProgress(existingRaw, incomingRaw, now = Date.now(), { checkDailyWin = null, currentDailyId = null } = {}) {
+function mergeProgress(existingRaw, incomingRaw, now = Date.now(), { checkDailyWin = null, currentDailyId = null, serverOwnsDaily = false } = {}) {
   const base = existingRaw && typeof existingRaw === "object" ? existingRaw : emptyProgress();
   const inc = incomingRaw && typeof incomingRaw === "object" ? incomingRaw : {};
 
@@ -242,6 +249,9 @@ function mergeProgress(existingRaw, incomingRaw, now = Date.now(), { checkDailyW
       if (!cleaned) continue;
       const age = today - utcDayNumber(date);
       if (age < 0) continue; // a future Daily cannot have been played
+      // With server-checked Dailies the server records today's and yesterday's results
+      // itself; a page can't report one.
+      if (serverOwnsDaily && age <= 1) continue;
       const existing = dailyMap[date];
       // A finished Daily never changes result, unless an admin replaced that day's song:
       // then the result for the current song takes over from the replaced one.
@@ -430,6 +440,8 @@ function createLeaderboardStore(file, {
   currentDailyId = null,
   ipBlockMs = DEFAULT_IP_BLOCK_MS,
   snippetSong = () => null,
+  snippetPool = () => null,
+  dailyToday = () => null,
   snippetHints = () => ({}),
   snippetReveal = () => null,
   matchesAnswer = () => false,
@@ -626,7 +638,7 @@ function createLeaderboardStore(file, {
     };
   }
 
-  const merge = (base, incoming, now) => mergeProgress(base, incoming, now, { checkDailyWin, currentDailyId });
+  const merge = (base, incoming, now) => mergeProgress(base, incoming, now, { checkDailyWin, currentDailyId, serverOwnsDaily: Boolean(dailyToday(now)) });
 
   async function register({ username, password, progress }, now = Date.now(), ctx = {}) {
     checkDevice(ctx);
@@ -1002,8 +1014,21 @@ function createLeaderboardStore(file, {
     if (!tries) throw httpError("Unknown Snippets difficulty.", 400);
     if (!Array.isArray(body?.candidates) || !body.candidates.length) throw httpError("No songs were offered for this round.", 400);
     const pool = ["all", "released", "unreleased", "stems"].includes(body?.pool) ? body.pool : "all";
-    const ids = [...new Set(body.candidates.filter(id => typeof id === "string" && id.length <= 200))].slice(0, SNIPPET_MAX_CANDIDATES);
+    let ids = [...new Set(body.candidates.filter(id => typeof id === "string" && id.length <= 200))].slice(0, SNIPPET_MAX_CANDIDATES);
+    const excluded = Array.isArray(body?.excludedEras) ? body.excludedEras.filter(e => typeof e === "string").slice(0, 1000) : [];
+    const universe = snippetPool(pool, excluded);
+    if (universe) {
+      const allowed = new Set(universe);
+      ids = ids.filter(id => allowed.has(id));
+      if (ids.length < RANKED_MIN_CANDIDATES) {
+        const have = new Set(ids);
+        const rest = universe.filter(id => !have.has(id));
+        for (let i = rest.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [rest[i], rest[j]] = [rest[j], rest[i]]; }
+        ids = [...ids, ...rest.slice(0, RANKED_MIN_CANDIDATES - ids.length)];
+      }
+    }
     const playable = ids.filter(id => snippetSong(id, pool)?.playable);
+    const ranked = !universe || playable.length >= RANKED_MIN_CANDIDATES;
     if (!playable.length) throw httpError("None of these songs can be played right now. Refresh the game and try again.", 404);
     sweepRounds(now);
     const owner = user ? `a:${user.id}` : ctx.deviceHash ? `d:${ctx.deviceHash}` : "";
@@ -1013,11 +1038,11 @@ function createLeaderboardStore(file, {
     }
     const songId = playable[crypto.randomInt(playable.length)];
     const round = {
-      id: crypto.randomBytes(16).toString("hex"), songId, pool, owner, accountId: user ? user.id : null, difficulty, tries,
+      id: crypto.randomBytes(16).toString("hex"), songId, pool, ranked, owner, accountId: user ? user.id : null, difficulty, tries,
       attempts: [], status: "playing", startedAt: now, audioAt: 0, expiresAt: now + SNIPPET_ROUND_MS
     };
     snippetRounds.set(round.id, round);
-    return { roundId: round.id, tries, stems: Boolean(snippetSong(songId, pool).stems) };
+    return { roundId: round.id, tries, stems: Boolean(snippetSong(songId, pool).stems), ranked };
   }
 
   // The song behind a round's audio. The first request is when the player could first hear it.
@@ -1042,6 +1067,8 @@ function createLeaderboardStore(file, {
     if (kind === "guess") {
       const text = String(body?.text || "").trim().slice(0, 200);
       if (!text) throw httpError("Type a guess first.", 400);
+      if (round.lastGuessAt && now - round.lastGuessAt < RAPID_GUESS_MS) round.rapid = (round.rapid || 0) + 1;
+      round.lastGuessAt = now;
       if (matchesAnswer(round.songId, text, round.pool)) {
         round.attempts.push({ kind: "right", text });
         round.status = "won";
@@ -1075,6 +1102,7 @@ function createLeaderboardStore(file, {
     else if (won && round.attempts.length === 1 && now - round.audioAt < FAST_FIRST_TRY_MS) {
       addStrike(user, 1, `Snippets: named the song from the first clip ${now - round.audioAt} ms after its audio was requested`, now);
     }
+    if (round.rapid >= 2) addStrike(user, 1, `Snippets: ${round.rapid + 1} guesses in a row less than ${RAPID_GUESS_MS} ms apart`, now);
     if (isBanned(user)) throw bannedError();
 
     const r = user.ranked || (user.ranked = freshRanked(now));
@@ -1087,7 +1115,7 @@ function createLeaderboardStore(file, {
       }
     }
     let ranked = false;
-    if (won) {
+    if (won && round.ranked) {
       const song = snippetSong(round.songId, round.pool);
       const id = song?.canonical || round.songId;
       if (!Array.isArray(r.snippetVerified)) r.snippetVerified = [];
@@ -1098,6 +1126,52 @@ function createLeaderboardStore(file, {
     user.updatedAt = now;
     save();
     return ranked;
+  }
+
+  /* ---------- server-checked Daily ---------- */
+
+  // One Daily round per account (or, signed out, per device or network) per day. The
+  // page never gets the answer until the round is over; a signed-in round is the
+  // account's own record and can't be reported by the page.
+  const dailyRounds = new Map(); // "date|owner" -> round, for signed-out players
+  function dailyRoundAct(token, body, now = Date.now(), ctx = {}) {
+    const daily = dailyToday(now);
+    if (!daily) throw httpError("Not found", 404);
+    const { user, changed } = authUser(token, ctx, now, { optional: true });
+    checkDevice(ctx);
+    if (String(body?.challenge || "") !== daily.id) throw httpError("A new daily challenge is available. Reload Daily.", 409);
+    const owner = user ? "" : ctx.deviceHash ? `d:${ctx.deviceHash}` : ctx.ipHash ? `i:${ctx.ipHash}` : "";
+    if (!user && !owner) throw httpError("Turn on browser storage to play the Daily.", 400);
+    const key = `${daily.date}|${owner}`;
+    let round = user ? user.progress.daily?.[daily.date] : dailyRounds.get(key);
+    // A round for a song an admin replaced starts over on the new one.
+    if (!round || round.id !== daily.id) round = { id: daily.id, attempts: [], status: "playing" };
+    round = { id: round.id, attempts: [...round.attempts], status: round.status };
+
+    const kind = String(body?.kind || "state");
+    if (kind !== "state") {
+      if (round.status !== "playing") throw httpError("Today's Daily is already finished.", 409);
+      if (kind === "guess") {
+        const text = String(body?.text || "").trim().slice(0, 200);
+        if (!text) throw httpError("Type a guess first.", 400);
+        const right = daily.matches(text);
+        round.attempts.push({ kind: right ? "right" : "wrong", text });
+        if (right) round.status = "won";
+      } else if (kind === "skip") round.attempts.push({ kind: "skip", text: "" });
+      else throw httpError("Unknown Daily action.", 400);
+      if (round.status === "playing" && round.attempts.length >= daily.tries) round.status = "lost";
+      if (user) {
+        if (!user.progress.daily || typeof user.progress.daily !== "object") user.progress.daily = {};
+        user.progress.daily[daily.date] = round.status === "playing" ? round : { ...round, verified: true };
+        user.updatedAt = now;
+      } else {
+        dailyRounds.set(key, round);
+        for (const k of dailyRounds.keys()) if (!k.startsWith(`${daily.date}|`)) dailyRounds.delete(k);
+        while (dailyRounds.size > 200000) dailyRounds.delete(dailyRounds.keys().next().value);
+      }
+    }
+    if (user && (changed || kind !== "state")) save();
+    return { id: daily.id, attempts: round.attempts, status: round.status, ...(round.status !== "playing" ? { song: daily.reveal() } : {}) };
   }
 
   // A signed-in page reports a known cheat tool, or code injected into the game, once per
@@ -1213,7 +1287,7 @@ function createLeaderboardStore(file, {
   return {
     register, login, sync, rename, adminRename, logout, me, status, getLeaderboards, getUsernameFilters, setUsernameFilter,
     startKaraokeRun, submitKaraokeRun, banUser, unbanUser, confirmBan, listBans, dismissFlag,
-    startSnippetRound, snippetRoundAudio, snippetRoundAct, reportCheatTool, listPlayers, readEvidence, deleteEvidence
+    startSnippetRound, snippetRoundAudio, snippetRoundAct, reportCheatTool, listPlayers, readEvidence, deleteEvidence, dailyRoundAct
   };
 }
 

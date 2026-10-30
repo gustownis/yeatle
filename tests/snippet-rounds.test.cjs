@@ -44,7 +44,7 @@ function play(store, token, { candidates = SONGS, difficulty = "base", at = NOW,
 test("the page never learns the song until the round is over", async t => {
   const store = newStore(t);
   const round = store.startSnippetRound("", { candidates: ["broken", "flawless", "flawless"], difficulty: "base" }, NOW, ip);
-  assert.deepEqual(Object.keys(round).sort(), ["roundId", "stems", "tries"], "only the round's id, its tries and whether it plays as stems");
+  assert.deepEqual(Object.keys(round).sort(), ["ranked", "roundId", "stems", "tries"], "only the round's id, its tries, whether it plays as stems and whether it ranks");
   assert.match(round.roundId, /^[a-f0-9]{32}$/);
   assert.equal(round.tries, SNIPPET_TRIES.base);
   assert.equal(store.snippetRoundAudio(round.roundId, NOW).songId, "flawless", "the server picks among playable candidates only");
@@ -258,4 +258,55 @@ test("captured cheat code is kept for admins; a known tool bans and other inject
   assert.ok(!fs.existsSync(path.join(dir, "cheat-evidence", `${list[0].id}.json`)));
   assert.throws(() => store.readEvidence(list[0].id), { status: 404 });
   assert.throws(() => store.reportCheatTool("", { tools: [], evidence }, NOW, ip), { status: 401 }, "only signed-in pages report");
+});
+
+test("the server rebuilds the song list, so a page can't offer one song it knows", async t => {
+  const big = Array.from({ length: 300 }, (_, i) => `song${i}`);
+  const eraOf = id => (Number(id.slice(4)) < 250 ? "Alivë" : "Lyfë");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-pool-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = createLeaderboardStore(path.join(dir, "leaderboard-users.json"), {
+    canonicalSongId: id => id,
+    snippetSong: id => ({ playable: true, stems: false, canonical: id }),
+    snippetPool: (pool, excluded) => big.filter(id => !excluded.includes(eraOf(id))),
+    snippetReveal: id => ({ id }),
+    matchesAnswer: (id, text) => text === id
+  });
+  const user = await store.register({ username: "solo", password: "pass1234" }, NOW, ip);
+  const picks = new Set();
+  for (let i = 0; i < 30; i++) {
+    const round = store.startSnippetRound(user.token, { candidates: ["song7"], difficulty: "base", pool: "all", excludedEras: [] }, NOW, ip);
+    assert.equal(round.ranked, true);
+    picks.add(store.snippetRoundAudio(round.roundId, NOW).songId);
+  }
+  assert.ok(picks.size > 20, "a one-song list is topped up to at least 100 songs from the pool");
+
+  const outside = store.startSnippetRound(user.token, { candidates: ["notinpool"], difficulty: "base" }, NOW, ip);
+  assert.notEqual(store.snippetRoundAudio(outside.roundId, NOW).songId, "notinpool", "songs outside the pool are dropped");
+
+  // Excluding every era but one leaves 50 songs: that round plays but can't rank.
+  const small = store.startSnippetRound(user.token, { candidates: big, difficulty: "base", excludedEras: ["Alivë"] }, NOW, ip);
+  assert.equal(small.ranked, false);
+  const songId = store.snippetRoundAudio(small.roundId, NOW).songId;
+  assert.ok(Number(songId.slice(4)) >= 250);
+  const won = store.snippetRoundAct(user.token, { roundId: small.roundId, kind: "guess", text: songId }, NOW + 5000, ip);
+  assert.equal(won.status, "won");
+  assert.equal(won.ranked, false);
+});
+
+test("guessing titles faster than anyone can type is a strike", async t => {
+  const store = newStore(t);
+  const bot = await store.register({ username: "bruteforce", password: "pass1234" }, NOW, ip);
+  const spray = at => {
+    const round = store.startSnippetRound(bot.token, { candidates: SONGS }, at, ip);
+    const songId = store.snippetRoundAudio(round.roundId, at).songId;
+    const wrong = SONGS.filter(id => id !== songId);
+    for (let i = 0; i < 3; i++) store.snippetRoundAct(bot.token, { roundId: round.roundId, kind: "guess", text: wrong[i] }, at + 3000 + i * 200, ip);
+    return store.snippetRoundAct(bot.token, { roundId: round.roundId, kind: "guess", text: songId }, at + 3600, ip);
+  };
+  spray(NOW);
+  spray(NOW + 60000);
+  assert.equal(store.listBans().bans.length, 0);
+  assert.throws(() => spray(NOW + 120000), err => err.banned === true);
+  assert.match(store.listBans().bans[0].evidence.join(" "), /guesses in a row less than 700 ms apart/);
 });

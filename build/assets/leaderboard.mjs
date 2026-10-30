@@ -307,6 +307,11 @@ export const snippetRounds = {
   }
 };
 
+// Server-checked Daily rounds, used by daily.mjs when the website keeps the answer.
+export const dailyRounds = {
+  act: body => requestJson("api/account/daily", { method: "POST", body })
+};
+
 // Cheat tools recognised by their own on-screen text or element ids. None of these phrases
 // can appear in the game: usernames have no spaces and song titles never use them.
 const CHEAT_TOOL_SIGNS = [

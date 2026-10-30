@@ -41,6 +41,7 @@ Snippets now plays server-picked rounds:
 - `POST /api/account/round/start` receives the ids the page would have picked from (its pool, eras and songs not yet solved) and the difficulty. The server picks one and answers with only a random round id, the number of tries and whether the round plays as separate stems.
 - The audio comes from `api/audio/round-<id>` (or `…/drums.mp3` and the other stems for a song that only has a local stem pack). Nothing in the address, the headers or the saved round names the song.
 - `POST /api/account/round/act` takes each guess, skip or give-up. The server checks guesses with the game's own `matchesSong`, hands out the Era, Year and Producer hints at the same clips the game unlocks them, and sends the song only when the round is won or lost.
+- The page's list is only a preference. The server rebuilds the pool from the chosen pool and excluded eras, drops anything outside it, and tops a list shorter than 100 songs up with random songs from the rest of the pool, so a script can't offer one song it already knows. A pool under 100 songs (a single small era, the Stems-only pool on a server with few packs) still plays but doesn't rank.
 - A signed-in win ranks once per song. Rounds bind to the account or device that started them, expire after three hours, and are kept in memory, so a restart only ends rounds in progress.
 - Copies of the game (desktop apps) pass rounds and their audio through to the shared website. If that website is unreachable or not yet updated, a copy plays the old way and nothing ranks; the website itself never falls back.
 
@@ -52,6 +53,7 @@ These ban the account at once, sign it out everywhere, reset its progress and bl
 | --- | --- |
 | Answer before audio | two rounds within a week are won before their audio was ever requested (two strikes each; iOS may not request audio until Play is tapped, so one could be a lucky blind guess) |
 | Instant answers | three first-clip wins within a week arrive less than 1.5 s after the round's audio was requested (one strike each) |
+| Rapid guessing | a round has three or more guesses in a row less than 0.7 s apart, faster than anyone types a title (one strike per round; three in a week ban) |
 | First-clip rate | at least 20 of the last 25 Base, Hard or Extreme rounds, and 85% or more of them, were won on the first clip (0.1–0.25 s) |
 | Known cheat panel | the signed-in page finds "Yeatle Cracked", "Captured Song Answer", "Snippets Solver", "Yeatle Stem Deck" or an element id starting `yksi-` on itself. These phrases can't appear in the game: usernames have no spaces |
 | Karaoke vocal | a karaoke run meets a similarity rule below (it is the song's own vocal) |
@@ -92,7 +94,7 @@ Addresses come from the connection unless `trustedProxies` names the reverse pro
 
 - Anything running on the player's machine can be changed by a script that runs first. A script rewritten to follow the game into its audio frame and to hide its patches from the integrity check, or a virtual audio cable feeding the vocal into a real-looking device, defeats the client-side layers; only the similarity check and admin review remain, and a determined attacker can add noise and timing jitter to slip under them.
 - Someone who forges the whole submit request with a human-looking trace still gets a plausible score, limited by the maximum, the timing and the rate limits.
-- The Daily answer is still sent to the browser, so a player can read it before guessing. Fixing that needs server-side guessing, which would break Daily for desktop apps older than the release that adds it.
+- The Daily answer is sent to the browser unless the website sets `dailyHideAnswer` (see below). Desktop apps before 1.13 can't play a Daily without it, so the setting waits for that release.
 - Stems solves are still self-reported; the credit rate only slows mass forgery. Stems mode also still picks its song in the page and loads it by name, so the same kind of solver works there (unranked only by the credit limit). Moving Stems to verified rounds is the next step.
 - The round's audio is the song's real file. Someone who downloads the whole catalog through `api/audio/<id>` beforehand could recognise a round's file by its size or bytes. That takes hours of downloading, and answering instantly still trips the timing and first-clip rules; answering slowly enough to look human leaves only admin review.
 - Device ids disappear when site data is cleared, and addresses change or are shared (VPNs, mobile networks). The account ban holds regardless; the other restrictions only make returning harder. No VPN detection is attempted.
@@ -101,6 +103,10 @@ Addresses come from the connection unless `trustedProxies` names the reverse pro
 
 - `npm test` covers bans, restrictions, sessions, the proxy, rate limits, verified runs, similarity, Daily checks and solve credit.
 - `scripts/karaoke-injector-smoke.cjs` runs the userscript against a local server only (set `YEATLE_INJECTOR_SCRIPT`).
-- `scripts/snippet-rounds-smoke.cjs` makes four test stem packs with ffmpeg, plays signed-in Snippets rounds in Chromium against a local server, checks that no response, saved data or page text named the song before the round ended, that the win ranked, and that a cheat panel bans the account.
+- `scripts/snippet-rounds-smoke.cjs` makes four test stem packs with ffmpeg, plays signed-in Snippets rounds in Chromium against a local server, checks that no response, saved data or page text named the song before the round ended, that a round from its four-song pool doesn't rank, and that a cheat panel bans the account and its code is captured.
 - `scripts/bans-browser-smoke.cjs` checks the banned screen, the leaderboard button and the admin panels at desktop and phone sizes.
 - `scripts/review-leaderboard.cjs` is a read-only report of how existing accounts' numbers change under these rules.
+
+## Server-checked Daily
+
+With `dailyHideAnswer: true` on the website, `/api/daily` sends no song, its id is a keyed hash (`v2:<date>:<hash>`) instead of one naming the song, and its audio is numbered (`api/daily/audio/<n>`) instead of naming a stem folder. The page plays through `POST /api/account/daily` (`state`, `guess`, `skip`): the server checks each guess with the game's `matchesSong` and sends the song only when the round is won or lost. There is one round per account per day, kept in the account itself so it follows the player between devices; signed out, one per device (or network without a device id), kept in memory. Accounts' Daily results for today and yesterday come only from these rounds; a synced Daily result is ignored. Desktop copies 1.13 and later pass the checked Daily through; older ones can't read it and show the Daily as unavailable until they update.

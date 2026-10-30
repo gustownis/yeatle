@@ -18,10 +18,12 @@ function createDailyAuthority(origin, fetchJson) {
     if (pending) return pending;
     pending = (async () => {
       const daily = await fetchJson(new URL("/api/daily", url).href, { "X-Yeatle-Daily-Proxy": "1" });
-      if (!daily || typeof daily.id !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(daily.date) || !daily.song?.id ||
+      // A checked Daily (the website keeps the answer) has no song and numbered audio.
+      const checked = daily?.checked === true;
+      if (!daily || typeof daily.id !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(daily.date) || (!checked && !daily.song?.id) ||
           !Number.isInteger(daily.seed) || !Number.isFinite(daily.clipAt) || daily.clipAt < 0 || !Number.isFinite(daily.serverTime) || !Number.isFinite(daily.resetsAt) ||
           daily.serverTime >= daily.resetsAt || !Array.isArray(daily.audio) || ![1, 4].includes(daily.audio.length) ||
-          !daily.audio.every(audio => typeof audio === "string" && /^(Songs\/|api\/daily\/audio\?)/.test(audio) && new URL(audio, url).origin === url.origin)) {
+          !daily.audio.every(audio => typeof audio === "string" && (checked ? /^api\/daily\/audio\/\d\?/ : /^(Songs\/|api\/daily\/audio\?)/).test(audio) && new URL(audio, url).origin === url.origin)) {
         throw new Error("The daily host did not return a valid 1.11 challenge");
       }
       receivedAt = performance.now();

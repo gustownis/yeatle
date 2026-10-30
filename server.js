@@ -84,7 +84,12 @@ const DEFAULT_CONFIG = {
   bannedJobsUrl: "https://www.indeed.com/",
   // The Daily only picks songs from this era and the eras after it (by the tracker's
   // dates). "" lets it pick from every era. A day's song never changes once chosen.
-  dailyFromEra: "Alive"
+  dailyFromEra: "Alive",
+  // Keep the Daily's answer on this server: the page gets no song, guesses are checked here
+  // and accounts' Daily results come only from those checks. Desktop apps older than 1.13
+  // can't play a Daily like this, so turn it on once 1.13 is out. Only the website that
+  // picks the Daily (dailyAuthority "") uses it.
+  dailyHideAnswer: false
 };
 
 function loadJson(file, fallback) {
@@ -117,15 +122,20 @@ if (!Number.isInteger(CONFIG.port) || CONFIG.port < 0 || CONFIG.port > 65535 ||
 const httpUrl = value => { try { return ["http:", "https:"].includes(new URL(value).protocol); } catch { return false; } };
 if (!Array.isArray(CONFIG.trustedProxies) || CONFIG.trustedProxies.some(ip => typeof ip !== "string" || !normalIp(ip)) ||
     !Number.isFinite(CONFIG.ipRestrictionDays) || CONFIG.ipRestrictionDays < 0 || CONFIG.ipRestrictionDays > 3650 ||
-    typeof CONFIG.bannedJobsUrl !== "string" || !httpUrl(CONFIG.bannedJobsUrl) || typeof CONFIG.dailyFromEra !== "string") {
-  console.error("Invalid Yeatle settings. trustedProxies must be a list of IP addresses, ipRestrictionDays a number from 0 to 3650, bannedJobsUrl an http(s) address, and dailyFromEra an era name or \"\".");
+    typeof CONFIG.bannedJobsUrl !== "string" || !httpUrl(CONFIG.bannedJobsUrl) || typeof CONFIG.dailyFromEra !== "string" || typeof CONFIG.dailyHideAnswer !== "boolean") {
+  console.error("Invalid Yeatle settings. trustedProxies must be a list of IP addresses, ipRestrictionDays a number from 0 to 3650, bannedJobsUrl an http(s) address, dailyFromEra an era name or \"\", and dailyHideAnswer true or false.");
   process.exit(1);
 }
 const TRUSTED_PROXIES = CONFIG.trustedProxies.map(normalIp);
 
 // Leaderboard rankings only count songs that exist in this server's catalog (current or
 // former ids). Until the catalog has loaded no id counts, so invented ids never slip through.
-let leaderboardStore, signalHasher;
+let leaderboardStore, signalHasher, LEADERBOARD_SECRET;
+// A day's Daily id. Saved ids name the song (v1:date:songId), so with the answer kept on
+// the server the page gets a keyed hash of it instead.
+const publicDailyId = (saved, date) => CONFIG.dailyHideAnswer
+  ? `v2:${date}:${crypto.createHmac("sha256", LEADERBOARD_SECRET).update(`daily:${saved.id}`).digest("hex").slice(0, 20)}`
+  : saved.id;
 // The game's own Daily guess matching, used to confirm a won Daily's right guess.
 let snippetRules = null;
 import(pathToFileURL(path.join(__dirname, "build", "assets", "snippet-rules.mjs")).href).then(m => { snippetRules = m; }, err => console.warn(`[leaderboard] ${err.message}`));
@@ -135,7 +145,8 @@ const karaokeScoring = import(pathToFileURL(path.join(__dirname, "build", "asset
 karaokeScoring.catch(err => console.warn(`[leaderboard] ${err.message}`));
 try {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  signalHasher = createSignalHasher(loadSecret(path.join(DATA_DIR, "leaderboard-secret.json")));
+  LEADERBOARD_SECRET = loadSecret(path.join(DATA_DIR, "leaderboard-secret.json"));
+  signalHasher = createSignalHasher(LEADERBOARD_SECRET);
   leaderboardStore = createLeaderboardStore(path.join(DATA_DIR, "leaderboard-users.json"), {
     canonicalSongId: id => {
       const song = SONG_INDEX.get(id);
@@ -150,9 +161,22 @@ try {
     checkDailyWin: (date, entry) => {
       const saved = dailyChallenge.saved(date);
       const right = entry.attempts[entry.attempts.length - 1];
-      return Boolean(saved && snippetRules && entry.id === saved.id && right?.kind === "right" && snippetRules.matchesSong(publicSong(saved.song), right.text));
+      return Boolean(saved && !CONFIG.dailyHideAnswer && snippetRules && entry.id === saved.id && right?.kind === "right" && snippetRules.matchesSong(publicSong(saved.song), right.text));
     },
-    currentDailyId: date => dailyChallenge.saved(date)?.id || null,
+    currentDailyId: date => { const saved = dailyChallenge.saved(date); return saved ? publicDailyId(saved, date) : null; },
+    snippetPool: (pool, excludedEras) => snippetPoolIds(pool, excludedEras),
+    dailyToday: now => {
+      if (!CONFIG.dailyHideAnswer || CONFIG.dailyAuthority) return null;
+      const date = new Date(now).toISOString().slice(0, 10);
+      const saved = dailyChallenge.saved(date);
+      if (!saved) return null;
+      const pub = publicSong(saved.song);
+      return {
+        date, id: publicDailyId(saved, date), tries: 6,
+        matches: text => Boolean(snippetRules && snippetRules.matchesSong(pub, text)),
+        reveal: () => ({ display: pub.display, title: pub.title, era: pub.era || "", eraYear: pub.eraYear || null, year: pub.year || null, tab: pub.tab || "", relatedRecording: pub.relatedRecording || "" })
+      };
+    },
     snippetSong: (id, pool) => {
       const entry = snippetEntry(id, pool);
       if (!entry) return null;
@@ -1905,6 +1929,9 @@ async function serveSongAudio(req, res, id, pinnedSong) {
   }
 }
 
+// serveStatic decodes its path, so folder names (which may hold "%" or "#") go in encoded.
+const encodePath = folder => String(folder).split("/").map(encodeURIComponent).join("/");
+
 // A Snippets round's audio, named only by the round. Copies of the game pass the bytes on
 // from the shared website, which holds the round.
 async function serveRoundAudio(req, res, roundId, stem) {
@@ -1919,7 +1946,7 @@ async function serveRoundAudio(req, res, roundId, stem) {
   if (!entry) return sendJson(res, 404, { error: "This round has expired. Start a new song." });
   if (stem) {
     if (!entry.stems) return sendJson(res, 404, { error: "Not found" });
-    return serveStatic(req, res, `/Songs/${entry.raw.folder}/${stem}.mp3`, { noStore: true });
+    return serveStatic(req, res, `/Songs/${encodePath(entry.raw.folder)}/${stem}.mp3`, { noStore: true });
   }
   return serveSongAudio(req, res, entry.raw.audioId || entry.raw.id, entry.raw);
 }
@@ -2195,6 +2222,21 @@ function dailyEraSongs(songs) {
     console.warn(`[daily] No songs from the "${CONFIG.dailyFromEra}" era onwards were found, so the Daily uses every era. Check dailyFromEra in config.json.`);
   }
   return songs;
+}
+
+// Every song a Snippets round could pick in a pool with some eras excluded, the way the
+// game builds its own list (songsForPool, then the era filter). Cached per catalog.
+let poolCache = { songs: null, byPool: new Map() };
+function snippetPoolIds(pool, excludedEras) {
+  if (!songPools) return null;
+  if (poolCache.songs !== SONGS) poolCache = { songs: SONGS, byPool: new Map() };
+  let list = poolCache.byPool.get(pool);
+  if (!list) {
+    list = songPools.songsForPool(SONGS.filter(s => !isHidden(s) && isGuessingEligible(s)).map(publicSong), pool).map(s => ({ id: s.id, era: s.era || "No era listed" }));
+    poolCache.byPool.set(pool, list);
+  }
+  const excluded = new Set(excludedEras);
+  return list.filter(s => !excluded.has(s.era)).map(s => s.id);
 }
 
 // A song as a Snippets round in one pool sees it: the public entry the page would have
@@ -3466,6 +3508,7 @@ async function handleLeaderboard(req, res, pathname) {
       case "karaoke-start": result = leaderboardStore.startKaraokeRun(token, body || {}, now, ctx); break;
       case "karaoke-submit": result = leaderboardStore.submitKaraokeRun(token, body || {}, await karaokeScoring, now, ctx); break;
       case "round-start": result = leaderboardStore.startSnippetRound(token, body || {}, now, ctx); break;
+      case "daily": result = leaderboardStore.dailyRoundAct(token, body || {}, now, ctx); break;
       case "round-act": result = leaderboardStore.snippetRoundAct(token, body || {}, now, ctx); break;
       case "report": result = leaderboardStore.reportCheatTool(token, body || {}, now, ctx); break;
     }
@@ -3566,6 +3609,7 @@ const ACCOUNT_ROUTES = Object.fromEntries([
   ["POST /api/account/karaoke/start", "karaoke-start", 240, 60, HOUR],
   ["POST /api/account/karaoke/submit", "karaoke-submit", 240, 60, HOUR],
   ["POST /api/account/round/start", "round-start", 1200, 120, MINUTE],
+  ["POST /api/account/daily", "daily", 1200, 120, MINUTE],
   ["POST /api/account/round/act", "round-act", 2400, 240, MINUTE],
   ["POST /api/account/report", "report", 120, 20, HOUR]
 ].map(([key, name, ip, device, window]) => [key, { name, ip, device, window }]));
@@ -3652,16 +3696,27 @@ const server = http.createServer(async (req, res) => {
       // A withdrawn song is unavailable for the rest of the day; never give
       // different players a replacement challenge under the same date.
       if (isHidden(daily.song)) return sendJson(res, 503, { error: "Today's song has been withdrawn. Come back after midnight UTC." });
-      if (pathname === "/api/daily/audio") {
-        if (searchParams.get("challenge") !== daily.id) return sendJson(res, 409, { error: "A new daily challenge is available. Reload Daily." });
+      const id = publicDailyId(daily, daily.date);
+      const stemParts = daily.song.mode === "stems" && !daily.song.fallback ? ["drums", "bass", "other", "vocals"] : null;
+      if (pathname === "/api/daily/audio" || dailyAudio) {
+        if (searchParams.get("challenge") !== id) return sendJson(res, 409, { error: "A new daily challenge is available. Reload Daily." });
+        // Numbered audio never names the song: stems by their position, or the full file.
+        const index = dailyAudio ? Number(dailyAudio[1]) : 0;
+        if (stemParts) {
+          if (!dailyAudio || !stemParts[index]) return sendJson(res, 404, { error: "Daily audio not found." });
+          return serveStatic(req, res, `/Songs/${encodePath(daily.song.folder)}/${stemParts[index]}.mp3`, { noStore: true });
+        }
+        if (index !== 0) return sendJson(res, 404, { error: "Daily audio not found." });
         return serveSongAudio(req, res, daily.song.id, daily.song);
       }
       const song = publicSong(daily.song);
-      const audio = song.mode === "stems" && !daily.song.fallback
-        ? ["drums", "bass", "other", "vocals"].map(stem => `Songs/${song.folder.split("/").map(encodeURIComponent).join("/")}/${stem}.mp3`)
-        : [`api/daily/audio?challenge=${encodeURIComponent(daily.id)}`];
-      return sendJson(res, 200, { id: daily.id, date: daily.date, seed: daily.seed, clipAt: daily.clipAt, resetsAt: daily.resetsAt, serverTime: daily.serverTime,
-        scope: CONFIG.dailyPublicUrl ? "global" : "local", shareUrl: cleanDailyUrl(CONFIG.dailyPublicUrl) || undefined, song, audio });
+      const audio = CONFIG.dailyHideAnswer
+        ? (stemParts || ["full"]).map((_, index) => `api/daily/audio/${index}?challenge=${encodeURIComponent(id)}`)
+        : stemParts ? stemParts.map(stem => `Songs/${song.folder.split("/").map(encodeURIComponent).join("/")}/${stem}.mp3`)
+        : [`api/daily/audio?challenge=${encodeURIComponent(id)}`];
+      return sendJson(res, 200, { id, date: daily.date, seed: daily.seed, clipAt: daily.clipAt, resetsAt: daily.resetsAt, serverTime: daily.serverTime,
+        scope: CONFIG.dailyPublicUrl ? "global" : "local", shareUrl: cleanDailyUrl(CONFIG.dailyPublicUrl) || undefined,
+        ...(CONFIG.dailyHideAnswer ? { checked: true } : { song }), audio });
     }
 
     if (pathname === "/api/cover") return serveCover(res, searchParams.get("era") || "");

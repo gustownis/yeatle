@@ -517,6 +517,7 @@ text editor, and restart. For example:
 | `ipRestrictionDays` | Server: how long a banned account's recent network addresses can't sign up or sign in; default 30. Device and account bans last until an unban |
 | `bannedJobsUrl` | The http(s) link under the banned screen's message; default `https://www.indeed.com/` |
 | `dailyFromEra` | The Daily only picks songs from this era and later ones, by the tracker's dates; default `"Alive"` (Alivë), `""` for every era. A day's song never changes once chosen. Only the `dailyAuthority` website picks the Daily |
+| `dailyHideAnswer` | Website only: keep the Daily's answer on the server and check guesses there, so nothing in the browser can read it; default `false`. Desktop apps before 1.13 can't play a Daily like this, so turn it on once 1.13 is released |
 
 A server with `stemDownloads` on lists only folders holding all four stems as
 real files inside its Songs folder (symlinks are skipped), hashes them once in

@@ -1,5 +1,6 @@
 import { BASE_LENGTHS, matchesSong, restoreRound, shareResult } from "./snippet-rules.mjs?v=1.12.0";
 import { attachSongSuggestions } from "./song-suggestions.mjs?v=1.12.0";
+import { dailyRounds } from "./leaderboard.mjs?v=1.12.0";
 
 const $ = selector => document.querySelector(selector);
 const suggestions = attachSongSuggestions($("#guess"), $("#song-suggestions"));
@@ -154,8 +155,36 @@ async function play() {
   }
 }
 
+// A checked Daily (challenge.checked): the website keeps the answer, checks each guess and
+// sends the song only when the round is over. The round lives on the server, so it follows
+// a signed-in player between devices.
+function applyServerRound(result) {
+  round = { id: result.id, attempts: result.attempts, status: result.status };
+  if (result.song) challenge.song = result.song;
+  save();
+}
+
+async function checkedAttempt(text, skip) {
+  const current = challenge;
+  busy = true;
+  stop();
+  render();
+  try {
+    const result = await dailyRounds.act({ challenge: current.id, kind: skip ? "skip" : "guess", text });
+    if (challenge !== current) return;
+    applyServerRound(result);
+    $("#guess").value = "";
+    suggestions.close();
+  } catch (error) {
+    if (challenge === current) notice(`${error.message} No attempt was used.`);
+  } finally {
+    if (challenge === current) { busy = false; render(); }
+  }
+}
+
 function attempt(text, skip = false) {
   if (!challenge || !ready || busy || expired()) return;
+  if (challenge.checked) { if (round.status === "playing") checkedAttempt(text, skip); return; }
   if (storageAvailable) round = readRound();
   if (round.status !== "playing") { render(); return; }
   const correct = !skip && matchesSong(challenge.song, text);
@@ -189,15 +218,18 @@ async function loadChallenge() {
     serverAt = body.serverTime;
     storageKey = `yeatle:daily:${body.date}`;
     round = readRound();
+    if (body.checked) applyServerRound(await dailyRounds.act({ challenge: body.id, kind: "state" }));
     $("#day").textContent = `${body.date} · ${body.scope === "global" ? "Same song and clip for every Yeatle player" : "Local test · shared by this server's clients"}`;
     $("#game").hidden = false;
     notice(round.status === "playing" ? "Tap Play to load today's song." : "Today's result is saved. Share it or keep playing Snippets.");
     render();
     // Suggestions are optional; the pinned answer remains guessable after a tracker edit.
-    suggestions.setSongs([body.song]);
+    // A checked Daily has no song to add: it would give the answer away.
+    const pinned = body.checked ? [] : [body.song];
+    suggestions.setSongs(pinned);
     fetch("api/songs").then(r => r.json()).then(list => {
       if (challenge !== body) return;
-      suggestions.setSongs([body.song, ...(list.songs || [])]);
+      suggestions.setSongs([...pinned, ...(list.songs || [])]);
     }).catch(() => {});
   } catch (error) { challenge = null; notice(error.message); $("#retry").hidden = false; }
   finally { loading = false; render(); }
@@ -224,7 +256,7 @@ $("#share").onclick = async () => {
   }
 };
 addEventListener("storage", event => { if (challenge && event.key === storageKey) { stop(); round = readRound(); render(); } });
-addEventListener("yeatle:progress-synced", () => { if (challenge) { stop(); round = readRound(); render(); } });
+addEventListener("yeatle:progress-synced", () => { if (challenge && !challenge.checked) { stop(); round = readRound(); render(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden) { stop(); render(); } else expired(); });
 addEventListener("pagehide", dispose);
 setInterval(() => {

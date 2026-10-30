@@ -248,3 +248,55 @@ test("replacing today's Daily from the admin panel moves accounts to the new son
   assert.equal(after.progress.daily[today].status, "won");
   assert.equal((await sync(lostOld)).account.progress.daily[today].status, "won", "a stale device can't put the old result back");
 });
+
+test("with dailyHideAnswer the Daily's answer stays on the server until the round is over", async t => {
+  const dir = folder(t);
+  const song = (id, era) => ({ id, title: id, display: `${id} (feat. Test)`, era, keys: [id], mode: "filter", length: "2:30", source: { kind: "url", id: `https://audio.invalid/${id}` } });
+  fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "", dailyFromEra: "", dailyHideAnswer: true }));
+  fs.writeFileSync(path.join(dir, "songs-cache.json"), JSON.stringify({ format: 3, updated: 1, eras: [], songs: [song("hiddensongname", "2093")] }));
+  const url = await server(t, dir);
+  const clientDir = folder(t);
+  fs.writeFileSync(path.join(clientDir, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: url }));
+  const copy = await server(t, clientDir);
+  const post = (base, pathname, body, headers = {}) => fetch(`${base}${pathname}`, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
+
+  const res = await fetch(`${url}/api/daily`);
+  const text = await res.text();
+  const daily = JSON.parse(text);
+  assert.equal(daily.checked, true);
+  assert.equal(daily.song, undefined);
+  assert.match(daily.id, /^v2:\d{4}-\d{2}-\d{2}:[a-f0-9]{20}$/);
+  assert.ok(!/hiddensongname/.test(text), "neither the song nor its id is in the Daily");
+  assert.deepEqual(daily.audio, [`api/daily/audio/0?challenge=${encodeURIComponent(daily.id)}`]);
+
+  const reg = await (await post(url, "/api/account/register", { username: "mat", password: "yeatfan1" })).json();
+  const auth = { Authorization: `Bearer ${reg.token}` };
+  const act = (body, headers = auth, base = url) => post(base, "/api/account/daily", { challenge: daily.id, ...body }, headers).then(async r => ({ status: r.status, body: await r.json() }));
+
+  let r = await act({ kind: "guess", text: "talk" });
+  assert.deepEqual([r.body.status, r.body.attempts.length, r.body.song], ["playing", 1, undefined], "a wrong guess reveals nothing");
+  r = await act({ kind: "skip" });
+  assert.equal(r.body.attempts.length, 2);
+  // A forged sync can't add a Daily result while the server keeps the round.
+  const forged = { [daily.date]: { id: daily.id, attempts: [{ kind: "right", text: "x" }], status: "won" } };
+  const synced = await (await post(url, "/api/account/sync", { progress: { daily: forged } }, auth)).json();
+  assert.equal(synced.account.progress.daily[daily.date].status, "playing");
+  r = await act({ kind: "guess", text: "hiddensongname" });
+  assert.equal(r.body.status, "won");
+  assert.equal(r.body.song.display, "hiddensongname (feat. Test)", "the song arrives with the result");
+  assert.equal((await act({ kind: "guess", text: "again" })).status, 409, "one round a day");
+  const me = await (await fetch(`${url}/api/account/me`, { headers: auth })).json();
+  assert.equal(me.account.progress.daily[daily.date].verified, true);
+  assert.equal(me.account.metrics.dailyWins, 1);
+  assert.equal((await act({ kind: "state" })).body.status, "won", "the round follows the account to another device");
+
+  // Signed out, a device keeps its own round; a desktop copy passes the checked Daily through.
+  const device = { "X-Yeatle-Device": "a".repeat(32) };
+  assert.equal((await act({ kind: "skip" }, device)).body.attempts.length, 1);
+  assert.equal((await act({ kind: "state" }, device)).body.attempts.length, 1);
+  const copied = await (await fetch(`${copy}/api/daily`)).json();
+  assert.equal(copied.id, daily.id);
+  assert.equal(copied.song, undefined);
+  assert.equal((await act({ kind: "state" }, device, copy)).body.attempts.length, 1, "the copy forwards the device and reaches the same round");
+  assert.equal((await act({ kind: "guess", text: "x", challenge: "v2:old" }, device)).status, 409);
+});

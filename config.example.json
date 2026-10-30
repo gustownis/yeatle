@@ -18,5 +18,6 @@
   "trustedProxies": [],
   "ipRestrictionDays": 30,
   "bannedJobsUrl": "https://www.indeed.com/",
-  "dailyFromEra": "Alive"
+  "dailyFromEra": "Alive",
+  "dailyHideAnswer": false
 }

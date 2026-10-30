@@ -61,7 +61,7 @@ function startServer() {
   const started = page.waitForResponse(res => res.url().includes("/api/account/round/start"));
   await page.getByRole("tab", { name: "Snippets", exact: true }).click();
   const start = await (await started).json();
-  assert.deepEqual(Object.keys(start).sort(), ["roundId", "scope", "stems", "tries"]);
+  assert.deepEqual(Object.keys(start).sort(), ["ranked", "roundId", "scope", "stems", "tries"]);
   await page.waitForResponse(res => res.url().includes(`/api/audio/round-${start.roundId}`));
   result.checks.audioByRound = true;
 
@@ -93,8 +93,11 @@ function startServer() {
 
   await page.waitForTimeout(1500);
   const board = await page.evaluate(() => fetch("api/leaderboard", { headers: { Authorization: `Bearer ${JSON.parse(localStorage.getItem("yeatle:account")).token}` } }).then(r => r.json()));
-  assert.equal(board.boards.snippet.viewer.primary, 1, "the verified win ranks");
-  result.checks.ranked = true;
+  // Four test songs are fewer than a ranked round needs (100), so this win doesn't rank;
+  // tests/snippet-rounds.test.cjs covers ranked wins.
+  assert.equal(start.ranked, false);
+  assert.equal(board.boards.snippet.viewer.primary, 0, "a round from a tiny pool doesn't rank");
+  result.checks.smallPoolUnranked = true;
 
   // The next round starts on its own and is a different, still hidden, song.
   await page.locator("text=Next song").first().click().catch(() => {});
