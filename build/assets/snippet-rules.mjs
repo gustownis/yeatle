@@ -8,7 +8,12 @@ export function normalizeGuess(text) {
 
 export function matchesSong(song, text) {
   const key = normalizeGuess(text);
-  if (!key) return false;
+  return Boolean(key) && acceptedKeys(song).has(key);
+}
+
+// Every normalized answer a song accepts. Linked recordings (open verses,
+// features, duplicates) arrive already merged into song.answerKeys.
+export function acceptedKeys(song) {
   const keys = new Set([...(song.keys || []), ...(song.answerKeys || []), song.title, song.display]
     .map(normalizeGuess).filter(Boolean));
   // Expand a maintained alias with this recording's actual guests. Selecting
@@ -28,7 +33,7 @@ export function matchesSong(song, text) {
       for (const prefix of ["feat", "ft", "with"]) keys.add(`${title}${prefix}${name}`);
     }
   }
-  return keys.has(key);
+  return keys;
 }
 
 export function restoreRound(saved, id) {

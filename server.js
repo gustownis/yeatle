@@ -31,7 +31,7 @@ const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs")
 const { createLeaderboardStore } = require("./leaderboard.cjs");
 const { DEVICE_HEADER, cleanDeviceId, clientIp, normalIp, loadSecret, createSignalHasher, createRateLimiter } = require("./client-signals.cjs");
 const { pathToFileURL } = require("url");
-const { creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
+const { guessKeys, answerGroupFor, groupAnswerKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
 const APP_VERSION = require("./package.json").version;
@@ -915,19 +915,6 @@ function saveSplits() {
 }
 
 const SOURCE_RANK = { stems: 0, pillows: 1, drive: 1, exofile: 1, exoshare: 1, pixeldrain: 1, imgur: 1, url: 1, apple: 2, search: 3 };
-
-function guessKeys(entry) {
-  const keys = new Set();
-  const add = value => { const k = norm(value); if (k.length >= 1) keys.add(k); };
-
-  add(entry.title);
-  add(entry.title.replace(/\s*\(.*?\)\s*/g, " "));
-  // "Drake - IDGAF" also answers to "IDGAF"
-  if (/ - /.test(entry.title)) add(entry.title.split(" - ").slice(1).join(" - "));
-  (entry.features || []).forEach(f => add(`${entry.title} (${f})`));
-  (entry.aliases || []).forEach(add);
-  return [...keys];
-}
 
 // Tracker "Type" values such as "Hosted Throwaway", "SoundCloud Throwaway" and
 // "Yeat Archive Throwaway": songs that surfaced in an era without being part of it.
@@ -2218,10 +2205,22 @@ function serveStemFile(req, res, searchParams) {
 const JOKES_FILE = path.join(DATA_DIR, "joke-photos.json");
 let preparedSongList;
 
+// Names a song also answers to through its catalog answer group, cached per catalog.
+let groupKeyCache = { index: null, rules: null, byGroup: new Map() };
+function linkedAnswerKeys(id) {
+  const group = answerGroupFor(id);
+  if (!group) return null;
+  if (groupKeyCache.index !== SONG_INDEX || groupKeyCache.rules !== snippetRules) groupKeyCache = { index: SONG_INDEX, rules: snippetRules, byGroup: new Map() };
+  if (!groupKeyCache.byGroup.has(group)) groupKeyCache.byGroup.set(group, [...groupAnswerKeys(group, member => SONG_INDEX.get(member), snippetRules?.acceptedKeys)]);
+  return groupKeyCache.byGroup.get(group);
+}
+
 function publicSong(song) {
   // Correct names/answers on a pinned challenge without changing its stored
   // recording, identity, clip start or source selection.
   song = applyCatalogMetadata(song);
+  const linked = linkedAnswerKeys(song.id);
+  if (linked?.length) song = { ...song, answerKeys: [...new Set([...song.answerKeys || [], ...linked])] };
   const { source, fallback, mergedFrom, sourceVariants, poolVariants, ...rest } = song;
   return { ...rest, hasFull: Boolean(song.mode === "filter" || fallback),
     ...(poolVariants ? { poolVariants: Object.fromEntries(Object.entries(poolVariants).map(([pool, variant]) => [pool, publicSong(variant)])) } : {}) };

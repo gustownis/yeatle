@@ -1,4 +1,4 @@
-const { corrections, stemBindings = [], excludedRecordings = [] } = require("./catalog-metadata.json");
+const { corrections, stemBindings = [], excludedRecordings = [], answerGroups = [], sameRecordings = [] } = require("./catalog-metadata.json");
 const crypto = require("node:crypto");
 const titleKey = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -114,8 +114,68 @@ function reconcileCatalogEligibility(song, sourceRank) {
     guessingEligible: true } : {}), sourceVariants: song.sourceVariants, poolVariants };
 }
 
+// The same normalization as the server's norm() and the game's normalizeGuess().
+function answerKey(text) {
+  return String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/æ/gi, "ae").replace(/ø/gi, "o").replace(/\$/g, "s")
+    .replace(/&/g, "and").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// The tracker names a song accepts. A featured song's aliases also answer with
+// its lead artist in front: "Yung Bans - YEA X2" aliased "Yea Yea" accepts
+// "Yung Bans - Yea Yea", which is how the dropdown names the released feature.
+function guessKeys(entry) {
+  const keys = new Set();
+  const add = value => { const key = answerKey(value); if (key) keys.add(key); };
+  add(entry.title);
+  add(entry.title.replace(/\s*\(.*?\)\s*/g, " "));
+  const artist = / - /.test(entry.title) ? entry.title.split(" - ")[0] : "";
+  // "Drake - IDGAF" also answers to "IDGAF"
+  if (artist) add(entry.title.split(" - ").slice(1).join(" - "));
+  (entry.features || []).forEach(feature => add(`${entry.title} (${feature})`));
+  for (const alias of entry.aliases || []) {
+    add(alias);
+    if (artist && !answerKey(alias).startsWith(answerKey(artist))) add(`${artist} - ${alias}`);
+  }
+  return [...keys];
+}
+
+// Recordings players can't tell apart by name: open-verse demos and the
+// features they became, and the same song listed twice. Each answers to the
+// others' names but stays its own round. sameRecordings are one song listed
+// more than once: they also share an answerId (one entry in pools and
+// suggestions) and progress, and answer to each other unless a larger group
+// already holds them.
+const groupById = new Map();
+for (const group of answerGroups) for (const id of group.ids) groupById.set(id, group);
+for (const same of sameRecordings) if (!same.ids.some(id => groupById.has(id))) for (const id of same.ids) groupById.set(id, same);
+const sameById = new Map();
+for (const same of sameRecordings) for (const id of same.ids) sameById.set(id, same);
+
+function answerGroupFor(id) {
+  return groupById.get(id) || null;
+}
+
+// The union of every member's accepted names. acceptedKeys is the game's own
+// expansion (snippet-rules.mjs); lookup returns a member's catalog record.
+function groupAnswerKeys(group, lookup, acceptedKeys) {
+  const keys = new Set();
+  for (const id of group.ids) {
+    const member = lookup(id);
+    if (!member) continue;
+    const corrected = applyCatalogMetadata(member);
+    for (const key of acceptedKeys ? acceptedKeys(corrected) : [corrected.title, corrected.display, ...corrected.keys || [], ...corrected.answerKeys || []]) {
+      const normalized = answerKey(key);
+      if (normalized) keys.add(normalized);
+    }
+  }
+  return keys;
+}
+
 function applyCatalogMetadata(song) {
   let result = song;
+  const same = sameById.get(result.id);
+  if (same) result = { ...result, answerId: same.answerId, equivalentIds: same.ids.filter(id => id !== result.id) };
   for (const rule of corrections) {
     if (Object.entries(rule.match).every(([key, value]) => key === "titleKey" ? titleKey(result.title) === value : typeof value === "object" ? Object.entries(value).every(([field, expected]) => result[key]?.[field] === expected) : result[key] === value)) result = { ...result, ...rule.set };
   }
@@ -125,4 +185,4 @@ function applyCatalogMetadata(song) {
   return result;
 }
 
-module.exports = { creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility };
+module.exports = { answerKey, guessKeys, answerGroupFor, groupAnswerKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility };

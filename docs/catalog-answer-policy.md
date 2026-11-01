@@ -3,7 +3,8 @@
 A song's answer names, playable recording, artist role, release status and era
 are separate facts. A shared beat, similar name, matching runtime or era label
 does not establish identical vocal performances. Confirm an audio relationship
-before adding an interchangeable full-song answer or merging more entries.
+before merging entries or sharing progress. Linked answers that keep recordings
+separate are a maintainer decision (see Linked answers).
 
 The existing 1.11.3 catalog merges are retained. Each merged entry now also
 retains its individual source records and tracker fingerprints. Public pool
@@ -77,8 +78,15 @@ Popout's playable source is byte-identical to tracker Popout OPEN prod juju
 (181.499 s). It is labeled open verse and links its relationship to KillBunk's
 Pop Out (feat. Yeat) in information and results. The released feature retains
 its own credits, status and audio; the unrelated SUBZEROSWIZ snippet receives
-no such label. No interchangeable full-song identity between the open verse
-and completed feature is asserted.
+no such label.
+
+## Linked answers
+
+At the maintainer's request (2026-11-01), open-verse demos and the features they became answer for each other, and so do songs listed under both Yeat's and a collaborator's name or as an earlier and later version. These are listed in `answerGroups` in `catalog-metadata.json`. A guess naming any member of a group, including its exact dropdown name such as "Yung Bans - Yea Yea (feat. Yeat)" for the Yea! demo, is right for every member. Each member stays its own recording with its own credits, status, audio, eligibility and progress; the link adds answer names only, so excluded recordings such as Fleek V2 stay out of rounds. The Popout open verse and KillBunk's Pop Out are linked this way; the unrelated Popout snippets are not.
+
+`sameRecordings` lists one recording that appears in more than one entry, such as two tracker rows that link the same pillows.su file. These share an `answerId` (one entry in pools and suggestions) and `equivalentIds` (shared progress) as well as their names. The released Krank and its Lyfë OG file row are listed this way; the separate 2 Alivë Chains demo is hidden.
+
+Links apply when the server sends a song, including pinned Daily challenges, without changing a stored challenge. Feature titles also accept their aliases with the lead artist in front. `scripts/answer-groups-check.cjs` checks every group against a running server with the real tracker, and `tests/answer-groups.test.cjs` checks them against saved tracker records.
 
 Guess matching is exact after accent, case and punctuation normalization.
 Maintained aliases can be combined with this recording's actual featured
