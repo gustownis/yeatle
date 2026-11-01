@@ -36,10 +36,15 @@ test("desktop permission checks and requests allow only same-origin microphone a
   installMicrophonePermissions({ setPermissionCheckHandler(fn) { check = fn; }, setPermissionRequestHandler(fn) { request = fn; } }, "http://127.0.0.1:3094");
   const origin = "http://127.0.0.1:3094";
   assert.equal(check(null, "media", origin, { mediaType: "audio" }), true);
+  assert.equal(check(null, "media", "about:blank", { mediaType: "audio", requestingUrl: "about:blank", securityOrigin: origin + "/" }), true);
+  assert.equal(check(null, "media", "about:blank", { mediaType: "audio", requestingUrl: "about:blank", securityOrigin: "https://example.org" }), false);
   for (const mediaType of ["video", "unknown", undefined]) assert.equal(check(null, "media", origin, { mediaType }), false);
   for (const url of ["https://example.org", "http://127.0.0.1:3093", "invalid"]) assert.equal(check(null, "media", url, { mediaType: "audio" }), false);
   const ask = (permission, details) => { let allowed; request(null, permission, value => { allowed = value; }, details); return allowed; };
   assert.equal(ask("media", { mediaTypes: ["audio"], requestingUrl: origin + "/karaoke.html" }), true);
+  assert.equal(ask("media", { mediaTypes: ["audio"], requestingUrl: "about:blank", securityOrigin: origin + "/" }), true);
+  assert.equal(ask("media", { mediaTypes: ["audio"], requestingUrl: "about:blank", securityOrigin: "https://example.org" }), false);
+  assert.equal(ask("media", { mediaTypes: ["audio"], requestingUrl: "about:blank" }), false);
   for (const types of [[], ["video"], ["audio", "video"], undefined]) assert.equal(ask("media", { mediaTypes: types, requestingUrl: origin }), false);
   assert.equal(ask("media", { mediaTypes: ["audio"], requestingUrl: "https://example.org" }), false);
   assert.equal(ask("media"), false);

@@ -807,7 +807,20 @@ async function enableMics() {
   }
   try {
     audioCtx().resume();
-    const probe = await mediaDevices().getUserMedia({ audio: true });
+    let probe;
+    try {
+      probe = await mediaDevices().getUserMedia({ audio: true });
+    } catch (firstErr) {
+      if (useCleanAudio && audioRealm() !== globalThis) {
+        useCleanAudio = false;
+        try { audioContext?.close(); } catch { /* already closed */ }
+        audioContext = null;
+        audioCtx().resume();
+        probe = await mediaDevices().getUserMedia({ audio: true });
+      } else {
+        throw firstErr;
+      }
+    }
     probe.getTracks().forEach(track => track.stop());
     mics.allowed = true;
     mics.error = "";
@@ -818,7 +831,7 @@ async function enableMics() {
     mics.error = err.name === "NotAllowedError"
       ? (globalThis.yeatleDesktop
         ? "Microphone access was blocked by your computer. Click Microphone settings below (or Developer → Microphone Settings) to allow desktop apps to use your mic, then click Turn on mics."
-        : "Microphone access was blocked. Allow it in the address bar or click Microphone settings below, then try again.")
+        : "Microphone access was blocked. Allow it in the address bar and try again.")
       : `Couldn't open a microphone (${err.message || err.name}).`;
     renderPlayers();
     return false;
@@ -1197,7 +1210,7 @@ function renderPlayers() {
   }));
   $("#add-player").hidden = settings.players.length >= 4;
   $("#enable-mics").hidden = mics.allowed && mics.detectors.some(Boolean);
-  $("#mic-settings").hidden = !(globalThis.yeatleDesktop ? (!mics.allowed || Boolean(mics.error)) : Boolean(mics.error));
+  $("#mic-settings").hidden = !(globalThis.yeatleDesktop && (!mics.allowed || Boolean(mics.error)));
   $("#mic-error").textContent = mics.error;
 }
 
