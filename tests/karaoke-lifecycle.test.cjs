@@ -18,13 +18,13 @@ function deferred() {
 function harness(extra = {}) {
   const nodes = new Map();
   const node = id => {
-    if (!nodes.has(id)) nodes.set(id, { id: id.slice(1), hidden: false, style: { setProperty() {} }, classList: { toggle() {}, remove() {}, add() {} } });
+    if (!nodes.has(id)) nodes.set(id, { id: id.slice(1), hidden: false, replaceChildren() {}, style: { setProperty() {} }, classList: { toggle() {}, remove() {}, add() {} } });
     return nodes.get(id);
   };
   const context = vm.createContext({
     URL, URLSearchParams, AbortController, setTimeout, clearTimeout, Float32Array,
     localStorage: { getItem() { return null; } },
-    navigator: {}, document: { getElementById: () => null, querySelector: node, querySelectorAll: () => [node("#setup"), node("#loading")] },
+    navigator: {}, document: { createElement: () => ({ style: {}, setAttribute() {}, addEventListener() {}, append() {} }), getElementById: () => null, querySelector: node, querySelectorAll: () => [node("#setup"), node("#loading")] },
     ...extra
   });
   vm.runInContext(source, context);
@@ -232,4 +232,26 @@ test("a paused skip is ignored and a resumed skip does not count in again", () =
   assert.equal(h.starts.length, 2);
   assert.equal(h.beeps.length, 0);
   assert.ok(h.starts.every(start => start.offset === 42));
+});
+
+test("blocked microphone access in the desktop app points to Microphone Settings instead of an address bar", async () => {
+  let settingsOpened = 0;
+  const h = harness({
+    yeatleDesktop: true,
+    yeatleOpenMicSettings() { settingsOpened++; },
+    navigator: {
+      mediaDevices: {
+        getUserMedia: () => Promise.reject(Object.assign(new Error("Permission denied"), { name: "NotAllowedError" }))
+      }
+    }
+  });
+  h.context.ctx = { resume() {} };
+  h.run("audioContext = ctx");
+  const ok = await h.run("enableMics()");
+  assert.equal(ok, false);
+  assert.match(h.node("#mic-error").textContent, /Microphone settings/);
+  assert.doesNotMatch(h.node("#mic-error").textContent, /address bar/);
+  assert.equal(h.node("#mic-settings").hidden, false);
+  h.run("openMicSettings()");
+  assert.equal(settingsOpened, 1);
 });

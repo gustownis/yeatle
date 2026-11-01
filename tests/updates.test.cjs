@@ -91,14 +91,17 @@ test("release preparation creates matching SHA-512 feeds for Windows and both Li
 });
 
 test("Developer menu owns developer tools and admin; Help exposes updates", () => {
-  let opened = false;
-  const menus = menuTemplate({ platform: "win32", openAdmin: () => { opened = true; }, updateStatus: "Check for Updates", updating: false });
+  let opened = false, micOpened = false;
+  const menus = menuTemplate({ platform: "win32", openAdmin: () => { opened = true; }, openMicSettings: () => { micOpened = true; }, updateStatus: "Check for Updates", updating: false });
   assert.deepEqual(menus.map(item => item.label), ["Game", "View", "Developer", "Help"]);
   assert.equal(menus.find(item => item.label === "View").submenu.some(item => item.role === "toggleDevTools"), false);
   const developer = menus.find(item => item.label === "Developer");
   assert.equal(developer.submenu[0].role, "toggleDevTools");
   developer.submenu[1].click();
   assert.equal(opened, true);
+  assert.equal(developer.submenu[2].label, "Microphone Settings");
+  developer.submenu[2].click();
+  assert.equal(micOpened, true);
   assert.equal(menus.find(item => item.label === "Help").submenu[0].label, "Check for Updates");
 });
 

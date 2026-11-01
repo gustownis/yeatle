@@ -1,4 +1,4 @@
-function menuTemplate({ platform, openBrowser, openSongs, openSettings, openAdmin, openGuide, openStemsMega, openStemsServer, checkUpdates, updateStatus, updating }) {
+function menuTemplate({ platform, openBrowser, openSongs, openSettings, openAdmin, openMicSettings, openGuide, openStemsMega, openStemsServer, checkUpdates, updateStatus, updating }) {
   return [
     ...(platform === "darwin" ? [{ role: "appMenu" }] : []),
     { label: "Game", submenu: [
@@ -14,7 +14,8 @@ function menuTemplate({ platform, openBrowser, openSongs, openSettings, openAdmi
     ] },
     { label: "Developer", submenu: [
       { label: "Toggle Developer Tools", role: "toggleDevTools" },
-      { label: "Open Admin Panel", click: openAdmin }
+      { label: "Open Admin Panel", click: openAdmin },
+      { label: "Microphone Settings", click: openMicSettings }
     ] },
     { label: "Help", submenu: [
       { label: updateStatus, enabled: !updating, click: checkUpdates },

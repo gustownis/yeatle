@@ -12,6 +12,7 @@ html:has(> body > #root > .App) { scrollbar-gutter: auto; }
 .shell, #setup .setup-grid, .daily-shell { view-transition-name: yeatle-surface; }
 .brand .logo, #setup .top .logo, .daily-shell > a > .logo { view-transition-name: yeatle-logo; }
 .modebar .tabs, #setup .top .tabs, .daily-shell > .tabs { view-transition-name: yeatle-tabs; }
+html:not(:has(.yeatle-lb-overlay:not([hidden]))) .yeatle-lb-btn { view-transition-name: yeatle-leaderboard; }
 .brand .logo { mix-blend-mode: normal; }
 
 ::view-transition-group(*) {

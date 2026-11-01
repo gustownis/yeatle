@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, shell, ipcMain, net } = require("electron");
+const { app, BrowserWindow, Menu, dialog, shell, ipcMain, net, systemPreferences } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -163,6 +163,7 @@ function refreshMenu() {
     openSongs: () => shell.openPath(songsDir()),
     openSettings: () => shell.openPath(app.getPath("userData")),
     openAdmin,
+    openMicSettings: () => openMicSettings(),
     openGuide: () => openExternal("https://github.com/gustownis/yeatle#readme"),
     openStemsMega: () => openExternal(STEMS_URL),
     openStemsServer,
@@ -197,6 +198,30 @@ function openAdmin() {
   window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
   loadWindowPage(window, `${serverUrl}/admin`, error => dialog.showErrorBox("Admin panel could not open", error.message));
 }
+
+function openMicSettings() {
+  if (gameWindow && !gameWindow.isDestroyed() && serverUrl) {
+    installMicrophonePermissions(gameWindow.webContents.session, serverUrl);
+  }
+  if (process.platform === "win32") {
+    shell.openExternal("ms-settings:privacy-microphone").catch(() => {});
+  } else if (process.platform === "darwin") {
+    systemPreferences?.askForMediaAccess?.("microphone")?.catch?.(() => {});
+    shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone").catch(() => {});
+  } else {
+    dialog.showMessageBox(gameWindow && !gameWindow.isDestroyed() ? gameWindow : undefined, {
+      type: "info",
+      title: "Microphone Settings",
+      message: "Check your system sound input settings to make sure a microphone is connected and unmuted, then click Turn on mics in Karaoke."
+    }).catch(() => {});
+  }
+}
+
+ipcMain.handle("yeatle:open-mic-settings", event => {
+  if (!gameWindow || gameWindow.isDestroyed() || event.sender !== gameWindow.webContents) return false;
+  openMicSettings();
+  return true;
+});
 
 // The game's Songs folder: the desktop data folder's "Songs", or YEATLE_STEMS_DIR when set.
 function songsDir() {

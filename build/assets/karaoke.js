@@ -789,6 +789,16 @@ class MicDetector {
 
 const mics = { allowed: false, devices: [], detectors: [], requests: [], error: "" };
 
+function openMicSettings() {
+  if (typeof globalThis.yeatleOpenMicSettings === "function") {
+    globalThis.yeatleOpenMicSettings();
+    return;
+  }
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+  if (/Windows/i.test(ua)) window.location.href = "ms-settings:privacy-microphone";
+  else if (/Macintosh|Mac OS X/i.test(ua)) window.location.href = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
+}
+
 async function enableMics() {
   if (!mediaDevices()?.getUserMedia) {
     mics.error = window.isSecureContext ? "This browser can't use a microphone." : "Microphones only work on https:// or localhost addresses.";
@@ -805,7 +815,11 @@ async function enableMics() {
     await openAllMics();
     return true;
   } catch (err) {
-    mics.error = err.name === "NotAllowedError" ? "Microphone access was blocked. Allow it in the address bar and try again." : `Couldn't open a microphone (${err.message || err.name}).`;
+    mics.error = err.name === "NotAllowedError"
+      ? (globalThis.yeatleDesktop
+        ? "Microphone access was blocked by your computer. Click Microphone settings below (or Developer → Microphone Settings) to allow desktop apps to use your mic, then click Turn on mics."
+        : "Microphone access was blocked. Allow it in the address bar or click Microphone settings below, then try again.")
+      : `Couldn't open a microphone (${err.message || err.name}).`;
     renderPlayers();
     return false;
   }
@@ -1183,6 +1197,7 @@ function renderPlayers() {
   }));
   $("#add-player").hidden = settings.players.length >= 4;
   $("#enable-mics").hidden = mics.allowed && mics.detectors.some(Boolean);
+  $("#mic-settings").hidden = !(globalThis.yeatleDesktop ? (!mics.allowed || Boolean(mics.error)) : Boolean(mics.error));
   $("#mic-error").textContent = mics.error;
 }
 
@@ -1724,7 +1739,7 @@ function finishPhrase(index) {
 
 // Signed-in rounds are ranked from Singer 1's microphone. The server issues the run when
 // the song starts and checks the trace when it ends; local best scores work as before.
-const ranking = () => import("./leaderboard.mjs?v=1.13.2").then(m => m.rankedKaraoke);
+const ranking = () => import("./leaderboard.mjs?v=1.13.3").then(m => m.rankedKaraoke);
 function startRankedRun(g) {
   g.ranked = null;
   g.trace = null;
@@ -2185,7 +2200,7 @@ async function loadSongs() {
   try {
     const res = await fetch("api/songs");
     const data = await res.json();
-    const { songsForPool } = await import("./song-pools.mjs?v=1.13.2");
+    const { songsForPool } = await import("./song-pools.mjs?v=1.13.3");
     state.songs = songsForPool(data.songs || []).slice().sort((a, b) => a.display.localeCompare(b.display));
     carryFormerIds(state.songs);
     state.artist = data.artist || "Yeat";
@@ -2208,6 +2223,7 @@ function init() {
   }));
   $("#search").addEventListener("input", renderSongList);
   $("#enable-mics").addEventListener("click", enableMics);
+  $("#mic-settings")?.addEventListener?.("click", openMicSettings);
   $("#add-player").addEventListener("click", async () => {
     if (settings.players.length >= 4) return;
     settings.players.push({ name: `Singer ${settings.players.length + 1}`, deviceId: "" });
