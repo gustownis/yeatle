@@ -15,36 +15,6 @@ The desktop app and downloaded browser version run on your computer. The desktop
 
 The desktop app checks for updates on launch. Use **Help → Check for Updates** to check again, or **Developer → Open Admin Panel** to manage songs. Developer tools live in the **Developer** menu.
 
-## What's new in 1.11
-
-Version **1.11** adds **Daily** and a new **Base** Snippets difficulty.
-
-- Daily starts with 0.1 seconds and gives everyone six tries at the same song
-  and clip. A new challenge arrives at midnight UTC.
-- Wrong guesses and skips unlock 0.5, 1, 3, 7, and 15 seconds. Your progress
-  survives reloads, and sharing shows six squares without revealing the song.
-- Desktop and local browser clients get Daily from the public website, including
-  its audio and clip start. An unavailable host offers retry of the same challenge.
-- Base is the first/default Snippets difficulty, with the same six lengths and
-  its own practice statistics. Daily keeps separate progress. Existing difficulty
-  preferences are preserved.
-- Daily joins Stems, Snippets, and Karaoke in the desktop transitions. Browsers
-  still switch immediately, and reduced motion disables desktop animation.
-- Karaoke's **No mic (just watch)** option works before microphone permission.
-
-Version **1.11.3** adds Karaoke's optional **White people mode** and lets the
-desktop app download just the HQ stem songs you pick from the server
-(**Help → Optional HQ Stems → Download from server…**). Returning from Daily to
-Stems or Snippets is now as smooth as entering it, Daily plays on iPhones with
-the silent switch on, and a few song eras and duplicate spellings are fixed.
-
-Version **1.11.4** adds **Check all** to HQ stem downloads and keeps the popup's menu bar hidden. It also fixes song answers, source filters and recording metadata, including the two Cant See versions, and removes the excluded Fleek and non-Yeat Zaza entries.
-
-Version **1.11.5** removes the requested non-Yeat demos, reference tracks and producer-only recordings from new rounds and suggestions. Same-title versions featuring Yeat remain available, and saved rounds and Daily challenges are preserved.
-
-See the [release notes](https://github.com/gustownis/yeatle/releases) for
-individual fixes and updates.
-
 ## Downloads
 
 - **Play online:** [open Yeatle](https://playyeatle.duckdns.org/) on any device with a browser. No downloads, installation, or Node.js required.
@@ -64,14 +34,14 @@ You can play without the optional stems. The built-in audio separation files dow
 
 | Computer | Downloads |
 | --- | --- |
-| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-Setup-1.13.0-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-windows-x64-portable.exe) |
-| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-mac-arm64.zip) |
-| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-mac-x64.zip) |
-| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-linux-x64.deb) |
-| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.13.0/Yeatle-1.13.0-linux-arm64.deb) |
+| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.13.1/Yeatle-Setup-1.13.1-windows-x64.exe) · [Portable app](https://github.com/gustownis/yeatle/releases/download/v1.13.1/Yeatle-1.13.1-windows-x64-portable.exe) |
+| Mac, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.13.1/Yeatle-1.13.1-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.13.1/Yeatle-1.13.1-mac-arm64.zip) |
+| Mac, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.13.1/Yeatle-1.13.1-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.13.1/Yeatle-1.13.1-mac-x64.zip) |
+| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.13.1/Yeatle-1.13.1-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.13.1/Yeatle-1.13.1-linux-x64.deb) |
+| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.13.1/Yeatle-1.13.1-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.13.1/Yeatle-1.13.1-linux-arm64.deb) |
 
 Installation steps for each OS are below.
-[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.13.0/SHA256SUMS.txt)
+[SHA-256 checksums](https://github.com/gustownis/yeatle/releases/download/v1.13.1/SHA256SUMS.txt)
 are provided with the release.
 
 ## Requirements
@@ -119,7 +89,7 @@ Cloning this public repository does not require authentication.
 
 ### Desktop app
 
-1. Download the Windows **x64 installer** (`Yeatle-Setup-1.13.0-windows-x64.exe`) for a usual
+1. Download the Windows **x64 installer** (`Yeatle-Setup-1.13.1-windows-x64.exe`) for a usual
    Intel/AMD Windows PC, or the matching portable `.exe` if offered.
 2. Run the installer, choose the installation folder if prompted, and open
    **Yeatle** from Start. The portable app runs directly without installation.
@@ -209,7 +179,7 @@ use the matching `.deb` on Debian/Ubuntu or the browser version.
 For a Debian/Ubuntu package, install the exact downloaded filename:
 
 ```sh
-sudo apt install ./Yeatle-1.13.0-linux-x64.deb
+sudo apt install ./Yeatle-1.13.1-linux-x64.deb
 ```
 
 For ARM64, use the package ending in `-arm64.deb`. Open Yeatle from your desktop
@@ -474,7 +444,7 @@ admin password, downloaded models, or stems. Game progress stays in the same
 desktop profile. If GitHub or your connection is unavailable, you can keep
 playing and try again later.
 
-**Upgrading from 1.9.0:** download and install 1.13 once using the links above.
+**Upgrading from 1.9.0:** download and install 1.13.1 once using the links above.
 The updater is available from 1.9.1 onward. The browser version has no desktop
 menu or installer updater; download the new browser ZIP or update your Git
 checkout, keeping your local settings and song folders.
@@ -654,7 +624,7 @@ Bump the version in `package.json`, `package-lock.json` and the `?v=` asset link
 Keep three numbers in tags and file names: installed apps only recognise tags like `v1.13.0` and assets named with that version. To prepare the files by hand instead, download the five build artifacts and run:
 
 ```sh
-npm run prepare:release -- 1.13.0 release/github-builds-1.13.0 release/update-metadata-1.13.0
+npm run prepare:release -- 1.13.1 release/github-builds-1.13.1 release/update-metadata-1.13.1
 ```
 
 The script requires all ten installers/archive files and fails if any are missing. It copies them into the output folder with consistent download names, including normalizing Linux's `amd64`/`x86_64` names to `x64`. The metadata must match the installer bytes; rerun the script if you rebuild anything. Do not rename the installer files after generating metadata.
