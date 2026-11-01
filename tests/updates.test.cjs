@@ -116,4 +116,13 @@ test("installers are built with the names installed apps' updaters look for", ()
     assert.equal(name(b.linux.artifactName, arch, "deb"), assetName(pkg.version, "linux", arch, "deb"));
   }
   assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
+  const root = path.join(__dirname, "..");
+  const rootSources = ["server.js", ...b.files.filter(entry => entry.endsWith(".cjs") && !entry.includes("/"))];
+  for (const source of rootSources) {
+    const code = fs.readFileSync(path.join(root, source), "utf8");
+    for (const [, target] of code.matchAll(/require\(\s*["']\.\/([^"']+)["']\s*\)/g)) {
+      assert.ok(fs.existsSync(path.join(root, target)), `${source} requires missing ${target}`);
+      assert.ok(b.files.includes(target), `${source} requires ${target}, which is missing from package.json build.files`);
+    }
+  }
 });

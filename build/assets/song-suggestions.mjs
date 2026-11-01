@@ -1,11 +1,13 @@
-import { normalizeGuess } from "./snippet-rules.mjs?v=1.13.1";
-import { songsForPool } from "./song-pools.mjs?v=1.13.1";
+import { normalizeGuess } from "./snippet-rules.mjs?v=1.13.2";
+import { songsForPool } from "./song-pools.mjs?v=1.13.2";
 
 // Daily shares the game's suggestion markup and styles without rebuilding React.
 export function attachSongSuggestions(input, list) {
-  let songs = [], matches = [], active = 0;
+  let songs = [], matches = [], active = 0, interacting = false, down = null, chosenValue = null;
 
   function close() {
+    interacting = false;
+    down = null;
     list.hidden = true;
     list.replaceChildren();
     matches = [];
@@ -31,7 +33,7 @@ export function attachSongSuggestions(input, list) {
 
   function show() {
     const key = normalizeGuess(input.value);
-    if (!key || input.disabled || document.activeElement !== input) return close();
+    if (!key || input.disabled || (document.activeElement !== input && !interacting)) return close();
     const first = [], rest = [];
     for (const song of songs) {
       // Other names the tracker gives a song are searchable too ("The Coste" finds THE COSTËS).
@@ -58,7 +60,33 @@ export function attachSongSuggestions(input, list) {
         copy.append(meta);
       }
       option.append(copy);
-      option.addEventListener("pointerdown", event => event.preventDefault());
+      option.addEventListener("pointerdown", event => {
+        interacting = true;
+        down = { index, x: event.clientX, y: event.clientY, moved: false, song };
+      });
+      option.addEventListener("pointermove", event => {
+        if (down && Math.hypot(event.clientX - down.x, event.clientY - down.y) > 10) down.moved = true;
+      });
+      option.addEventListener("pointercancel", () => {
+        interacting = false;
+        down = null;
+      });
+      option.addEventListener("pointerup", event => {
+        const tap = down && down.index === index && !down.moved && (event.button == null || event.button <= 0);
+        down = null;
+        if (tap) {
+          setTimeout(() => {
+            interacting = false;
+            if (matches[index] === song) choose(index);
+          }, 0);
+        } else {
+          interacting = false;
+        }
+      });
+      option.addEventListener("mousedown", event => {
+        event.preventDefault();
+        choose(index);
+      });
       option.addEventListener("click", () => choose(index));
       option.addEventListener("pointerenter", () => highlight(index));
       return option;
@@ -72,14 +100,20 @@ export function attachSongSuggestions(input, list) {
   function choose(index) {
     const song = matches[index];
     if (!song) return;
+    chosenValue = song.label;
     input.value = song.label;
-    input.focus({ preventScroll: true });
     close();
+    input.focus({ preventScroll: true });
   }
 
-  input.addEventListener("input", show);
-  input.addEventListener("focus", show);
-  input.addEventListener("blur", close);
+  list.addEventListener?.("pointerdown", () => { interacting = true; });
+  list.addEventListener?.("mousedown", event => event.preventDefault());
+  document.addEventListener?.("pointerdown", event => {
+    if (!list.hidden && event.target !== input && !list.contains?.(event.target)) close();
+  });
+  input.addEventListener("input", () => { chosenValue = null; show(); });
+  input.addEventListener("focus", () => { if (chosenValue === null || input.value !== chosenValue) show(); });
+  input.addEventListener("blur", () => { if (!interacting) close(); });
   input.addEventListener("keydown", event => {
     if (event.isComposing) return;
     if (event.key === "Escape") { event.preventDefault(); close(); }

@@ -130,3 +130,49 @@ test("Karaoke best scores and lyrics follow a song whose id changed when it was 
   assert.equal(data.get("yeatle-karaoke-shift:addicited"), "0.25");
   assert.equal(data.get("yeatle-karaoke-best:addicted:hard"), "{\"score\":900}", "the original saved reference remains");
 });
+
+test("Daily suggestions fill on touch tap even when the input blurs first, without selecting during a scroll", async t => {
+  const { attachSongSuggestions } = await import(pathToFileURL(path.join(root, "build/assets/song-suggestions.mjs")).href);
+  const makeNode = () => {
+    const handlers = new Map();
+    return {
+      children: [], textContent: "", offsetTop: 0, offsetHeight: 20,
+      append(...kids) { this.children.push(...kids); },
+      setAttribute() {}, removeAttribute() {},
+      addEventListener(type, fn) { handlers.set(type, [...(handlers.get(type) || []), fn]); },
+      emit(type, event = {}) { for (const fn of handlers.get(type) || []) fn({ preventDefault() {}, ...event }); },
+      classList: { toggle() {} }
+    };
+  };
+  const box = Object.assign(makeNode(), { hidden: true, id: "s", scrollTop: 0, clientHeight: 300, replaceChildren(...items) { this.children = items; }, contains(target) { return this.children.includes(target); } });
+  const input = Object.assign(makeNode(), { value: "Barb", disabled: false, focus() { globalThis.document.activeElement = input; input.emit("focus"); } });
+  const doc = Object.assign(makeNode(), { activeElement: input, createElement: makeNode });
+  globalThis.document = doc;
+  t.after(() => { delete globalThis.document; });
+
+  attachSongSuggestions(input, box).setSongs([
+    { id: "barbados", title: "barbados", display: "barbados", era: "4L", year: 2021, tab: "Unreleased" },
+    { id: "barbarian", title: "BARBARIAN", display: "BARBARIAN", era: "LYFESTYLE", year: 2024, tab: "Released" }
+  ]);
+  assert.equal(box.hidden, false);
+
+  // Scrolling the dropdown (finger moves > 10px) keeps it open and does not pick a song.
+  box.children[0].emit("pointerdown", { clientX: 20, clientY: 100, button: 0 });
+  doc.activeElement = null;
+  input.emit("blur");
+  box.children[0].emit("pointermove", { clientX: 20, clientY: 40 });
+  box.children[0].emit("pointerup", { clientX: 20, clientY: 40, button: 0 });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(input.value, "Barb");
+  assert.equal(box.hidden, false);
+
+  // Tapping an item fills the input and closes the list even if iOS blurs the input before pointerup and swallows click.
+  box.children[1].emit("pointerdown", { clientX: 20, clientY: 140, button: 0 });
+  doc.activeElement = null;
+  input.emit("blur");
+  assert.equal(box.hidden, false, "blur during a tap on an option must not destroy the list before pointerup");
+  box.children[1].emit("pointerup", { clientX: 22, clientY: 141, button: 0 });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(input.value, "BARBARIAN");
+  assert.equal(box.hidden, true);
+});

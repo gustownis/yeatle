@@ -279,7 +279,7 @@ app.whenReady().then(async () => {
   const metadata = JSON.parse(fs.readFileSync(path.join(target, "package.json")));
   app.getVersion = () => metadata.version;
   result.version = metadata.version;
-  const files = ["desktop/main.cjs", "desktop/preload.cjs", "server.js", "daily-challenge.cjs", "daily-authority.cjs", "build/daily.html", "build/assets/daily.mjs", "build/assets/daily.css", "build/assets/song-suggestions.mjs", "build/assets/snippet-rules.mjs", "build/index.html", "build/karaoke.html", "build/assets/karaoke.js", "build/assets/karaoke.css", "build/assets/navigation-runtime.js", "build/assets/navigation.mjs", "build/assets/navigation.css", "build/assets/yeatle.js"];
+  const files = ["desktop/main.cjs", "desktop/preload.cjs", "server.js", "daily-challenge.cjs", "daily-authority.cjs", "leaderboard.cjs", "client-signals.cjs", "catalog-policy.cjs", "catalog-metadata.json", "build/daily.html", "build/assets/daily.mjs", "build/assets/daily.css", "build/assets/song-suggestions.mjs", "build/assets/snippet-rules.mjs", "build/index.html", "build/karaoke.html", "build/assets/karaoke.js", "build/assets/karaoke.css", "build/assets/navigation-runtime.js", "build/assets/navigation.mjs", "build/assets/navigation.css", "build/assets/yeatle.js"];
   const hash = bytes => crypto.createHash("sha256").update(bytes.toString().replaceAll("\r\n", "\n")).digest("hex");
   for (const file of files) assert.equal(hash(fs.readFileSync(path.join(target, file))), hash(fs.readFileSync(path.join(root, file))), file);
   result.checks.packagedFilesMatch = true;
