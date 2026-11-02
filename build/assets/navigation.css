@@ -1,12 +1,39 @@
 /* App windows opt in through navigation-runtime.js. Browsers use normal navigation. */
-/* Reserve the scrollbar's space on every page, so a page that grows past the window
-   does not shift its tabs sideways during or after a transition. */
-html { scrollbar-gutter: stable; }
-/* The main game and karaoke don't reserve a gutter on the root html. */
-html:has(> body > #root > .App),
-html:has(> body > #karaoke-app),
-html:has(> body > #stems-app) { scrollbar-gutter: auto; }
-.App { scrollbar-gutter: stable; }
+/* Auto scrollbar gutter so pages only show a scrollbar when content actually overflows */
+html, body {
+  scrollbar-gutter: auto;
+}
+.App {
+  scrollbar-gutter: auto;
+}
+
+/* Sleek, auto-hiding scrollbar overlay */
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(181, 101, 224, 0.45) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(181, 101, 224, 0.65);
+}
+
 @view-transition { navigation: none; }
 
 .background, .bg { view-transition-name: yeatle-background; }
