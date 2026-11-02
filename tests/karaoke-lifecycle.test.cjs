@@ -260,3 +260,32 @@ test("blocked microphone access in the desktop app points to Microphone Settings
   h.run("openMicSettings()");
   assert.equal(settingsOpened, 1);
 });
+test("an overconstrained mic request falls back to default audio instead of erroring", async () => {
+  const node = () => ({ gain: {}, connect() {}, disconnect() {} });
+  const attempts = [];
+  const fakeStream = { getAudioTracks: () => [{ label: "Default mic", getSettings: () => ({ deviceId: "default" }), stop() {} }], getTracks: () => [{ stop() {} }] };
+  const h = harness({
+    navigator: {
+      mediaDevices: {
+        enumerateDevices: () => Promise.resolve([{ kind: "audioinput", deviceId: "default", label: "Default mic" }]),
+        getUserMedia: constraints => {
+          attempts.push(constraints);
+          if (constraints.audio?.channelCount === 1 || constraints.audio?.deviceId?.exact === "old-mic") {
+            const err = new Error("Constraints not satisfied");
+            err.name = "OverconstrainedError";
+            return Promise.reject(err);
+          }
+          return Promise.resolve(fakeStream);
+        }
+      }
+    }
+  });
+  h.context.ctx = { createMediaStreamSource: node, createAnalyser: node, createGain: node, sampleRate: 44100 };
+  h.run('settings.players[0].deviceId = "old-mic"; mics.allowed = true; audioContext = ctx');
+  await h.run("openMic(0)");
+  assert.equal(h.run("mics.error"), "");
+  assert.equal(h.run("settings.players[0].deviceId"), "");
+  assert.ok(h.run("mics.detectors[0]"));
+  assert.ok(attempts.length >= 2);
+});
+

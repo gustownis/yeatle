@@ -2,8 +2,10 @@
 /* Reserve the scrollbar's space on every page, so a page that grows past the window
    does not shift its tabs sideways during or after a transition. */
 html { scrollbar-gutter: stable; }
-/* The main game scrolls inside .App instead of the page. */
-html:has(> body > #root > .App) { scrollbar-gutter: auto; }
+/* The main game and karaoke don't reserve a gutter on the root html. */
+html:has(> body > #root > .App),
+html:has(> body > #karaoke-app),
+html:has(> body > #stems-app) { scrollbar-gutter: auto; }
 .App { scrollbar-gutter: stable; }
 @view-transition { navigation: none; }
 

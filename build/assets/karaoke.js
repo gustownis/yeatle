@@ -849,15 +849,50 @@ async function openMic(index) {
   if (mics.detectors[index]) { mics.detectors[index].stop(); mics.detectors[index] = null; }
   const player = settings.players[index];
   if (!mics.allowed || !player || player.deviceId === "none") return;
-  const deviceId = player.deviceId;
+  if (player.deviceId && mics.devices.length && !mics.devices.some(d => d.deviceId === player.deviceId)) {
+    player.deviceId = "";
+    saveSettings();
+  }
+  let deviceId = player.deviceId;
   let stream;
   try {
-    stream = await mediaDevices().getUserMedia({
-      audio: {
-        deviceId: player.deviceId ? { exact: player.deviceId } : undefined,
-        echoCancellation: settings.speakers, noiseSuppression: false, autoGainControl: false, channelCount: 1
+    try {
+      stream = await mediaDevices().getUserMedia({
+        audio: {
+          deviceId: player.deviceId ? { exact: player.deviceId } : undefined,
+          echoCancellation: settings.speakers, noiseSuppression: false, autoGainControl: false, channelCount: 1
+        }
+      });
+    } catch (firstErr) {
+      if (firstErr.name === "OverconstrainedError") {
+        if (player.deviceId) {
+          player.deviceId = "";
+          deviceId = "";
+          saveSettings();
+          try {
+            stream = await mediaDevices().getUserMedia({
+              audio: {
+                echoCancellation: settings.speakers, noiseSuppression: false, autoGainControl: false, channelCount: 1
+              }
+            });
+          } catch (retryErr) {
+            if (retryErr.name !== "OverconstrainedError") throw retryErr;
+          }
+        }
+        if (!stream) {
+          try {
+            stream = await mediaDevices().getUserMedia({
+              audio: { echoCancellation: settings.speakers }
+            });
+          } catch (relaxedErr) {
+            if (relaxedErr.name !== "OverconstrainedError") throw relaxedErr;
+            stream = await mediaDevices().getUserMedia({ audio: true });
+          }
+        }
+      } else {
+        throw firstErr;
       }
-    });
+    }
     // A device change, singer removal, or a newer request may have won the race.
     if (mics.requests[index] !== request || settings.players[index] !== player || player.deviceId !== deviceId || !mics.allowed) {
       stream.getTracks().forEach(track => track.stop());
@@ -867,6 +902,8 @@ async function openMic(index) {
     detector.integrity = await trackFailures(stream);
     if (mics.requests[index] !== request) { detector.stop(); return; }
     mics.detectors[index] = detector;
+    mics.error = "";
+    renderPlayers();
   } catch (err) {
     stream?.getTracks().forEach(track => track.stop());
     if (mics.requests[index] === request && settings.players[index] === player) mics.error = `${player.name}'s mic couldn't open (${err.message || err.name}).`;
@@ -1752,7 +1789,7 @@ function finishPhrase(index) {
 
 // Signed-in rounds are ranked from Singer 1's microphone. The server issues the run when
 // the song starts and checks the trace when it ends; local best scores work as before.
-const ranking = () => import("./leaderboard.mjs?v=1.13.4").then(m => m.rankedKaraoke);
+const ranking = () => import("./leaderboard.mjs?v=1.13.5").then(m => m.rankedKaraoke);
 function startRankedRun(g) {
   g.ranked = null;
   g.trace = null;
@@ -2213,7 +2250,7 @@ async function loadSongs() {
   try {
     const res = await fetch("api/songs");
     const data = await res.json();
-    const { songsForPool } = await import("./song-pools.mjs?v=1.13.4");
+    const { songsForPool } = await import("./song-pools.mjs?v=1.13.5");
     state.songs = songsForPool(data.songs || []).slice().sort((a, b) => a.display.localeCompare(b.display));
     carryFormerIds(state.songs);
     state.artist = data.artist || "Yeat";
