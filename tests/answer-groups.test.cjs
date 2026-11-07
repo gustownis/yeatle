@@ -2,7 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { guessKeys, answerGroupFor, groupAnswerKeys, applyCatalogMetadata } = require("../catalog-policy.cjs");
+const { guessKeys, resolveGroupKeys, applyCatalogMetadata } = require("../catalog-policy.cjs");
 const { answerGroups, sameRecordings } = require("../catalog-metadata.json");
 // Tracker records for every group member as the live catalog built them on 2026-11-01.
 const records = require("./fixtures/answer-groups.json");
@@ -10,12 +10,9 @@ const records = require("./fixtures/answer-groups.json");
 const rules = () => import(pathToFileURL(path.join(__dirname, "..", "build", "assets", "snippet-rules.mjs")).href);
 const byId = new Map(records.map(song => [song.id, song]));
 
-// What the server's publicSong sends: corrected metadata plus the group's names.
+// What the server's publicSong sends: corrected metadata plus same-recording and related-version keys.
 function publicSong(song, acceptedKeys) {
-  song = applyCatalogMetadata(song);
-  const group = answerGroupFor(song.id);
-  if (!group) return song;
-  return { ...song, answerKeys: [...new Set([...song.answerKeys || [], ...groupAnswerKeys(group, id => byId.get(id), acceptedKeys)])] };
+  return resolveGroupKeys(song, id => byId.get(id), acceptedKeys);
 }
 
 test("a featured song's aliases also answer with the lead artist in front", async () => {
@@ -32,26 +29,48 @@ test("a featured song's aliases also answer with the lead artist in front", asyn
   assert.deepEqual(guessKeys({ title: "Yea!", aliases: ["Yea Yea"] }), ["yea", "yeayea"]);
 });
 
-test("every member of a linked group accepts every member's dropdown name", async () => {
-  const { matchesSong, acceptedKeys } = await rules();
-  for (const group of [...answerGroups, ...sameRecordings]) {
+test("same recordings accept each other as green; open-verse and version groups match as yellow", async () => {
+  const { matchesSong, matchesVersion, acceptedKeys } = await rules();
+  for (const same of sameRecordings) {
+    for (const id of same.ids) {
+      const song = publicSong(byId.get(id), acceptedKeys);
+      for (const other of same.ids.map(member => applyCatalogMetadata(byId.get(member)))) {
+        assert.ok(matchesSong(song, other.display), `${id} accepts "${other.display}" as green`);
+      }
+    }
+  }
+  for (const group of answerGroups) {
     for (const id of group.ids) {
       const song = publicSong(byId.get(id), acceptedKeys);
+      assert.ok(matchesSong(song, song.display), `${id} accepts its own display "${song.display}"`);
       for (const other of group.ids.map(member => applyCatalogMetadata(byId.get(member)))) {
-        assert.ok(matchesSong(song, other.display), `${id} accepts "${other.display}"`);
+        assert.ok(
+          matchesSong(song, other.display) || matchesVersion(song, other.display),
+          `${id} recognizes "${other.display}" as same or related version`
+        );
       }
     }
   }
 });
 
-test("today's Daily Yea! accepts both Yung Bans features, and they accept it", async () => {
-  const { matchesSong, acceptedKeys } = await rules();
+test("open-verse demos and finished features recognize each other as different versions (yellow)", async () => {
+  const { matchesSong, matchesVersion, acceptedKeys } = await rules();
   const yea = publicSong(byId.get("yea"), acceptedKeys);
-  for (const name of ["Yung Bans - Yea Yea (feat. Yeat)", "Yung Bans - YEA X2 (feat. Yeat)", "Yea!", "Yea Yea"]) assert.ok(matchesSong(yea, name), name);
-  assert.ok(matchesSong(publicSong(byId.get("yungbansyeayea"), acceptedKeys), "Yea!"));
+  assert.ok(matchesSong(yea, "Yea!"));
+  for (const name of ["Yung Bans - Yea Yea (feat. Yeat)", "Yung Bans - YEA X2 (feat. Yeat)", "Yea Yea"]) {
+    assert.ok(matchesVersion(yea, name), `Yea! flags "${name}" as a different version`);
+  }
+  const bans = publicSong(byId.get("yungbansyeayea"), acceptedKeys);
+  assert.ok(matchesSong(bans, "Yung Bans - Yea Yea (feat. Yeat)"));
+  assert.ok(matchesSong(bans, "Yung Bans - YEA X2 (feat. Yeat)"));
+  assert.ok(matchesVersion(bans, "Yea!"));
+  const leel = publicSong(byId.get("leelshottyfun"), acceptedKeys);
+  assert.ok(matchesSong(leel, "Leel$hotty - Fun (feat. YEAT)"));
+  assert.ok(matchesVersion(leel, "fun"));
   // The guess still has to name a song in the group.
   assert.ok(!matchesSong(yea, "Yung Bans - Deep Blue (feat. Yeat)"));
-  assert.ok(matchesSong(publicSong(byId.get("yungkayoyeet"), acceptedKeys), "Yung Kayo - fleek (feat. Yeat)"));
+  assert.ok(!matchesVersion(yea, "Yung Bans - Deep Blue (feat. Yeat)"));
+  assert.ok(matchesVersion(publicSong(byId.get("yungkayoyeet"), acceptedKeys), "Yung Kayo - fleek (feat. Yeat)"));
 });
 
 test("answer groups don't overlap", () => {
@@ -81,4 +100,10 @@ test("same recordings share one answer and their progress; open verses stay sepa
   const demo = applyCatalogMetadata(byId.get("yea"));
   assert.equal(demo.answerId, undefined);
   assert.equal(demo.equivalentIds, undefined);
+  const still = ["lilyachtystill", "lilyachtystill@2alive"].map(id => applyCatalogMetadata(byId.get(id)));
+  assert.equal(still[0].answerId, "lilyachtystill@2alive");
+  assert.equal(still[1].answerId, "lilyachtystill@2alive");
+  assert.equal(still[0].display, "Lil Yachty - Still (feat. Yeat)");
+  assert.equal(still[0].eraDisplay, "Trëndi / 2 Alivë");
+  assert.equal(still[1].eraDisplay, "Trëndi / 2 Alivë");
 });

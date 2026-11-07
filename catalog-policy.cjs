@@ -146,14 +146,37 @@ function guessKeys(entry) {
 // more than once: they also share an answerId (one entry in pools and
 // suggestions) and progress, and answer to each other unless a larger group
 // already holds them.
-const groupById = new Map();
-for (const group of answerGroups) for (const id of group.ids) groupById.set(id, group);
+const answerGroupById = new Map();
+for (const group of answerGroups) for (const id of group.ids) answerGroupById.set(id, group);
+const groupById = new Map(answerGroupById);
 for (const same of sameRecordings) if (!same.ids.some(id => groupById.has(id))) for (const id of same.ids) groupById.set(id, same);
 const sameById = new Map();
 for (const same of sameRecordings) for (const id of same.ids) sameById.set(id, same);
 
 function answerGroupFor(id) {
   return groupById.get(id) || null;
+}
+
+function sameRecordingFor(id) {
+  return sameById.get(id) || null;
+}
+
+function expandGuestKeys(baseKeys, song) {
+  const keys = new Set([...baseKeys].map(answerKey).filter(Boolean));
+  const guests = [...(song.features || [])];
+  const inline = /\((?:feat\.?|ft\.?|with)\s+([^)]*)\)/ig;
+  for (const value of [song.title, song.display]) {
+    for (const match of String(value || "").matchAll(inline)) guests.push(match[1]);
+  }
+  const titles = [...keys];
+  for (const guest of guests) {
+    const name = answerKey(String(guest).replace(/^(?:feat\.?|ft\.?|with)\s+/i, ""));
+    if (!name) continue;
+    for (const title of titles) {
+      for (const prefix of ["feat", "ft", "with"]) keys.add(`${title}${prefix}${name}`);
+    }
+  }
+  return keys;
 }
 
 // The union of every member's accepted names. acceptedKeys is the game's own
@@ -164,12 +187,88 @@ function groupAnswerKeys(group, lookup, acceptedKeys) {
     const member = lookup(id);
     if (!member) continue;
     const corrected = applyCatalogMetadata(member);
-    for (const key of acceptedKeys ? acceptedKeys(corrected) : [corrected.title, corrected.display, ...corrected.keys || [], ...corrected.answerKeys || []]) {
+    for (const key of acceptedKeys ? acceptedKeys(corrected) : expandGuestKeys([corrected.title, corrected.display, ...corrected.keys || [], ...corrected.answerKeys || []], corrected)) {
       const normalized = answerKey(key);
       if (normalized) keys.add(normalized);
     }
   }
   return keys;
+}
+
+// Separates same-recording answers (Green: answerKeys) from related-version
+// answers in an answerGroup (Yellow: versionKeys, free re-guess on the same clip).
+function resolveGroupKeys(song, lookup, acceptedKeys) {
+  song = applyCatalogMetadata(song);
+  const same = sameById.get(song.id);
+  const group = answerGroupById.get(song.id);
+  if (!same && !group) return song;
+  if (same && !group) {
+    const linked = [...groupAnswerKeys(same, lookup, acceptedKeys)];
+    return linked.length ? { ...song, answerKeys: [...new Set([...song.answerKeys || [], ...linked])] } : song;
+  }
+  const members = group.ids.map(id => lookup(id)).filter(Boolean).map(applyCatalogMetadata);
+  const allMemberExact = new Set();
+  for (const m of members) {
+    allMemberExact.add(answerKey(m.title));
+    allMemberExact.add(answerKey(m.display));
+  }
+  const primaryByMember = new Map();
+  for (const m of members) {
+    const base = new Set([answerKey(m.title), answerKey(m.display)].filter(Boolean));
+    const noParen = answerKey(String(m.title || "").replace(/\s*\(.*?\)\s*/g, " "));
+    if (noParen && (!allMemberExact.has(noParen) || base.has(noParen))) base.add(noParen);
+    if (/ - /.test(m.title)) {
+      const afterDash = m.title.split(" - ").slice(1).join(" - ");
+      const stripped = answerKey(afterDash);
+      const strippedNoParen = answerKey(afterDash.replace(/\s*\(.*?\)\s*/g, " "));
+      if (stripped && (!allMemberExact.has(stripped) || base.has(stripped))) base.add(stripped);
+      if (strippedNoParen && (!allMemberExact.has(strippedNoParen) || base.has(strippedNoParen))) base.add(strippedNoParen);
+    }
+    primaryByMember.set(m.id, expandGuestKeys(base, m));
+  }
+  const stripGuestDisplay = value => answerKey(String(value || "").replace(/\s*\((?:feat\.?|ft\.?|with)\s+[^)]*\)/ig, ""));
+  const sameIds = new Set([song.id, ...(same?.ids || [])]);
+  for (const other of members) {
+    if (answerKey(other.display) === answerKey(song.display) ||
+        (answerKey(other.title) === answerKey(song.title) && stripGuestDisplay(other.display) === stripGuestDisplay(song.display))) {
+      sameIds.add(other.id);
+    }
+  }
+  const ownPrimary = new Set();
+  for (const id of sameIds) for (const k of primaryByMember.get(id) || []) ownPrimary.add(k);
+  const otherPrimary = new Set();
+  for (const other of members) {
+    if (sameIds.has(other.id)) continue;
+    for (const k of primaryByMember.get(other.id) || []) if (!ownPrimary.has(k)) otherPrimary.add(k);
+  }
+  const sameKeys = new Set();
+  for (const other of members) {
+    if (!sameIds.has(other.id)) continue;
+    const expanded = acceptedKeys ? acceptedKeys(other) : expandGuestKeys([other.title, other.display, ...(other.keys || []), ...(other.answerKeys || [])], other);
+    for (const k of expanded) {
+      const norm = answerKey(k);
+      if (norm && !otherPrimary.has(norm)) sameKeys.add(norm);
+    }
+  }
+  const keys = (song.keys || []).filter(k => !otherPrimary.has(answerKey(k)));
+  const answerKeys = [...new Set([...(song.answerKeys || []), ...sameKeys])].filter(k => !otherPrimary.has(answerKey(k)));
+  const greenSet = expandGuestKeys([song.title, song.display, ...keys, ...answerKeys], song);
+  for (const k of otherPrimary) greenSet.delete(k);
+  const versionSet = new Set(otherPrimary);
+  for (const other of members) {
+    if (sameIds.has(other.id)) continue;
+    const otherAll = acceptedKeys ? acceptedKeys(other) : expandGuestKeys([other.title, other.display, ...(other.keys || []), ...(other.answerKeys || [])], other);
+    for (const k of otherAll) {
+      const norm = answerKey(k);
+      if (norm && !greenSet.has(norm)) versionSet.add(norm);
+    }
+  }
+  return {
+    ...song,
+    keys,
+    ...(answerKeys.length ? { answerKeys } : {}),
+    ...(versionSet.size ? { versionKeys: [...new Set([...(song.versionKeys || []), ...versionSet])] } : {})
+  };
 }
 
 function applyCatalogMetadata(song) {
@@ -185,4 +284,4 @@ function applyCatalogMetadata(song) {
   return result;
 }
 
-module.exports = { answerKey, guessKeys, answerGroupFor, groupAnswerKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility };
+module.exports = { answerKey, guessKeys, answerGroupFor, sameRecordingFor, groupAnswerKeys, resolveGroupKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility };

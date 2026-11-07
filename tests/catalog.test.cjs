@@ -54,7 +54,7 @@ test("Soup shows DC2 · 2020: released throwaways keep their recording era", asy
   const busy = list.songs.find(song => song.title === "Gët Busy");
   assert.deepEqual([busy.era, busy.recordedIn, busy.eraYear], ["Up 2 Më", "Trëndi", 2021]);
   assert.deepEqual(await suggestionsFor(t, list.songs, "Soup"), [["Soup", "DC2 · 2020"]]);
-  assert.deepEqual(await suggestionsFor(t, list.songs, "Gët B"), [["Gët Busy", "Up 2 Më · 2021"]]);
+  assert.deepEqual(await suggestionsFor(t, list.songs, "Gët B"), [["Gët Busy", "also Here's a bell, bell", "Up 2 Më · 2021"]]);
 });
 
 test("an older saved song list shows released throwaways under their recording era", async t => {
@@ -90,7 +90,7 @@ test("one recording listed under two spellings becomes one song; separate versio
   const { matchesSong } = await import(pathToFileURL(path.join(root, "build/assets/snippet-rules.mjs")).href);
   for (const guess of ["The Coste", "THE COSTËS", "the costes", "THE COSTES!", "costes"]) assert.ok(matchesSong(coste, guess), guess);
   assert.equal(matchesSong(coste, "The Cost"), false, "no prefix matches");
-  assert.deepEqual(await suggestionsFor(t, list.songs, "The cos"), [["The Coste", "LYFESTYLE [V2] · 2024 · Unreleased"]]);
+  assert.deepEqual(await suggestionsFor(t, list.songs, "The cos"), [["The Coste", "also THE COSTËS, COSTËS", "LYFESTYLE [V2] · 2024 · Unreleased"]]);
   // An ordinary spelling difference ("Tru 2 U" leaks of "Tru to U").
   const tru = list.songs.filter(song => song.keys.includes("tru2u"));
   assert.equal(tru.length, 1);
@@ -175,4 +175,47 @@ test("Daily suggestions fill on touch tap even when the input blurs first, witho
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(input.value, "BARBARIAN");
   assert.equal(box.hidden, true);
+});
+
+test("multi-table Google Sheets HTML exports retain later chunks and display distinct aliases in suggestions", async t => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-html-tables-"));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  const runtime = require("./fixtures/catalog-runtime.cjs")(folder);
+  const grid = runtime.parseSheetHtml(`
+    <table class="waffle"><tr><th>1</th><td>Era</td><td>Name</td><td>Link</td></tr><tr><th>2</th><td>530</td><td>First Chunk Song</td><td>https://pillows.su/f/11111111111111111111111111111111</td></tr></table>
+    <table class="waffle"><tr><th>201</th><td>2 Alivë</td><td>✨ Lil Yachty - Still [V3]<br>(feat. Yeat) (prod. Beats By Bangs)<br>(still, If I Die)</td><td><a href="https://www.google.com/url?q=https://pillows.su/f/bbb021f87d5e3bec85452012b4ce8f68">https://pillows.su/f/bbb021f87d5e3bec85452012b4ce8f68</a></td></tr></table>
+  `);
+  assert.equal(grid.rows.length, 3, "rows from later waffle tables are retained");
+  const songs = runtime.buildSongList([
+    {
+      title: "Lil Yachty - Still",
+      trackerVersion: "V2",
+      features: ["feat. YEAT"],
+      producers: ["Beats By Bangs"],
+      aliases: ["still", "If I Die"],
+      era: "Trëndi",
+      year: 2021,
+      tab: "Unreleased",
+      source: { kind: "pillows", id: "5fe916f6bd96cf1ed013c6e49d61d566" }
+    },
+    {
+      title: "Lil Yachty - Still",
+      trackerVersion: "V3",
+      features: ["feat. Yeat"],
+      producers: ["Beats By Bangs"],
+      aliases: ["still", "If I Die"],
+      era: "2 Alivë",
+      year: 2022,
+      tab: "Unreleased",
+      source: { kind: "pillows", id: "bbb021f87d5e3bec85452012b4ce8f68" }
+    }
+  ], []).map(song => runtime.publicSong(song));
+  const { songsForPool } = await import(pathToFileURL(path.join(root, "build/assets/song-pools.mjs")));
+  const poolSongs = songsForPool(songs, "all");
+  assert.equal(poolSongs.length, 1, "Still V2 and V3 merge into one dropdown entry");
+  for (const query of ["Still", "Lil Yachty", "If I Die"]) {
+    assert.deepEqual(await suggestionsFor(t, poolSongs, query), [
+      ["Lil Yachty - Still (feat. Yeat)", "also still, If I Die", "Trëndi / 2 Alivë · 2022 · Unreleased"]
+    ], query);
+  }
 });

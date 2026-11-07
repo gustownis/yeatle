@@ -9,17 +9,28 @@ const { answerGroups = [], sameRecordings = [] } = require("../catalog-metadata.
 const base = (process.argv[2] || "http://127.0.0.1:3093").replace(/\/$/, "");
 
 (async () => {
-  const { matchesSong } = await import(pathToFileURL(path.join(__dirname, "..", "build", "assets", "snippet-rules.mjs")).href);
+  const { matchesSong, matchesVersion } = await import(pathToFileURL(path.join(__dirname, "..", "build", "assets", "snippet-rules.mjs")).href);
   const list = await (await fetch(`${base}/api/songs`)).json();
   const byId = new Map([...list.songs, ...list.retiredSongs || []].map(song => [song.id, song]));
   const failures = [];
   const missing = [];
-  for (const group of [...answerGroups, ...sameRecordings]) {
+  for (const same of sameRecordings) {
+    const members = same.ids.map(id => byId.get(id));
+    same.ids.forEach((id, i) => { if (!members[i]) missing.push(id); });
+    for (const song of members.filter(Boolean)) {
+      for (const other of members.filter(Boolean)) {
+        if (!matchesSong(song, other.display)) failures.push(`${song.id} rejects same recording "${other.display}" (${other.id})`);
+      }
+    }
+  }
+  for (const group of answerGroups) {
     const members = group.ids.map(id => byId.get(id));
     group.ids.forEach((id, i) => { if (!members[i]) missing.push(id); });
     for (const song of members.filter(Boolean)) {
       for (const other of members.filter(Boolean)) {
-        if (!matchesSong(song, other.display)) failures.push(`${song.id} rejects "${other.display}" (${other.id})`);
+        if (!matchesSong(song, other.display) && !matchesVersion(song, other.display)) {
+          failures.push(`${song.id} rejects "${other.display}" (${other.id})`);
+        }
       }
     }
   }

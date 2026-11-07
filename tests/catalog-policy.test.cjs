@@ -234,10 +234,12 @@ test("Cant See stems bind to the verified LS V2 source rather than the first sam
   const { songsForPool } = await import(pathToFileURL(path.join(root, "build/assets/song-pools.mjs")));
   assert.deepEqual(songsForPool(songs, "stems").map(song => song.id), [ls.id]);
   assert.equal(songsForPool(songs, "unreleased").length, 2);
-  const { matchesSong } = await import(pathToFileURL(path.join(root, "build/assets/snippet-rules.mjs")));
+  const { matchesSong, matchesVersion } = await import(pathToFileURL(path.join(root, "build/assets/snippet-rules.mjs")));
   for (const song of [ls, alive]) assert.equal(matchesSong(song, "Cant See"), true);
   assert.equal(matchesSong(ls, "Cant See (Alivë)"), false);
   assert.equal(matchesSong(alive, "Cant See (LS V2)"), false);
+  assert.equal(matchesVersion(ls, "Cant See (Alivë)"), true);
+  assert.equal(matchesVersion(alive, "Cant See (LS V2)"), true);
   assert.equal(matchesSong(ls, ls.display), true);
   assert.equal(matchesSong(alive, alive.display), true);
 });

@@ -11,6 +11,16 @@ export function matchesSong(song, text) {
   return Boolean(key) && acceptedKeys(song).has(key);
 }
 
+export function versionKeys(song) {
+  const accepted = acceptedKeys(song);
+  return new Set((song?.versionKeys || []).map(normalizeGuess).filter(key => key && !accepted.has(key)));
+}
+
+export function matchesVersion(song, text) {
+  const key = normalizeGuess(text);
+  return Boolean(key) && !acceptedKeys(song).has(key) && versionKeys(song).has(key);
+}
+
 // Every normalized answer a song accepts. Linked recordings (open verses,
 // features, duplicates) arrive already merged into song.answerKeys.
 export function acceptedKeys(song) {
@@ -45,7 +55,10 @@ export function restoreRound(saved, id) {
       (saved.status !== "won" && right !== -1) ||
       (saved.status === "playing" && saved.attempts.length >= BASE_LENGTHS.length) ||
       (saved.status === "lost" && saved.attempts.length !== BASE_LENGTHS.length)) return { id, attempts: [], status: "playing" };
-  return { id, attempts: saved.attempts, status: saved.status };
+  const close = Array.isArray(saved.close)
+    ? saved.close.filter(c => c && Number.isInteger(c.level) && c.level >= 0 && c.level < BASE_LENGTHS.length && typeof c.text === "string")
+    : [];
+  return { id, attempts: saved.attempts, status: saved.status, ...(close.length ? { close } : {}) };
 }
 
 export function shareResult(date, round, url) {

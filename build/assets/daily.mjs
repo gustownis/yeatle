@@ -1,22 +1,46 @@
-import { BASE_LENGTHS, matchesSong, restoreRound, shareResult } from "./snippet-rules.mjs?v=1.13.5";
-import { attachSongSuggestions } from "./song-suggestions.mjs?v=1.13.5";
-import { dailyRounds } from "./leaderboard.mjs?v=1.13.5";
+import { BASE_LENGTHS, matchesSong, matchesVersion, restoreRound, shareResult } from "./snippet-rules.mjs?v=1.13.6";
+import { attachSongSuggestions } from "./song-suggestions.mjs?v=1.13.6";
+import { dailyRounds } from "./leaderboard.mjs?v=1.13.6";
 
 const $ = selector => document.querySelector(selector);
 const suggestions = attachSongSuggestions($("#guess"), $("#song-suggestions"));
 let challenge, round, storageKey, clockAt, serverAt, loading = false;
 let ctx, master, clipGain, buffers, sources = [], audioLoad, abortAudio, playback = 0;
 let ready = false, busy = false, playing = false, storageAvailable = true;
+let playStartAt = 0, playDuration = 0, playFrame = 0;
 const notice = text => { $("#notice").textContent = text; };
 const serverNow = () => serverAt + performance.now() - clockAt;
 
+function clipPercent(seconds) {
+  const max = BASE_LENGTHS.at(-1) || 15;
+  return Math.min(100, Math.max(0, ((Number(seconds) || 0) / max) * 100));
+}
+
+function updatePlayhead() {
+  cancelAnimationFrame(playFrame);
+  playFrame = 0;
+  const fill = $("#clips .daily-play-fill");
+  if (!playing || !ctx || !fill) {
+    if (fill) { fill.style.width = "0%"; fill.hidden = true; }
+    return;
+  }
+  fill.hidden = false;
+  const elapsed = Math.max(0, Math.min(playDuration, ctx.currentTime - playStartAt));
+  fill.style.width = `${clipPercent(elapsed).toFixed(2)}%`;
+  playFrame = requestAnimationFrame(updatePlayhead);
+}
+
 function stop() {
   playback++;
+  cancelAnimationFrame(playFrame);
+  playFrame = 0;
   for (const source of sources) { try { source.stop(); } catch {} source.disconnect(); }
   sources = [];
   clipGain?.disconnect();
   clipGain = null;
   playing = false;
+  const fill = $("#clips .daily-play-fill");
+  if (fill) { fill.style.width = "0%"; fill.hidden = true; }
 }
 function dispose() {
   suggestions.close();
@@ -45,32 +69,65 @@ function render() {
   const seconds = done ? BASE_LENGTHS.at(-1) : BASE_LENGTHS[level()];
   $("#clip-label").textContent = done ? round.status === "won" ? "You got it" : "Not this time" : `${seconds} second${seconds === 1 ? "" : "s"}`;
   $("#attempt").textContent = done ? "Come back tomorrow" : `Clip ${level() + 1} of ${BASE_LENGTHS.length}`;
-  $("#clips").replaceChildren(...BASE_LENGTHS.map((length, index) => {
+  const curLevel = level();
+  const solvedIndex = round.status === "won" ? Math.max(0, round.attempts.length - 1) : -1;
+  const hasClose = !done && (round.close || []).some(c => c.level === curLevel);
+  const clipNodes = BASE_LENGTHS.map((length, index) => {
     const li = document.createElement("li");
-    const attempt = round.attempts[index];
-    li.className = `seg ${attempt?.kind || (!done && index === level() ? "now" : "")}`;
-    li.textContent = `${length}s`;
-    li.setAttribute("aria-label", `${length} seconds: ${attempt?.kind || (!done && index === level() ? "current" : "locked")}`);
+    const span = length - (BASE_LENGTHS[index - 1] || 0);
+    li.style.flex = `${span} 0 0%`;
+    const isLast = index === BASE_LENGTHS.length - 1;
+    let state = "locked";
+    let showCut = false;
+    if (!done) {
+      if (index <= curLevel) state = hasClose ? "now close" : "now";
+      showCut = !isLast && index >= curLevel;
+    } else if (round.status === "won") {
+      if (index <= solvedIndex) state = "right";
+      showCut = !isLast && index >= solvedIndex;
+    } else {
+      state = "wrong";
+      showCut = false;
+    }
+    li.className = `seg ${state}${showCut ? " cut" : ""}`;
+    li.setAttribute("aria-label", `${length} seconds: ${!done ? (index <= curLevel ? (hasClose ? "current, different version guessed" : "current") : "locked") : round.status === "won" && index <= solvedIndex ? "right" : state}`);
     return li;
-  }));
+  });
+  const playFill = document.createElement("li");
+  playFill.className = "daily-play-fill";
+  playFill.hidden = !playing;
+  playFill.setAttribute("aria-hidden", "true");
+  $("#clips").replaceChildren(...clipNodes, playFill);
+  updatePlayhead();
   $("#play").textContent = busy ? "Loading audio…" : playing ? "Stop" : done ? "Replay 15s" : `Play ${seconds}s`;
   $("#play").disabled = busy || loading;
   $("#guess-form").hidden = done;
   for (const id of ["#guess", "#submit", "#skip"]) $(id).disabled = !ready || busy || loading;
   if (done || !ready || busy || loading) suggestions.close();
   $("#skip").textContent = level() === BASE_LENGTHS.length - 1 ? "Give up" : "Skip";
-  $("#guesses").replaceChildren(...round.attempts.map((attempt, index) => {
-    const li = document.createElement("li");
-    li.className = attempt.kind;
-    li.textContent = `${BASE_LENGTHS[index]}s · ${attempt.kind === "skip" ? "Skipped" : attempt.kind === "right" ? "Correct" : attempt.text}`;
-    return li;
-  }));
+  const guessItems = [];
+  for (let index = 0; index < BASE_LENGTHS.length; index++) {
+    for (const c of (round.close || []).filter(item => item.level === index)) {
+      const li = document.createElement("li");
+      li.className = "close";
+      li.textContent = `${BASE_LENGTHS[index]}s · Different version · ${c.text}`;
+      guessItems.push(li);
+    }
+    const attempt = round.attempts[index];
+    if (attempt) {
+      const li = document.createElement("li");
+      li.className = attempt.kind;
+      li.textContent = `${BASE_LENGTHS[index]}s · ${attempt.kind === "skip" ? "Skipped" : attempt.kind === "right" ? "Correct" : attempt.text}`;
+      guessItems.push(li);
+    }
+  }
+  $("#guesses").replaceChildren(...guessItems);
   $("#result").hidden = !done;
   if (done) {
     $("#result-label").textContent = round.status === "won" ? "The song is" : "The song was";
     $("#answer").textContent = challenge.song.display || challenge.song.title;
     const solvedSeconds = BASE_LENGTHS[round.attempts.length - 1];
-    $("#result-detail").textContent = [round.status === "won" ? `You found it in ${solvedSeconds} second${solvedSeconds === 1 ? "" : "s"}.` : "Tomorrow brings another song.", challenge.song.era, challenge.song.eraYear || challenge.song.year, challenge.song.tab, challenge.song.relatedRecording && `Related recording: ${challenge.song.relatedRecording}`].filter(Boolean).join(" · ");
+    $("#result-detail").textContent = [round.status === "won" ? `You found it in ${solvedSeconds} second${solvedSeconds === 1 ? "" : "s"}.` : "Tomorrow brings another song.", challenge.song.eraDisplay || challenge.song.era, challenge.song.eraYear || challenge.song.year, challenge.song.tab, challenge.song.relatedRecording && `Related recording: ${challenge.song.relatedRecording}`].filter(Boolean).join(" · ");
   }
 }
 
@@ -146,7 +203,10 @@ async function play() {
       return source;
     });
     sources[0].onended = () => { if (playback === token) { stop(); render(); } };
+    playStartAt = when;
+    playDuration = length;
     playing = true;
+    updatePlayhead();
     notice(storageAvailable ? "" : "Browser storage is unavailable. Keep this tab open to retain today's progress.");
   } catch (error) {
     if (challenge === current && error.name !== "AbortError") notice(`Couldn't play today's song. Tap Play to retry the same song; no attempt was used. ${error.message}`);
@@ -159,7 +219,12 @@ async function play() {
 // sends the song only when the round is over. The round lives on the server, so it follows
 // a signed-in player between devices.
 function applyServerRound(result) {
-  round = { id: result.id, attempts: result.attempts, status: result.status };
+  round = {
+    id: result.id,
+    attempts: result.attempts,
+    status: result.status,
+    ...(Array.isArray(result.close) && result.close.length ? { close: result.close } : {})
+  };
   if (result.song) challenge.song = result.song;
   save();
 }
@@ -175,6 +240,7 @@ async function checkedAttempt(text, skip) {
     applyServerRound(result);
     $("#guess").value = "";
     suggestions.close();
+    if (result.closeGuess) notice(`Different version — "${result.closeGuess.text}" is another version of this song. Try again on ${BASE_LENGTHS[level()]}s.`);
   } catch (error) {
     if (challenge === current) notice(`${error.message} No attempt was used.`);
   } finally {
@@ -188,7 +254,17 @@ function attempt(text, skip = false) {
   if (storageAvailable) round = readRound();
   if (round.status !== "playing") { render(); return; }
   const correct = !skip && matchesSong(challenge.song, text);
+  const diffVersion = !skip && !correct && matchesVersion(challenge.song, text);
   stop();
+  if (diffVersion) {
+    round.close = [...(round.close || []), { level: level(), text }];
+    save();
+    $("#guess").value = "";
+    suggestions.close();
+    notice(`Different version — "${text}" is another version of this song. Try again on ${BASE_LENGTHS[level()]}s.`);
+    render();
+    return;
+  }
   round.attempts.push({ kind: correct ? "right" : skip ? "skip" : "wrong", text: skip ? "" : text });
   round.status = correct ? "won" : round.attempts.length === BASE_LENGTHS.length ? "lost" : "playing";
   save();

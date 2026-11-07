@@ -21,6 +21,7 @@ function newStore(t, extra = {}) {
     snippetHints: id => ({ era: `${id} era`, eraYear: 2023, year: 2022, producers: [`${id} producer`] }),
     snippetReveal: id => ({ id, title: id, display: id.toUpperCase() }),
     matchesAnswer: (id, text) => text.trim().toLowerCase() === id,
+    matchesVersion: (id, text) => text.trim().toLowerCase() === `${id} [v1]`,
     ...extra
   });
 }
@@ -50,7 +51,9 @@ test("the page never learns the song until the round is over", async t => {
   assert.equal(store.snippetRoundAudio(round.roundId, NOW).songId, "flawless", "the server picks among playable candidates only");
 
   const act = (kind, text) => store.snippetRoundAct("", { roundId: round.roundId, kind, text }, NOW + 5000, ip);
-  let res = act("guess", "talk");
+  let res = act("guess", "flawless [v1]");
+  assert.deepEqual(res, { status: "playing", level: 0, hints: {}, close: "flawless [v1]" }, "another version of the playing song gives a yellow close notice without burning a try");
+  res = act("guess", "talk");
   assert.deepEqual(res, { status: "playing", level: 1, hints: {} }, "a wrong guess tells nothing about the song");
   res = act("skip");
   assert.equal(res.level, 2);

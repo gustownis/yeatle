@@ -118,5 +118,7 @@
   {"id": "jealousy", "title": "Jealousy", "display": "Jealousy", "era": "530", "tab": "Released", "keys": ["jealousy"], "features": []},
   {"id": "jelousy", "title": "jelousy", "display": "jelousy", "era": "530", "tab": "Unreleased", "keys": ["jelousy", "jealousy"], "features": []},
   {"id": "krank", "title": "Krank", "display": "Krank (Chains)", "era": "Lyfë", "tab": "Released", "keys": [], "features": []},
-  {"id": "krank@edit-e5a02f262fbf", "title": "Krank", "display": "Krank", "era": "Lyfë", "tab": "Released", "keys": ["krank", "geeklikekrank", "geeklikecrank"], "features": []}
+  {"id": "krank@edit-e5a02f262fbf", "title": "Krank", "display": "Krank", "era": "Lyfë", "tab": "Released", "keys": ["krank", "geeklikekrank", "geeklikecrank"], "features": []},
+  {"id": "lilyachtystill", "title": "Lil Yachty - Still", "display": "Lil Yachty - Still (feat. YEAT)", "era": "Trëndi", "tab": "Unreleased", "keys": ["lilyachtystill", "still", "lilyachtystillfeatyeat", "ifidie", "lilyachtyifidie"], "features": ["feat. YEAT"]},
+  {"id": "lilyachtystill@2alive", "title": "Lil Yachty - Still", "display": "Lil Yachty - Still (feat. Yeat)", "era": "2 Alivë", "tab": "Unreleased", "keys": ["lilyachtystill", "still", "lilyachtystillfeatyeat", "ifidie", "lilyachtyifidie"], "features": ["feat. Yeat"]}
 ]

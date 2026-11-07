@@ -472,7 +472,9 @@
       },
       "basis": "Released tracker Type=Production and both tracker notes identify Yeat and Rio Leyva as producers, with Kankan performing. Applies to the retained OG File source too; sharing the Expensive taste instrumental does not make it the same vocal recording."
     },
-    {"match": {"id": "krank", "tab": "Released"}, "set": {"display": "Krank"}, "basis": "The released Krank showed as \"Krank (Chains)\", the name of the separate 2 Alivë demo."}
+    {"match": {"id": "krank", "tab": "Released"}, "set": {"display": "Krank"}, "basis": "The released Krank showed as \"Krank (Chains)\", the name of the separate 2 Alivë demo."},
+    {"match": {"id": "lilyachtystill"}, "set": {"display": "Lil Yachty - Still (feat. Yeat)", "eraDisplay": "Trëndi / 2 Alivë", "recordedIn": "Trëndi"}, "basis": "Yeat recorded his verse in the Trëndi era (V2); the 2 Alivë entry (V3) is a louder bounce of the same recording."},
+    {"match": {"id": "lilyachtystill@2alive"}, "set": {"display": "Lil Yachty - Still (feat. Yeat)", "eraDisplay": "Trëndi / 2 Alivë", "recordedIn": "Trëndi"}, "basis": "Yeat recorded his verse in the Trëndi era (V2); the 2 Alivë entry (V3) is a louder bounce of the same recording."}
   ],
   "answerGroups": [
     {"ids": ["yea", "yungbansyeax2", "yungbansyeayea"], "kind": "open-verse", "basis": "Open-verse demo and the released feature or features built on it. They are different recordings, so each stays its own round, but the names answer for each other. Maintainer list, 2026-11-01."},
@@ -532,6 +534,7 @@
     {"ids": ["buyinshit", "buyingshit"], "answerId": "buyinshit", "basis": "Both tracker rows link the same pillows.su file 29a75d11465cd9073f5271a608d40870. Preserve both ids."},
     {"ids": ["intro2022freestyle", "freestyleintro2022"], "answerId": "intro2022freestyle", "basis": "Both tracker rows link the same pillows.su file 44e7273473f140a5d4176ce4ada75c8d. Preserve both ids."},
     {"ids": ["jealousy", "jelousy"], "answerId": "jealousy", "basis": "Both tracker rows link the same pillows.su file 7502c7639f21be8ad2bd5406e1ab9cc8. Preserve both ids."},
-    {"ids": ["krank", "krank@edit-e5a02f262fbf"], "answerId": "krank", "basis": "The released Krank (EP track row, 2:55) and its Lyfë OG file row (V2, 2:55) are one song listed twice. The 2 Alivë Chains demo (krank@split-62aa8ddeb922) is a different recording and is hidden."}
+    {"ids": ["krank", "krank@edit-e5a02f262fbf"], "answerId": "krank", "basis": "The released Krank (EP track row, 2:55) and its Lyfë OG file row (V2, 2:55) are one song listed twice. The 2 Alivë Chains demo (krank@split-62aa8ddeb922) is a different recording and is hidden."},
+    {"ids": ["lilyachtystill@2alive", "lilyachtystill"], "answerId": "lilyachtystill@2alive", "basis": "Still V2 (Trëndi, pillows 2011235d05ff51904777bd62da361be8) and V3 (2 Alivë, pillows bbb021f87d5e3bec85452012b4ce8f68) are the same 2:06 recording featuring Yeat; tracker notes V3 is a louder bounce of V2 dated Oct 20, 2021. Preserve both ids."}
   ]
 }

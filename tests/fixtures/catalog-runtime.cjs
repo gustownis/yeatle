@@ -19,7 +19,7 @@ module.exports = function catalogRuntime(folder, fixtures = path.join(__dirname,
     console: { log() {}, warn() {}, error() {} }, setTimeout, clearTimeout, setInterval, clearInterval,
     process: { env: { ...process.env, YEATLE_DATA_DIR: folder, YEATLE_TRACKER_FIXTURES: fixtures, YEATLE_PORT: "0" }, platform: process.platform, execPath: process.execPath, exit(code) { throw new Error(`Server exited ${code}`); } }
   });
-  vm.runInContext(source.slice(0, end) + "\nmodule.exports = { buildSongList, loadTab, setSongs, publicSong, songListJson, upgradeCachedSongs, index: () => SONG_INDEX, years: ERA_YEARS };", context, { filename: file });
+  vm.runInContext(source.slice(0, end) + "\nmodule.exports = { buildSongList, loadTab, parseSheetHtml, setSongs, publicSong, songListJson, upgradeCachedSongs, index: () => SONG_INDEX, years: ERA_YEARS };", context, { filename: file });
   return { ...context.module.exports, async request(url, method = "GET", headers = {}) {
     const chunks = [], result = { headers: {}, status: 200 };
     const res = new Writable({ write(chunk, _encoding, callback) { chunks.push(Buffer.from(chunk)); callback(); } });

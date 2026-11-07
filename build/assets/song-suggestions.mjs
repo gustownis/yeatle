@@ -53,6 +53,12 @@ export function attachSongSuggestions(input, list) {
       title.className = "suggestion-title";
       title.textContent = song.label;
       copy.append(title);
+      if (song.aka) {
+        const aka = document.createElement("span");
+        aka.className = "suggestion-aka";
+        aka.textContent = `also ${song.aka}`;
+        copy.append(aka);
+      }
       if (song.era || song.year) {
         const meta = document.createElement("span");
         meta.className = "suggestion-meta";
@@ -134,7 +140,19 @@ export function attachSongSuggestions(input, list) {
       for (const song of songsForPool(entries)) {
         const label = song?.display || song?.title;
         if (typeof label !== "string" || !label.trim() || unique.has(label)) continue;
-        unique.set(label, { label, key: normalizeGuess(label), title: normalizeGuess(song.title), alts: [...song.keys || [], ...song.answerKeys || []].map(normalizeGuess).filter(Boolean), era: song.era || "", year: song.eraYear || song.year || null, status: song.tab === "Unreleased" ? song.tab : "" });
+        const normTitle = normalizeGuess(song.title);
+        const normLabel = normalizeGuess(label);
+        const seen = new Set([normTitle, normLabel]);
+        const distinct = [];
+        for (const raw of song.aliases || []) {
+          const trimmed = String(raw || "").trim();
+          if (!trimmed) continue;
+          const k = normalizeGuess(trimmed);
+          if (!k || seen.has(k)) continue;
+          seen.add(k);
+          distinct.push(trimmed);
+        }
+        unique.set(label, { label, key: normLabel, title: normTitle, alts: [...song.keys || [], ...song.answerKeys || []].map(normalizeGuess).filter(Boolean), aka: distinct.join(", "), era: song.eraDisplay || song.era || "", year: song.eraYear || song.year || null, status: song.tab === "Unreleased" ? song.tab : "" });
       }
       songs = [...unique.values()].sort((a, b) => a.label.localeCompare(b.label));
       show();

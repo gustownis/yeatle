@@ -16,7 +16,7 @@ export function restorePracticeSong(saved, songs) {
     ? songs.find(song => song.mode === "stems" && song.folder === snapshot.folder) : null;
   if (pack && pack.id !== saved.songId) return pack;
   return current && snapshot?.id === current.id
-    ? { ...snapshot, keys: current.keys, answerKeys: current.answerKeys } : current;
+    ? { ...snapshot, keys: current.keys, answerKeys: current.answerKeys, versionKeys: current.versionKeys, eraDisplay: current.eraDisplay } : current;
 }
 
 // A released row and a leak can share an answer while keeping their own
@@ -33,7 +33,13 @@ export function songsForPool(songs, pool = "all") {
     const held = unique.get(key);
     // Only a verified shared recording identity deduplicates suggestions and
     // future selection. Keep the installed playable pack when both are present.
-    if (!held || (song.mode === "stems" && held.mode !== "stems")) unique.set(key, song);
+    if (!held) {
+      unique.set(key, song);
+    } else {
+      const eraDisplay = held.eraDisplay || song.eraDisplay || (held.era && song.era && held.era !== song.era ? `${held.era} / ${song.era}` : "");
+      const chosen = (song.mode === "stems" && held.mode !== "stems") || (song.id === key && held.id !== key && held.mode !== "stems") ? song : held;
+      unique.set(key, eraDisplay && !chosen.eraDisplay ? { ...chosen, eraDisplay } : chosen);
+    }
   }
   return [...unique.values()];
 }

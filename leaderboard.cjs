@@ -179,7 +179,13 @@ function cleanDailyEntry(raw, date, keepVerified) {
         text: typeof a.text === "string" ? a.text.slice(0, 200) : ""
       }))
     : [];
-  const entry = { id, attempts, status: raw.status };
+  const close = Array.isArray(raw.close)
+    ? raw.close.slice(0, 20).filter(c => c && Number.isInteger(c.level) && c.level >= 0 && c.level < 6 && typeof c.text === "string").map(c => ({
+        level: c.level,
+        text: c.text.slice(0, 200)
+      }))
+    : [];
+  const entry = { id, attempts, status: raw.status, ...(close.length ? { close } : {}) };
   // Match the game's own rules (snippet-rules.mjs restoreRound): a win ends on the right
   // guess, a loss uses all six clips, and an unfinished round has no right guess.
   const right = attempts.findIndex(a => a.kind === "right");
@@ -437,6 +443,7 @@ function createLeaderboardStore(file, {
   snippetHints = () => ({}),
   snippetReveal = () => null,
   matchesAnswer = () => false,
+  matchesVersion = () => false,
   filtersFile = path.join(path.dirname(file), "username-filters.json"),
   bansFile = path.join(path.dirname(file), "leaderboard-bans.json"),
   evidenceDir = path.join(path.dirname(file), "cheat-evidence")
@@ -1081,6 +1088,8 @@ function createLeaderboardStore(file, {
       if (matchesAnswer(round.songId, text, round.pool)) {
         round.attempts.push({ kind: "right", text });
         round.status = "won";
+      } else if (matchesVersion(round.songId, text, round.pool)) {
+        return { status: round.status, level: Math.min(round.attempts.length, round.tries - 1), hints: hintsFor(round), close: text };
       } else {
         round.attempts.push({ kind: "wrong", text });
         if (round.attempts.length >= round.tries) round.status = "lost";
@@ -1144,17 +1153,28 @@ function createLeaderboardStore(file, {
     let round = user ? user.progress.daily?.[daily.date] : dailyRounds.get(key);
     // A round for a song an admin replaced starts over on the new one.
     if (!round || round.id !== daily.id) round = { id: daily.id, attempts: [], status: "playing" };
-    round = { id: round.id, attempts: [...round.attempts], status: round.status };
+    round = {
+      id: round.id,
+      attempts: [...round.attempts],
+      status: round.status,
+      ...(Array.isArray(round.close) && round.close.length ? { close: [...round.close] } : {})
+    };
 
     const kind = String(body?.kind || "state");
+    let closeGuess = null;
     if (kind !== "state") {
       if (round.status !== "playing") throw httpError("Today's Daily is already finished.", 409);
       if (kind === "guess") {
         const text = String(body?.text || "").trim().slice(0, 200);
         if (!text) throw httpError("Type a guess first.", 400);
         const right = daily.matches(text);
-        round.attempts.push({ kind: right ? "right" : "wrong", text });
-        if (right) round.status = "won";
+        if (!right && daily.matchesVersion?.(text)) {
+          closeGuess = { level: round.attempts.length, text };
+          round.close = [...(round.close || []), closeGuess];
+        } else {
+          round.attempts.push({ kind: right ? "right" : "wrong", text });
+          if (right) round.status = "won";
+        }
       } else if (kind === "skip") round.attempts.push({ kind: "skip", text: "" });
       else throw httpError("Unknown Daily action.", 400);
       if (round.status === "playing" && round.attempts.length >= daily.tries) round.status = "lost";
@@ -1169,7 +1189,14 @@ function createLeaderboardStore(file, {
       }
     }
     if (user && (changed || kind !== "state")) save();
-    return { id: daily.id, attempts: round.attempts, status: round.status, ...(round.status !== "playing" ? { song: daily.reveal() } : {}) };
+    return {
+      id: daily.id,
+      attempts: round.attempts,
+      status: round.status,
+      ...(round.close?.length ? { close: round.close } : {}),
+      ...(closeGuess ? { closeGuess } : {}),
+      ...(round.status !== "playing" ? { song: daily.reveal() } : {})
+    };
   }
 
   // A signed-in page reports a known cheat tool, or code injected into the game, once per

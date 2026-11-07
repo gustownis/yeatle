@@ -31,7 +31,7 @@ const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs")
 const { createLeaderboardStore } = require("./leaderboard.cjs");
 const { DEVICE_HEADER, cleanDeviceId, clientIp, normalIp, loadSecret, createSignalHasher, createRateLimiter } = require("./client-signals.cjs");
 const { pathToFileURL } = require("url");
-const { guessKeys, answerGroupFor, groupAnswerKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
+const { guessKeys, answerGroupFor, groupAnswerKeys, resolveGroupKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
 const APP_VERSION = require("./package.json").version;
@@ -194,7 +194,8 @@ try {
       return {
         date, id: publicDailyId(saved, date), tries: 6,
         matches: text => Boolean(snippetRules && snippetRules.matchesSong(pub, text)),
-        reveal: () => ({ display: pub.display, title: pub.title, era: pub.era || "", eraYear: pub.eraYear || null, year: pub.year || null, tab: pub.tab || "", relatedRecording: pub.relatedRecording || "" })
+        matchesVersion: text => Boolean(snippetRules && snippetRules.matchesVersion?.(pub, text)),
+        reveal: () => ({ display: pub.display, title: pub.title, era: pub.eraDisplay || pub.era || "", eraDisplay: pub.eraDisplay || "", eraYear: pub.eraYear || null, year: pub.year || null, tab: pub.tab || "", relatedRecording: pub.relatedRecording || "" })
       };
     },
     snippetSong: (id, pool) => {
@@ -205,7 +206,7 @@ try {
     },
     snippetHints: (id, pool) => {
       const pub = snippetEntry(id, pool)?.pub;
-      return pub ? { era: pub.era || "", eraYear: pub.eraYear || null, year: pub.year || null, producers: pub.producers || [] } : {};
+      return pub ? { era: pub.eraDisplay || pub.era || "", eraYear: pub.eraYear || null, year: pub.year || null, producers: pub.producers || [] } : {};
     },
     snippetReveal: (id, pool) => {
       const pub = snippetEntry(id, pool)?.pub;
@@ -214,6 +215,10 @@ try {
     matchesAnswer: (id, text, pool) => {
       const pub = snippetEntry(id, pool)?.pub;
       return Boolean(pub && snippetRules && snippetRules.matchesSong(pub, text));
+    },
+    matchesVersion: (id, text, pool) => {
+      const pub = snippetEntry(id, pool)?.pub;
+      return Boolean(pub && snippetRules && snippetRules.matchesVersion?.(pub, text));
     },
     ipBlockMs: CONFIG.ipRestrictionDays * 86400000
   });
@@ -1144,6 +1149,7 @@ function buildSongList(sheetRows, stemFolders) {
       display: song.features.length ? `${song.title} (${song.features[0]})` : song.title,
       features: song.features,
       producers: song.producers,
+      aliases: song.aliases || [],
       ...creditFor(song, CONFIG.artist),
       keys: guessKeys(song),
       era,
@@ -1177,7 +1183,7 @@ function buildSongList(sheetRows, stemFolders) {
     }
     const eligible = variants.filter(isGuessingEligible);
     const primary = eligible.find(row => row.source === song.source) || eligible[0] || variants.find(row => row.source === song.source) || variants[0];
-    const entry = { ...toGameSong(primary, key), keys: guessKeys(song), mergedFrom: song.mergedFrom || [] };
+    const entry = { ...toGameSong(primary, key), aliases: song.aliases || primary.aliases || [], keys: guessKeys(song), mergedFrom: song.mergedFrom || [] };
     const sources = variants.map(row => ({
       ...toGameSong(row, key), trackerKey: row._trackerKey || null,
       audioId: `${key}@audio-${crypto.createHash("sha256").update(JSON.stringify([row._trackerKey, row.source])).digest("hex").slice(0, 16)}`
@@ -1191,7 +1197,7 @@ function buildSongList(sheetRows, stemFolders) {
       const row = sources.filter(row => accepts(row) && isGuessingEligible(row))
         .sort((a, b) => SOURCE_RANK[a.source.kind] - SOURCE_RANK[b.source.kind])[0];
       if (!row) continue;
-      forPool[pool] = { ...row, keys: entry.keys };
+      forPool[pool] = { ...row, aliases: entry.aliases, keys: entry.keys };
     }
     if (variants.length > 1) {
       // All songs and a matching source-specific pool reuse the same audio
@@ -1487,8 +1493,8 @@ function unwrapGoogleLink(href) {
 }
 
 function parseSheetHtml(html) {
-  const table = String(html || "").match(/<table[\s\S]*?<\/table>/i);
-  if (!table) return { rows: [], linkRows: [], imageRows: [] };
+  const tables = String(html || "").match(/<table[\s\S]*?<\/table>/gi);
+  if (!tables) return { rows: [], linkRows: [], imageRows: [] };
 
   const rows = [];
   const linkRows = [];
@@ -1496,29 +1502,31 @@ function parseSheetHtml(html) {
   const rowPattern = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
   let row;
 
-  while ((row = rowPattern.exec(table[0]))) {
-    const cells = [];
-    const links = [];
-    const cellPattern = /<t([dh])\b([^>]*)>([\s\S]*?)<\/t\1>/gi;
-    let cell;
+  for (const table of tables) {
+    while ((row = rowPattern.exec(table))) {
+      const cells = [];
+      const links = [];
+      const cellPattern = /<t([dh])\b([^>]*)>([\s\S]*?)<\/t\1>/gi;
+      let cell;
 
-    while ((cell = cellPattern.exec(row[1]))) {
-      if (cell[1].toLowerCase() === "h") continue; // row-number gutter
-      const span = cell[2].match(/\bcolspan\s*=\s*["']?(\d+)/i);
-      const width = Math.min(span ? Number(span[1]) : 1, 50);
-      const text = cellText(cell[3]);
-      const hrefs = (cell[3].match(/<a\b[^>]*\bhref\s*=\s*["'][^"']+["']/gi) || [])
-        .map(tag => unwrapGoogleLink(decodeHtml(tag.match(/href\s*=\s*["']([^"']+)["']/i)[1])));
-      cells.push(text);
-      // a link cell's real addresses, plus its text in case it's typed out
-      links.push(hrefs.length ? `${hrefs.join(" ")} ${text}` : text);
-      for (let i = 1; i < width; i++) { cells.push(""); links.push(""); }
-    }
+      while ((cell = cellPattern.exec(row[1]))) {
+        if (cell[1].toLowerCase() === "h") continue; // row-number gutter
+        const span = cell[2].match(/\bcolspan\s*=\s*["']?(\d+)/i);
+        const width = Math.min(span ? Number(span[1]) : 1, 50);
+        const text = cellText(cell[3]);
+        const hrefs = (cell[3].match(/<a\b[^>]*\bhref\s*=\s*["'][^"']+["']/gi) || [])
+          .map(tag => unwrapGoogleLink(decodeHtml(tag.match(/href\s*=\s*["']([^"']+)["']/i)[1])));
+        cells.push(text);
+        // a link cell's real addresses, plus its text in case it's typed out
+        links.push(hrefs.length ? `${hrefs.join(" ")} ${text}` : text);
+        for (let i = 1; i < width; i++) { cells.push(""); links.push(""); }
+      }
 
-    if (cells.length) {
-      rows.push(cells);
-      linkRows.push(links);
-      imageRows.push(pickRowImage(row[1]));
+      if (cells.length) {
+        rows.push(cells);
+        linkRows.push(links);
+        imageRows.push(pickRowImage(row[1]));
+      }
     }
   }
 
@@ -2205,22 +2213,57 @@ function serveStemFile(req, res, searchParams) {
 const JOKES_FILE = path.join(DATA_DIR, "joke-photos.json");
 let preparedSongList;
 
-// Names a song also answers to through its catalog answer group, cached per catalog.
-let groupKeyCache = { index: null, rules: null, byGroup: new Map() };
-function linkedAnswerKeys(id) {
-  const group = answerGroupFor(id);
-  if (!group) return null;
-  if (groupKeyCache.index !== SONG_INDEX || groupKeyCache.rules !== snippetRules) groupKeyCache = { index: SONG_INDEX, rules: snippetRules, byGroup: new Map() };
-  if (!groupKeyCache.byGroup.has(group)) groupKeyCache.byGroup.set(group, [...groupAnswerKeys(group, member => SONG_INDEX.get(member), snippetRules?.acceptedKeys)]);
-  return groupKeyCache.byGroup.get(group);
+// Names a song also answers to or shares as another version, cached per catalog.
+let groupKeyCache = { songs: null, index: null, rules: null, byId: new Map(), byTitle: new Map() };
+function applyVersionAndGroupKeys(song) {
+  if (groupKeyCache.songs !== SONGS || groupKeyCache.index !== SONG_INDEX || groupKeyCache.rules !== snippetRules) {
+    const byTitle = new Map();
+    for (const entry of SONGS) {
+      const key = norm(entry.title);
+      if (!key) continue;
+      const list = byTitle.get(key) || [];
+      list.push(entry);
+      byTitle.set(key, list);
+    }
+    groupKeyCache = { songs: SONGS, index: SONG_INDEX, rules: snippetRules, byId: new Map(), byTitle };
+  }
+  let cached = groupKeyCache.byId.get(song.id);
+  if (!cached) {
+    const resolved = resolveGroupKeys(song, member => SONG_INDEX.get(member), snippetRules?.acceptedKeys);
+    const sameTitle = groupKeyCache.byTitle.get(norm(resolved.title)) || [];
+    const extraVersions = new Set(resolved.versionKeys || []);
+    const selfKey = resolved.answerId || resolved.id;
+    for (const other of sameTitle) {
+      const corr = applyCatalogMetadata(other);
+      if ((corr.answerId || corr.id) === selfKey) continue;
+      for (const val of [corr.display, corr.title, ...(corr.keys || []), ...(corr.answerKeys || [])]) {
+        const k = norm(val);
+        if (k) extraVersions.add(k);
+      }
+    }
+    cached = {
+      keys: resolved.keys,
+      answerKeys: resolved.answerKeys,
+      versionKeys: extraVersions.size ? [...extraVersions] : undefined
+    };
+    groupKeyCache.byId.set(song.id, cached);
+  }
+  return {
+    ...song,
+    keys: cached.keys || song.keys,
+    ...(cached.answerKeys?.length ? { answerKeys: [...new Set([...(song.answerKeys || []), ...cached.answerKeys])] } : {}),
+    ...(cached.versionKeys?.length ? { versionKeys: [...new Set([...(song.versionKeys || []), ...cached.versionKeys])] } : {})
+  };
 }
 
 function publicSong(song) {
   // Correct names/answers on a pinned challenge without changing its stored
   // recording, identity, clip start or source selection.
-  song = applyCatalogMetadata(song);
-  const linked = linkedAnswerKeys(song.id);
-  if (linked?.length) song = { ...song, answerKeys: [...new Set([...song.answerKeys || [], ...linked])] };
+  song = applyVersionAndGroupKeys(applyCatalogMetadata(song));
+  if (!song.aliases?.length) {
+    const aliases = SONG_INDEX.get(song.id)?.aliases;
+    if (aliases?.length) song = { ...song, aliases };
+  }
   const { source, fallback, mergedFrom, sourceVariants, poolVariants, ...rest } = song;
   return { ...rest, hasFull: Boolean(song.mode === "filter" || fallback),
     ...(poolVariants ? { poolVariants: Object.fromEntries(Object.entries(poolVariants).map(([pool, variant]) => [pool, publicSong(variant)])) } : {}) };
