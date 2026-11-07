@@ -303,6 +303,8 @@ export const snippetRounds = {
     Object.assign(song, result.hints || {});
     if (!result.song) return;
     Object.assign(song, result.song);
+    if (result.song.folder) delete song.stemBase;
+    delete song.roundId;
     if (recent) recent.current = [song.id, ...recent.current.filter(id => id !== song.id)].slice(0, 20);
   }
 };

@@ -13,13 +13,16 @@ function method(start, next) {
   return bundle.slice(first, last);
 }
 const prototype = vm.runInNewContext(`({${[
+  method("prepareClip(customTime,token){", "tickStemSync(){"),
+  method("tickStemSync(){", "async resyncStems(t){"),
+  method("async resyncStems(t){", "async playSnippet(t){"),
   method("onJob(t){", "position(){"),
   method("position(){", "startSources(t){"),
   method("startSources(t){", "stopSources(){"),
   method("stopSources(){", "useFiltersInstead(reason){"),
   method("setLevel(t){", "goFull(){"),
   method("goFull(){", "async play(t){")
-].join(",")}})`, { console });
+].join(",")}})`, { console, setInterval, clearInterval, Date });
 
 function player() {
   const created = [], stopped = [];
@@ -85,4 +88,61 @@ test("earlier split levels keep the four-source preview and hand-made stems rema
   assert.equal(local.p.sources, sources);
   assert.equal(local.created.length, 0);
   assert.equal(local.p.fullOnly, undefined);
+});
+
+test("multi-stem playback waits for all stems to buffer on seek and phase-locks drift", async () => {
+  const makeStem = (name, readyState = 4) => ({
+    name,
+    currentTime: 0,
+    duration: 188,
+    readyState,
+    seeking: false,
+    playbackRate: 1,
+    paused: false,
+    pause() { this.paused = true; },
+    play() { this.paused = false; return Promise.resolve(); }
+  });
+  const drums = makeStem("drums", 2);
+  const bass = makeStem("bass", 4);
+  const other = makeStem("other", 4);
+  const vocals = makeStem("vocals", 4);
+  drums.seeking = true;
+
+  const p = Object.assign(Object.create(prototype), {
+    mode: "stems",
+    playing: true,
+    destroyed: false,
+    syncToken: 0,
+    syncing: false,
+    lead: drums,
+    elements: [drums, bass, other, vocals],
+    onError() {}
+  });
+
+  const syncPromise = p.resyncStems(126);
+  assert.equal(p.syncing, true);
+  assert.ok(p.elements.every(el => el.paused), "all stems pause while waiting for drums to finish seeking");
+
+  setTimeout(() => {
+    drums.seeking = false;
+    drums.readyState = 4;
+  }, 40);
+  await syncPromise;
+
+  assert.equal(p.syncing, false);
+  assert.ok(p.elements.every(el => !el.paused && Math.abs(el.currentTime - 126) < 0.05), "all stems resume together at 2:06");
+
+  // Drift of 35ms (out of beat) is smoothly phase-locked via playbackRate
+  drums.currentTime = 130.035;
+  bass.currentTime = 130.000;
+  other.currentTime = 130.035;
+  vocals.currentTime = 130.035;
+  p.tickStemSync();
+  assert.ok(bass.playbackRate > 1.02 && bass.playbackRate <= 1.06);
+  assert.equal(other.playbackRate, 1);
+
+  // Once aligned within 8ms, playbackRate returns to 1
+  bass.currentTime = 130.032;
+  p.tickStemSync();
+  assert.equal(bass.playbackRate, 1);
 });

@@ -2009,8 +2009,9 @@ function serveStatic(req, res, pathname, { noStore = false } = {}) {
     const type = MIME[path.extname(file).toLowerCase()] || "application/octet-stream";
     const compressible = /\.(html|js|mjs|css|json|wasm|svg)$/i.test(file) && stat.size >= 1024;
     if (compressible) res.setHeader("Vary", "Accept-Encoding");
-    // Round audio must not be cached under a name a later round could reuse.
-    const cache = noStore ? { "Cache-Control": "no-store" } : staticCacheHeaders(file, stat, APP_VERSION);
+    // Round audio uses a unique per-round URL; omit file ETag/Last-Modified while
+    // allowing the browser media element to retain buffered byte ranges during the round.
+    const cache = noStore ? { "Cache-Control": "private, max-age=600" } : staticCacheHeaders(file, stat, APP_VERSION);
     for (const [header, value] of Object.entries(cache)) res.setHeader(header, value);
     if (isNotModified(req.headers, cache.ETag, stat.mtimeMs)) {
       res.writeHead(304);
@@ -2354,7 +2355,8 @@ function snippetEntry(id, pool = "all") {
   const variant = pool !== "all" ? song.poolVariants?.[pool] : null;
   const pub = variant ? { ...base, ...publicSong(variant), id: song.id, poolVariants: base.poolVariants } : base;
   const raw = variant || song;
-  const stems = raw.mode === "stems" && !raw.fallback && Boolean(raw.folder);
+  const hasStemFiles = Boolean(raw.folder) && fs.existsSync(path.join(STEMS_DIR, raw.folder));
+  const stems = raw.mode === "stems" && (hasStemFiles || !raw.fallback) && Boolean(raw.folder);
   const playable = raw.mode === "stems" ? Boolean(raw.fallback || raw.folder) : Boolean(raw.source);
   return { pub, raw, stems, playable };
 }
