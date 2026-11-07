@@ -218,4 +218,41 @@ test("multi-table Google Sheets HTML exports retain later chunks and display dis
       ["Lil Yachty - Still (feat. Yeat)", "also still, If I Die", "Trëndi / 2 Alivë · 2022 · Unreleased"]
     ], query);
   }
+  const remixSongs = [
+    runtime.publicSong({
+      id: "doubleteslayeatremix",
+      title: "Double Tesla (YEAT REMIX) (double tesla , I Got, Tattoo)",
+      display: "Double Tesla (YEAT REMIX) (double tesla , I Got, Tattoo)",
+      aliases: ["YEAT REMIX"],
+      era: "Alivë",
+      eraYear: 2021,
+      tab: "Released",
+      mode: "filter"
+    }),
+    runtime.publicSong({
+      id: "ionknowyeatremix",
+      title: "Ion Know (YEAT REMIX) (Ion know , Million Dollar Mansion Remix)",
+      display: "Ion Know (YEAT REMIX) (Ion know , Million Dollar Mansion Remix)",
+      aliases: ["YEAT REMIX"],
+      era: "Alivë",
+      eraYear: 2021,
+      tab: "Released",
+      mode: "filter"
+    }),
+    runtime.publicSong({
+      id: "moneyndrugsyeatremix",
+      title: "Money N Drugs (YEAT REMIX) (Money n Drugs , m.a.d, Money & Drugs)",
+      display: "Money N Drugs (YEAT REMIX) (Money n Drugs , m.a.d, Money & Drugs)",
+      aliases: ["YEAT REMIX"],
+      era: "Hold Ön",
+      eraYear: 2020,
+      tab: "Released",
+      mode: "filter"
+    })
+  ];
+  assert.deepEqual(await suggestionsFor(t, remixSongs, "YEAT REMIX"), [
+    ["Double Tesla (YEAT REMIX)", "also I Got, Tattoo", "Alivë · 2021"],
+    ["Ion Know (YEAT REMIX)", "also Million Dollar Mansion Remix", "Alivë · 2021"],
+    ["Money N Drugs (YEAT REMIX)", "also m.a.d", "Hold Ön · 2020"]
+  ]);
 });

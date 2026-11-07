@@ -136,20 +136,36 @@ export function attachSongSuggestions(input, list) {
   return {
     close,
     setSongs(entries) {
+      const looseNorm = s => normalizeGuess(String(s || "").replace(/\b(n|and)\b/gi, "and"));
       const unique = new Map();
       for (const song of songsForPool(entries)) {
-        const label = song?.display || song?.title;
-        if (typeof label !== "string" || !label.trim() || unique.has(label)) continue;
-        const normTitle = normalizeGuess(song.title);
+        const extraAliases = [];
+        const stripAliasParens = str => String(str || "").replace(/\s*\(([^()]*(?:,|\([^()]*\))[^()]*)\)/g, (_, inner) => {
+          inner.split(",").forEach(part => { const p = part.trim(); if (p) extraAliases.push(p); });
+          return "";
+        }).replace(/\s+/g, " ").trim();
+        const rawLabel = song?.display || song?.title;
+        if (typeof rawLabel !== "string" || !rawLabel.trim()) continue;
+        const cleanTitle = stripAliasParens(song.title);
+        const label = stripAliasParens(rawLabel);
+        if (!label || unique.has(label)) continue;
+        const baseTitle = cleanTitle.replace(/\s*\([^()]*\)/g, "").trim();
+        const baseLabel = label.replace(/\s*\([^()]*\)/g, "").trim();
+        const keptTags = [...cleanTitle.matchAll(/\(([^()]+)\)/g)].map(m => looseNorm(m[1]));
+        const normTitle = normalizeGuess(cleanTitle);
         const normLabel = normalizeGuess(label);
-        const seen = new Set([normTitle, normLabel]);
+        const seen = new Set([normTitle, normLabel, looseNorm(cleanTitle), looseNorm(label), normalizeGuess(baseTitle), normalizeGuess(baseLabel), looseNorm(baseTitle), looseNorm(baseLabel), ...keptTags].filter(Boolean));
         const distinct = [];
-        for (const raw of song.aliases || []) {
+        for (const raw of [...extraAliases, ...(song.aliases || [])]) {
           const trimmed = String(raw || "").trim();
           if (!trimmed) continue;
-          const k = normalizeGuess(trimmed);
-          if (!k || seen.has(k)) continue;
+          const aliasBase = trimmed.replace(/\s*\([^()]*\)/g, "").trim();
+          const k = normalizeGuess(trimmed), kl = looseNorm(trimmed), kb = looseNorm(aliasBase);
+          if (!k || k.length <= 1 || seen.has(k) || seen.has(kl) || (kb && seen.has(kb))) continue;
+          if (/^(yeat\s+)?(remix|mix|version|edit|intro|outro|interlude|freestyle|skit|open|solo|bonus)$/i.test(trimmed)) continue;
           seen.add(k);
+          seen.add(kl);
+          if (kb) seen.add(kb);
           distinct.push(trimmed);
         }
         unique.set(label, { label, key: normLabel, title: normTitle, alts: [...song.keys || [], ...song.answerKeys || []].map(normalizeGuess).filter(Boolean), aka: distinct.join(", "), era: song.eraDisplay || song.era || "", year: song.eraYear || song.year || null, status: song.tab === "Unreleased" ? song.tab : "" });

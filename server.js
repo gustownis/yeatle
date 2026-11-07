@@ -2256,6 +2256,48 @@ function applyVersionAndGroupKeys(song) {
   };
 }
 
+function cleanMangledDisplayAndAliases(song) {
+  const looseNorm = s => norm(String(s || "").replace(/\b(n|and)\b/gi, "and"));
+  const extraAliases = [];
+  const stripAliasParens = str => String(str || "").replace(/\s*\(([^()]*(?:,|\([^()]*\))[^()]*)\)/g, (_, inner) => {
+    inner.split(",").forEach(part => { const p = part.trim(); if (p) extraAliases.push(p); });
+    return "";
+  }).replace(/\s+/g, " ").trim();
+  let title = stripAliasParens(song.title);
+  let display = stripAliasParens(song.display || title);
+  const stripRedundantParen = str => {
+    const base = str.replace(/\s*\([^()]*\)/g, "").trim();
+    const baseKey = looseNorm(base);
+    return baseKey ? str.replace(/\s*\(([^()]+)\)/g, (whole, inner) => (/^(feat|ft|with)\b/i.test(inner) ? whole : looseNorm(inner) === baseKey ? "" : whole)).replace(/\s+/g, " ").trim() : str;
+  };
+  title = stripRedundantParen(title);
+  display = stripRedundantParen(display);
+  const baseTitle = title.replace(/\s*\([^()]*\)/g, "").trim();
+  const baseDisplay = display.replace(/\s*\([^()]*\)/g, "").trim();
+  const keptTags = [...title.matchAll(/\(([^()]+)\)/g)].map(m => looseNorm(m[1]));
+  const seen = new Set([norm(title), norm(display), looseNorm(title), looseNorm(display), norm(baseTitle), norm(baseDisplay), looseNorm(baseTitle), looseNorm(baseDisplay), ...keptTags].filter(Boolean));
+  const aliases = [];
+  const extraKeys = new Set(song.keys || []);
+  for (const raw of [...extraAliases, ...(song.aliases || [])]) {
+    const trimmed = String(raw || "").trim();
+    if (!trimmed) continue;
+    const aliasBase = trimmed.replace(/\s*\([^()]*\)/g, "").trim();
+    const k = norm(trimmed), kl = looseNorm(trimmed), kb = looseNorm(aliasBase);
+    if (!k || k.length <= 1 || /^(yeat\s+)?(remix|mix|version|edit|intro|outro|interlude|freestyle|skit|open|solo|bonus)$/i.test(trimmed)) continue;
+    extraKeys.add(k);
+    if (seen.has(k) || seen.has(kl) || (kb && seen.has(kb))) continue;
+    seen.add(k);
+    seen.add(kl);
+    if (kb) seen.add(kb);
+    aliases.push(trimmed);
+  }
+  const cleanTitleKey = norm(title);
+  if (cleanTitleKey) extraKeys.add(cleanTitleKey);
+  const baseTitleKey = norm(baseTitle);
+  if (baseTitleKey) extraKeys.add(baseTitleKey);
+  return { ...song, title, display, aliases, keys: [...extraKeys] };
+}
+
 function publicSong(song) {
   // Correct names/answers on a pinned challenge without changing its stored
   // recording, identity, clip start or source selection.
@@ -2264,6 +2306,7 @@ function publicSong(song) {
     const aliases = SONG_INDEX.get(song.id)?.aliases;
     if (aliases?.length) song = { ...song, aliases };
   }
+  song = cleanMangledDisplayAndAliases(song);
   const { source, fallback, mergedFrom, sourceVariants, poolVariants, ...rest } = song;
   return { ...rest, hasFull: Boolean(song.mode === "filter" || fallback),
     ...(poolVariants ? { poolVariants: Object.fromEntries(Object.entries(poolVariants).map(([pool, variant]) => [pool, publicSong(variant)])) } : {}) };
