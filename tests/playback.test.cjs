@@ -146,3 +146,19 @@ test("multi-stem playback waits for all stems to buffer on seek and phase-locks 
   p.tickStemSync();
   assert.equal(bass.playbackRate, 1);
 });
+
+test("Stems, Snippets, Daily, and Karaoke volume bars are uniform and display percentage readouts", () => {
+  const dailyHtml = fs.readFileSync(path.join(__dirname, "../build/daily.html"), "utf8");
+  const dailyMjs = fs.readFileSync(path.join(__dirname, "../build/assets/daily.mjs"), "utf8");
+  const karaokeHtml = fs.readFileSync(path.join(__dirname, "../build/karaoke.html"), "utf8");
+  const karaokeJs = fs.readFileSync(path.join(__dirname, "../build/assets/karaoke.js"), "utf8");
+
+  assert.match(bundle, /className:"volume-pct","aria-hidden":"true",children:\[Math\.round\(\(yn\?0:sr\)\*100\),"%"\]/);
+  assert.match(dailyHtml, /<div class="volume"><button id="mute" class="icon-btn"/);
+  assert.match(dailyHtml, /<span id="volume-pct" class="volume-pct" aria-hidden="true">80%<\/span>/);
+  assert.doesNotMatch(dailyHtml, /<label class="volume">Volume/);
+  assert.match(dailyMjs, /function syncVolume\(/);
+  assert.match(dailyMjs, /\$\("#volume-pct"\)\.textContent = `\$\{Math\.round\(shown \* 100\)\}%`/);
+  assert.match(karaokeHtml, /<output id="stage-volume-out" aria-hidden="true">80%<\/output>/);
+  assert.match(karaokeJs, /\$\("#stage-volume-out"\)\.textContent = `\$\{settings\.volume\}%`/);
+});

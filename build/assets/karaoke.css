@@ -67,7 +67,7 @@ h2:first-child { margin-top: 0; }
 .seg { flex: 1; background: transparent; border: 0; border-radius: 7px; padding: 7px 4px; cursor: pointer; color: var(--muted); }
 .seg.on { background: var(--accent); color: #fff; font-weight: 600; }
 .opt { display: grid; grid-template-columns: 120px 1fr 60px; align-items: center; gap: 10px; margin: 6px 0; font-size: 14px; }
-.opt input { accent-color: var(--accent); width: 100%; }
+.opt input { accent-color: #8901b9; width: 100%; }
 .opt output { font-size: 13px; color: var(--muted); text-align: right; }
 .check { display: flex; gap: 8px; align-items: center; font-size: 14px; margin-top: 8px; }
 .check input { accent-color: var(--accent); }
@@ -118,7 +118,8 @@ h2:first-child { margin-top: 0; }
 .progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; overflow: hidden; }
 .progress i { display: block; height: 100%; width: 0; background: var(--accent); }
 .stage-volume { display: flex; align-items: center; gap: 6px; font-size: 14px; }
-.stage-volume input { width: 90px; accent-color: var(--accent); }
+.stage-volume input { width: 90px; accent-color: #8901b9; }
+.stage-volume output { min-width: 34px; text-align: right; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .countdown { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: clamp(64px, 14vw, 140px); font-weight: 900; color: #fff; text-shadow: 0 0 30px var(--accent), 0 4px 20px rgba(0, 0, 0, 0.8); pointer-events: none; }
 .countdown.tick { animation: countdown 0.9s ease-out; }
 @keyframes countdown { 0% { opacity: 0; transform: scale(1.6); } 20% { opacity: 1; transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0.2; transform: scale(0.9); } }

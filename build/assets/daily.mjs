@@ -8,8 +8,31 @@ let challenge, round, storageKey, clockAt, serverAt, loading = false;
 let ctx, master, clipGain, buffers, sources = [], audioLoad, abortAudio, playback = 0;
 let ready = false, busy = false, playing = false, storageAvailable = true;
 let playStartAt = 0, playDuration = 0, playFrame = 0;
+const UNMUTED_WAVE = "M11 5.5q1.8 2.5 0 5";
+const MUTED_WAVE = "M11 5.5l3.5 5M14.5 5.5l-3.5 5";
+let volumeLevel = (() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("yeatle:volume"));
+    if (typeof saved === "number" && Number.isFinite(saved)) return Math.max(0, Math.min(1, saved));
+  } catch {}
+  return 0.8;
+})();
+let muted = false;
 const notice = text => { $("#notice").textContent = text; };
 const serverNow = () => serverAt + performance.now() - clockAt;
+
+function syncVolume(persist = false) {
+  const shown = muted ? 0 : volumeLevel;
+  $("#volume").value = String(shown);
+  $("#volume-pct").textContent = `${Math.round(shown * 100)}%`;
+  $("#mute").title = muted ? "Unmute" : "Mute";
+  $("#mute").setAttribute("aria-label", muted ? "Unmute" : "Mute");
+  $("#volume-wave")?.setAttribute("d", muted || volumeLevel === 0 ? MUTED_WAVE : UNMUTED_WAVE);
+  if (master) master.gain.value = shown ** 2;
+  if (persist) {
+    try { localStorage.setItem("yeatle:volume", JSON.stringify(volumeLevel)); } catch {}
+  }
+}
 
 function clipPercent(seconds) {
   const max = BASE_LENGTHS.at(-1) || 15;
@@ -187,7 +210,7 @@ async function play() {
     const offset = challenge.clipAt;
     const length = round.status === "playing" ? BASE_LENGTHS[level()] : BASE_LENGTHS.at(-1);
     const when = ctx.currentTime + 0.02;
-    const volume = Number($("#volume").value) ** 2;
+    const volume = (muted ? 0 : volumeLevel) ** 2;
     master.gain.value = volume;
     clipGain = ctx.createGain();
     clipGain.connect(master);
@@ -315,7 +338,9 @@ $("#play").onclick = play;
 $("#retry").onclick = loadChallenge;
 $("#guess-form").onsubmit = event => { event.preventDefault(); const text = $("#guess").value.trim(); if (text) attempt(text); };
 $("#skip").onclick = () => attempt("", true);
-$("#volume").oninput = () => { if (master) master.gain.value = Number($("#volume").value) ** 2; };
+$("#mute").onclick = () => { muted = !muted; syncVolume(false); };
+$("#volume").oninput = () => { muted = false; volumeLevel = Math.max(0, Math.min(1, Number($("#volume").value) || 0)); syncVolume(true); };
+syncVolume(false);
 $("#share").onclick = async () => {
   const text = shareResult(challenge.date, round, challenge.shareUrl || new URL("daily", location.href).href);
   try {
@@ -331,7 +356,15 @@ $("#share").onclick = async () => {
     notice("Select and copy your result below.");
   }
 };
-addEventListener("storage", event => { if (challenge && event.key === storageKey) { stop(); round = readRound(); render(); } });
+addEventListener("storage", event => {
+  if (event.key === "yeatle:volume") {
+    try {
+      const saved = JSON.parse(event.newValue);
+      if (typeof saved === "number" && Number.isFinite(saved)) { volumeLevel = Math.max(0, Math.min(1, saved)); syncVolume(false); }
+    } catch {}
+  }
+  if (challenge && event.key === storageKey) { stop(); round = readRound(); render(); }
+});
 addEventListener("yeatle:progress-synced", () => { if (challenge && !challenge.checked) { stop(); round = readRound(); render(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden) { stop(); render(); } else expired(); });
 addEventListener("pagehide", dispose);

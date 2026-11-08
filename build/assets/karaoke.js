@@ -1876,6 +1876,8 @@ function buildStage() {
     : "");
   $("#mark-skip").hidden = !game.whiteMode;
   $("#stage-volume").value = settings.volume;
+  $("#stage-volume-out").textContent = `${settings.volume}%`;
+  $("#stage-volume-wave")?.setAttribute?.("d", settings.volume === 0 ? "M11 5.5l3.5 5M14.5 5.5l-3.5 5" : "M11 5.5q1.8 2.5 0 5");
   const cards = $("#cards");
   cards.replaceChildren(...game.players.map(p => {
     p.card = el("div", { class: "card", style: `--c:${p.color}` },
@@ -2289,7 +2291,13 @@ function init() {
   $("#quit").addEventListener("click", () => { setPaused(false); backToSetup(); });
   $("#skip").addEventListener("click", skipAhead);
   $("#mark-skip").addEventListener("click", markSkip);
-  $("#stage-volume").addEventListener("input", e => { settings.volume = Number(e.target.value); saveSettings(); applyVolume(); });
+  $("#stage-volume").addEventListener("input", e => {
+    settings.volume = Number(e.target.value);
+    $("#stage-volume-out").textContent = `${settings.volume}%`;
+    $("#stage-volume-wave")?.setAttribute?.("d", settings.volume === 0 ? "M11 5.5l3.5 5M14.5 5.5l-3.5 5" : "M11 5.5q1.8 2.5 0 5");
+    saveSettings();
+    applyVolume();
+  });
   $("#again").addEventListener("click", restart);
   $("#another").addEventListener("click", backToSetup);
   window.addEventListener("resize", resizeCanvas);

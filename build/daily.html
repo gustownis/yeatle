@@ -36,7 +36,7 @@
         <div class="panel-head"><h2 id="clip-label">0.1 seconds</h2><span id="attempt" class="muted"></span></div>
         <ol id="clips" aria-label="Clip lengths and guesses"></ol>
         <div class="daily-controls"><button id="play" class="play">Play 0.1s</button>
-          <label class="volume">Volume <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8"></label></div>
+          <div class="volume"><button id="mute" class="icon-btn" type="button" title="Mute" aria-label="Mute"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z"></path><path id="volume-wave" d="M11 5.5q1.8 2.5 0 5" stroke="currentColor" stroke-width="1.3" fill="none"></path></svg></button><input id="volume" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Volume"><span id="volume-pct" class="volume-pct" aria-hidden="true">80%</span></div></div>
         <form id="guess-form" class="daily-guess">
           <div class="guess-input-wrap">
             <label class="sr-only" for="guess">Your guess</label>
