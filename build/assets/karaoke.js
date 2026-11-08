@@ -1789,7 +1789,7 @@ function finishPhrase(index) {
 
 // Signed-in rounds are ranked from Singer 1's microphone. The server issues the run when
 // the song starts and checks the trace when it ends; local best scores work as before.
-const ranking = () => import("./leaderboard.mjs?v=1.13.7").then(m => m.rankedKaraoke);
+const ranking = () => import("./leaderboard.mjs?v=1.13.8").then(m => m.rankedKaraoke);
 function startRankedRun(g) {
   g.ranked = null;
   g.trace = null;
@@ -2252,7 +2252,7 @@ async function loadSongs() {
   try {
     const res = await fetch("api/songs");
     const data = await res.json();
-    const { songsForPool } = await import("./song-pools.mjs?v=1.13.7");
+    const { songsForPool } = await import("./song-pools.mjs?v=1.13.8");
     state.songs = songsForPool(data.songs || []).slice().sort((a, b) => a.display.localeCompare(b.display));
     carryFormerIds(state.songs);
     state.artist = data.artist || "Yeat";

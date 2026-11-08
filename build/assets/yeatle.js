@@ -1,7 +1,7 @@
-import{inSongPool as YeatleInPool,songsForPool as YeatlePoolSongs,eraCounts as YeatleEraCounts,restorePracticeSong as YeatleRestorePractice}from"./song-pools.mjs?v=1.13.7";
-import{BASE_LENGTHS as YeatleBaseLengths,matchesSong as YeatleMatchesSong,matchesVersion as YeatleMatchesVersion}from"./snippet-rules.mjs?v=1.13.7";
+import{inSongPool as YeatleInPool,songsForPool as YeatlePoolSongs,eraCounts as YeatleEraCounts,restorePracticeSong as YeatleRestorePractice}from"./song-pools.mjs?v=1.13.8";
+import{BASE_LENGTHS as YeatleBaseLengths,matchesSong as YeatleMatchesSong,matchesVersion as YeatleMatchesVersion}from"./snippet-rules.mjs?v=1.13.8";
 // Snippets rounds are picked and checked by the server, so the answer never reaches this page early.
-import{snippetRounds as YeatleRounds}from"./leaderboard.mjs?v=1.13.7";
+import{snippetRounds as YeatleRounds}from"./leaderboard.mjs?v=1.13.8";
 // The last song list, kept for this window's session so returning from Daily or Karaoke
 // draws the full game in its first frame instead of an empty list that fills in later.
 function YeatleSavedList(){try{const v=JSON.parse(sessionStorage.getItem("yeatle:song-list"));if(v&&Array.isArray(v.songs)&&(v.songs.length||v.retiredSongs?.length))return v.songs=[...v.songs,...v.retiredSongs||[]],YeatleLiveControl=v.liveControl,v}catch{}return null}
