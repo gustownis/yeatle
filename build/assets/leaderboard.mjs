@@ -525,7 +525,10 @@ function defaultBoardForPage() {
 function initLeaderboardUI() {
   if (typeof document === "undefined" || !document.body) return;
 
-  const rawSetItem = Storage.prototype.setItem.bind(localStorage);
+  const originalSetItem = Storage.prototype.setItem;
+  const rawSetItem = originalSetItem.bind(localStorage);
+  // Earlier versions saved the per-window song list here by mistake; it belongs in sessionStorage.
+  try { localStorage.removeItem("yeatle:song-list"); } catch {}
   let accountState = safeJsonParse(localStorage.getItem(ACCOUNT_KEY), null);
   let activeBoard = defaultBoardForPage();
   let leaderboardData = null;
@@ -1105,10 +1108,12 @@ function initLeaderboardUI() {
     modal.replaceChildren(head, body);
   }
 
-  // Intercept localStorage writes so progress syncs automatically when a round finishes
+  // Intercept localStorage writes so progress syncs automatically when a round finishes.
+  // Write to the storage that was called: sessionStorage shares this prototype, and
+  // sending its writes to localStorage lost the game's saved song list between pages.
   Storage.prototype.setItem = function (key, value) {
-    rawSetItem(key, value);
-    if (typeof key === "string" && (key.startsWith("yeatle:completed") || key.startsWith("yeatle:stats") || key === "yeatle:prestige" || key.startsWith("yeatle:daily:") || key.startsWith("yeatle-karaoke-best:"))) {
+    originalSetItem.call(this, key, value);
+    if (this === localStorage && typeof key === "string" && (key.startsWith("yeatle:completed") || key.startsWith("yeatle:stats") || key === "yeatle:prestige" || key.startsWith("yeatle:daily:") || key.startsWith("yeatle-karaoke-best:"))) {
       renderTriggerButton();
       if (accountState?.token && !bannedShown) {
         clearTimeout(syncTimer);

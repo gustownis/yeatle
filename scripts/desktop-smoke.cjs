@@ -87,10 +87,12 @@ app.on("browser-window-created", (_event, created) => {
       ? Promise.resolve({ state: 'prompt' }) : queryPermission(descriptor);
     addEventListener('error', event => smoke.errors.push(event.message));
     addEventListener('unhandledrejection', event => smoke.errors.push(String(event.reason)));
-    const start = AudioBufferSourceNode.prototype.start;
     const layout = () => {
       const tabs = document.querySelector('.tabs')?.getBoundingClientRect(), shell = document.querySelector('.shell, .daily-shell')?.getBoundingClientRect();
-      return { tabs: tabs && [tabs.x, tabs.y, tabs.width, tabs.height], shell: shell && shell.height };
+      // Pages show a scrollbar only when they overflow (no reserved gutter), which moves
+      // centered content by half its width. Record it so tab checks can allow for it.
+      const scroller = document.querySelector('.App') || document.documentElement;
+      return { tabs: tabs && [tabs.x, tabs.y, tabs.width, tabs.height], shell: shell && shell.height, scrollbar: innerWidth - scroller.clientWidth };
     };
     addEventListener('pagereveal', event => {
       smoke.revealLayout = layout();
@@ -102,14 +104,28 @@ app.on("browser-window-created", (_event, created) => {
       }).catch(() => {});
       event.viewTransition.finished.then(() => { smoke.finishedLayout = layout(); smoke.navigationDone = true; }).catch(() => {});
     });
-    AudioBufferSourceNode.prototype.start = function(when, offset) {
-      window.smokeContext = this.context;
-      const samples = this.buffer.getChannelData(0);
-      let peak = 0;
-      for (let i = 0; i < samples.length; i += 128) peak = Math.max(peak, Math.abs(samples[i]));
-      smoke.starts.push({ lead: when - this.context.currentTime, offset, duration: this.buffer.duration, peak });
-      return start.apply(this, arguments);
+    // Record every started audio source. Karaoke builds its audio graph in a hidden
+    // same-origin frame with its own Web Audio functions, so hook added frames as well.
+    // This script also runs inside that frame; report to the top window either way.
+    const report = (() => { try { return top.smoke ? top : window; } catch { return window; } })();
+    const recordStarts = realm => {
+      const proto = realm.AudioBufferSourceNode?.prototype, start = proto?.start;
+      if (!start || start.smokeRecorded) return;
+      proto.start = function(when, offset) {
+        const smoke = report.smoke;
+        report.smokeContext = this.context;
+        const samples = this.buffer.getChannelData(0);
+        let peak = 0;
+        for (let i = 0; i < samples.length; i += 128) peak = Math.max(peak, Math.abs(samples[i]));
+        smoke.starts.push({ lead: when - this.context.currentTime, offset, duration: this.buffer.duration, peak });
+        return start.apply(this, arguments);
+      };
+      proto.start.smokeRecorded = true;
     };
+    recordStarts(window);
+    new MutationObserver(records => records.forEach(record => record.addedNodes.forEach(node => {
+      if (node.tagName === 'IFRAME') try { if (node.contentWindow) recordStarts(node.contentWindow); } catch {}
+    }))).observe(document, { childList: true, subtree: true });
     addEventListener('DOMContentLoaded', () => {
       localStorage.setItem('yeatle:lightStems', 'true');
       if (!localStorage.getItem('yeatle-smoke-seeded')) {
@@ -145,17 +161,20 @@ async function runWindow() {
       assert.ok(frames.length >= 2, "Missing native tab animation frames");
       assert.ok(Math.abs(parseFloat(frames[0][dimension]) - parseFloat(frames.at(-1)[dimension])) < 1, `Animated tab ${dimension} stretches`);
     }
-    const dailyTabs = await evaluate('smoke.finishedLayout.tabs');
+    const dailyLayout = await evaluate('smoke.finishedLayout'), dailyTabs = dailyLayout.tabs;
     await evaluate(`document.querySelector('.tabs a[href="./?mode=${mode === "Stems" ? "stems" : "snippet"}"]').click()`);
     await until('document.querySelector("[role=tab]") && smoke.navigationDone', "return from Daily");
     const returned = await evaluate(geometry);
     assert.ok(Math.abs(returned.width - after.width) < 1 && Math.abs(returned.height - after.height) < 1);
     // Returning must look like entering: the game appears at its finished size, in its
-    // finished mode, with the tabs exactly where Daily drew them (no late list or scrollbar shift).
+    // finished mode, with the tabs where Daily drew them (no late list shift). A page that
+    // overflows shows a scrollbar the other may not, so compare tab x by the visible centre.
     const revealed = await evaluate('({ reveal: smoke.revealLayout, finished: smoke.finishedLayout, selected: document.querySelector("[role=tab][aria-selected=true]")?.textContent })');
     assert.equal(revealed.selected, mode);
     assert.ok(Math.abs(revealed.reveal.shell - revealed.finished.shell) < 2, `${mode} appeared at ${revealed.reveal.shell}px and grew to ${revealed.finished.shell}px`);
-    revealed.reveal.tabs.forEach((value, i) => assert.ok(Math.abs(value - dailyTabs[i]) < 1, `${mode} tabs moved from Daily's position: ${revealed.reveal.tabs} vs ${dailyTabs}`));
+    const scrollbarShift = (dailyLayout.scrollbar - revealed.reveal.scrollbar) / 2;
+    revealed.reveal.tabs.forEach((value, i) => assert.ok(Math.abs(value - dailyTabs[i] - (i === 0 ? scrollbarShift : 0)) < 1, `${mode} tabs moved from Daily's position: ${revealed.reveal.tabs} vs ${dailyTabs} (scrollbars ${revealed.reveal.scrollbar} vs ${dailyLayout.scrollbar})`));
+    assert.ok(Math.abs(revealed.reveal.scrollbar - revealed.finished.scrollbar) < 1, `${mode} gained a scrollbar after it appeared`);
     result.checks.dailyTabGeometry.push({ mode, before, after, returned, frames, revealed, dailyTabs });
   }
   const arrived = new Promise(resolve => window.webContents.once("did-finish-load", resolve));

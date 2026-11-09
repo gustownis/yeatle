@@ -76,7 +76,7 @@ app.whenReady().then(async () => {
   await window.loadURL(`${origin}/?mode=snippet`);
   console.log("Daily check: loaded snippets");
   await until('document.querySelector(".track .seg")', "Base snippets");
-  result.checks.base = await evaluate('({ value: document.querySelector("select[aria-label=Difficulty]").value, options: [...document.querySelector("select[aria-label=Difficulty]").options].map(o => o.text), lengths: [...document.querySelectorAll(".track .seg")].map(el => el.textContent), tabs: [...document.querySelectorAll("[role=tab]")].map(el => el.textContent) })');
+  result.checks.base = await evaluate('({ value: document.querySelector("select[aria-label=Difficulty]").value, options: [...document.querySelector("select[aria-label=Difficulty]").options].map(o => o.text), lengths: [...document.querySelectorAll(".track .seg")].map(el => el.getAttribute("aria-label")), tabs: [...document.querySelectorAll("[role=tab]")].map(el => el.textContent) })');
   assert.equal(result.checks.base.value, "base");
   assert.deepEqual(result.checks.base.lengths, ["0.1s", "0.5s", "1s", "3s", "7s", "15s"]);
   assert.equal(result.checks.base.options[0], "Base");
