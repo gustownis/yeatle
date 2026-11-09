@@ -382,4 +382,20 @@ test("verified premasters and matching unreleased OG files replace 30s Apple pre
   const appliedNow = applyCatalogMetadata(nowRel, [nowRel, nowUnrel]);
   assert.equal(appliedNow.premaster?.id, "now-og", "Now matches unreleased OG file across Luh Geeky / Luh geekum personas");
   assert.equal(appliedNow.preview, false);
+
+  // Lyfë master files
+  const cantStopIt = catalog.index().get("cantstopit") || { id: "cantstopit", tab: "Released", source: { kind: "apple", id: "1643750399" } };
+  const appliedCantStop = applyCatalogMetadata(cantStopIt);
+  assert.equal(appliedCantStop.premaster.id, "28c6e3dc8714823fbd6878980b0e93f3", "Can't stop it uses verified Cant stop this master file");
+  assert.equal(appliedCantStop.preview, false);
+
+  const killinEm = catalog.index().get("killinem") || { id: "killinem", tab: "Released", source: { kind: "apple", id: "1643750872" } };
+  const appliedKillin = applyCatalogMetadata(killinEm);
+  assert.equal(appliedKillin.premaster.id, "317f444a8456cc9690d14a5dc2d744c0", "Killin ëm uses verified master file");
+  assert.equal(appliedKillin.preview, false);
+
+  const holy1 = catalog.index().get("holy1") || { id: "holy1", tab: "Released", source: { kind: "apple", id: "1643750684" } };
+  const appliedHoly1 = applyCatalogMetadata(holy1);
+  assert.equal(appliedHoly1.premaster.id, "0bd480ae941bb860b08bb5a2eaec3bef", "Holy 1 uses verified master file");
+  assert.equal(appliedHoly1.preview, false);
 });
