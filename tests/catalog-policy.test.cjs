@@ -315,3 +315,26 @@ test("legacy and trailing slash routes redirect with queries before any audio or
     assert.equal((await catalog.request(asset)).status, 200, asset);
   }
 });
+
+test("verified premasters and matching unreleased OG files replace 30s Apple previews", async t => {
+  const { catalog } = setup(t);
+  const rows = [
+    { title: "Yung Kayo - YEET", features: ["feat. Yeat"], aliases: [], era: "2 Alivë", tab: "Released", type: "Feature", length: "2:37", source: { kind: "apple", id: "1606768032" } },
+    { title: "Rackz got më", features: ["feat. Gunna"], aliases: [], era: "2 Alivë", tab: "Released", type: "Album Track", length: "3:01", source: { kind: "apple", id: "1609701863" } },
+    { title: "Rackz got më", features: [], aliases: [], era: "2 Alivë", tab: "Unreleased", type: "Demo", length: "1:36", source: { kind: "pillows", id: "demo-v1" } },
+    { title: "Rackz got më", features: ["feat. Gunna"], aliases: [], era: "2 Alivë", tab: "Unreleased", type: "OG File", availability: "OG File", length: "3:01", version: "V3", source: { kind: "pillows", id: "og-v3" } }
+  ];
+  const songs = catalog.buildSongList(rows, []);
+  catalog.setSongs(songs, "test");
+  const list = JSON.parse(catalog.songListJson()).songs;
+
+  const yeet = list.find(s => s.id === "yungkayoyeet");
+  assert.equal(yeet.preview, false, "Yung Kayo - YEET has preview: false");
+  assert.equal(catalog.index().get("yungkayoyeet").premaster.id, "d752a7e8092a4f412d000a8635ba8a4c");
+
+  const rackz = list.find(s => s.id === "rackzgotme");
+  const rawRackz = catalog.index().get("rackzgotme");
+  assert.equal(rawRackz.poolVariants.released.premaster.id, "og-v3", "Rackz got më released pool variant uses matching V3 OG File premaster");
+  assert.equal(rawRackz.poolVariants.released.preview, false, "Rackz got më released pool variant has preview: false");
+  assert.equal(rackz.poolVariants.released.preview, false, "publicSong released variant has preview: false");
+});

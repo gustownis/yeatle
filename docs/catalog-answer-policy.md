@@ -86,6 +86,10 @@ At the maintainer's request (2026-11-01), open-verse demos and the features they
 
 `sameRecordings` lists one recording that appears in more than one entry, such as two tracker rows that link the same pillows.su file. These share an `answerId` (one entry in pools and suggestions) and `equivalentIds` (shared progress) as well as their names. The released Krank and its Lyfë OG file row are listed this way; the separate 2 Alivë Chains demo is hidden.
 
+## Pre-masters and OG files for released tracks
+
+Released tracks that stream Apple's 30-second preview play a full audio file instead when a verified pre-master exists on pillows.su. Entries in `premasters` in `catalog-metadata.json` define verified standalone pre-masters, such as the Yung Kayo - fleek [V2] pre-master file replacing the 30-second preview for Yung Kayo - YEET (feat. Yeat). In addition, merged catalog entries whose unreleased variants include an OG File or Master recording with matching length (within 3 seconds) and matching guest credits automatically use that pre-master file in place of the streaming preview (such as Rackz got më [V3]). The preview stays the recorded source, so exclusions and saved references are unaffected, while `preview: false` removes the 30s preview badge and gameplay plays the full audio file.
+
 Links apply when the server sends a song, including pinned Daily challenges, without changing a stored challenge. Feature titles also accept their aliases with the lead artist in front. `scripts/answer-groups-check.cjs` checks every group against a running server with the real tracker, and `tests/answer-groups.test.cjs` checks them against saved tracker records.
 
 Guess matching is exact after accent, case and punctuation normalization.

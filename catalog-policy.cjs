@@ -1,4 +1,4 @@
-const { corrections, stemBindings = [], excludedRecordings = [], answerGroups = [], sameRecordings = [] } = require("./catalog-metadata.json");
+const { corrections, stemBindings = [], excludedRecordings = [], answerGroups = [], sameRecordings = [], premasters = [] } = require("./catalog-metadata.json");
 const crypto = require("node:crypto");
 const titleKey = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -271,16 +271,67 @@ function resolveGroupKeys(song, lookup, acceptedKeys) {
   };
 }
 
-function applyCatalogMetadata(song) {
+function trackSeconds(length) {
+  const m = /^(\d+):(\d{2})$/.exec(String(length || "").trim());
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+const guestFeatureKey = features => (features || []).map(f =>
+  answerKey(String(f).replace(/^(feat|ft|with)\b\.?\s*/i, ""))).filter(Boolean).sort().join("+");
+
+function findOgPremaster(releasedSong, variants) {
+  if (!variants || !variants.length) return null;
+  const relSec = trackSeconds(releasedSong.length);
+  const relGuests = guestFeatureKey(releasedSong.features);
+
+  const candidates = variants.filter(v => v !== releasedSong && v.tab === "Unreleased" && v.source?.kind === "pillows");
+  if (!candidates.length) return null;
+
+  const matching = candidates.filter(v => {
+    const sec = trackSeconds(v.length);
+    if (relSec != null && sec != null && Math.abs(relSec - sec) > 3) return false;
+    if (guestFeatureKey(v.features) !== relGuests) return false;
+    return true;
+  });
+  if (!matching.length) return null;
+
+  const ogs = matching.filter(v => /og|master/i.test(v.type) || /og/i.test(v.availability));
+  const picked = ogs.length ? ogs[ogs.length - 1] : matching[matching.length - 1];
+  return picked ? picked.source : null;
+}
+
+// A released song that only has Apple's 30 s preview, but whose pre-master the maintainer has
+// verified (see premasters in catalog-metadata.json), plays that full file instead. The
+// preview stays the recorded source, so exclusions and saved references are unaffected, and
+// already pinned Daily snapshots, which lack this field, keep the audio they were pinned with.
+const premasterById = new Map(premasters.map(entry => [entry.id, entry]));
+function premasterFor(song, variants) {
+  const played = song.mode === "stems" ? song.fallback : song.source;
+  const isPreview = played && (played.kind === "apple" || played.kind === "search");
+  const entry = premasterById.get(song.id);
+  if (entry && (song.tab === "Released" || song.releasedOn || song.poolVariants?.released)) {
+    if (isPreview) return entry.source;
+  }
+  if ((song.tab === "Released" || song.poolVariants?.released) && isPreview) {
+    const og = findOgPremaster(song, variants || song.sourceVariants);
+    if (og) return og;
+  }
+  return null;
+}
+
+function applyCatalogMetadata(song, parentSourceVariants) {
   let result = song;
   const same = sameById.get(result.id);
   if (same) result = { ...result, answerId: same.answerId, equivalentIds: same.ids.filter(id => id !== result.id) };
   for (const rule of corrections) {
     if (Object.entries(rule.match).every(([key, value]) => key === "titleKey" ? titleKey(result.title) === value : typeof value === "object" ? Object.entries(value).every(([field, expected]) => result[key]?.[field] === expected) : result[key] === value)) result = { ...result, ...rule.set };
   }
-  if (result.poolVariants) result = { ...result, poolVariants: Object.fromEntries(Object.entries(result.poolVariants).map(([pool, variant]) => [pool, applyCatalogMetadata(variant)])) };
-  if (result.sourceVariants) result = { ...result, sourceVariants: result.sourceVariants.map(applyCatalogMetadata) };
+  const sourceVariants = result.sourceVariants || parentSourceVariants;
+  if (result.poolVariants) result = { ...result, poolVariants: Object.fromEntries(Object.entries(result.poolVariants).map(([pool, variant]) => [pool, applyCatalogMetadata(variant, sourceVariants)])) };
+  if (result.sourceVariants) result = { ...result, sourceVariants: result.sourceVariants.map(v => applyCatalogMetadata(v, sourceVariants)) };
   if (isExcludedRecording(result)) result = { ...result, guessingEligible: false };
+  const premaster = premasterFor(result, sourceVariants);
+  if (premaster) result = { ...result, premaster, preview: false };
   return result;
 }
 

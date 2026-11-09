@@ -1961,7 +1961,7 @@ async function serveSongAudio(req, res, id, pinnedSong, { cache = false } = {}) 
   if (!song) return sendJson(res, 404, { error: "This song is no longer in the list. Refresh the game and try again." });
 
   // stems songs only come here for their full-file fallback
-  const source = song.mode === "stems" ? song.fallback : song.source;
+  const source = song.premaster || (song.mode === "stems" ? song.fallback : song.source);
   if (!source) return sendJson(res, 404, { error: "No full audio file is available for this song. Use its local stems or choose another song." });
 
   try {
@@ -2344,8 +2344,8 @@ function publicSong(song) {
     if (aliases?.length) song = { ...song, aliases };
   }
   song = cleanMangledDisplayAndAliases(song);
-  const { source, fallback, mergedFrom, sourceVariants, poolVariants, ...rest } = song;
-  return { ...rest, hasFull: Boolean(song.mode === "filter" || fallback),
+  const { source, fallback, premaster, mergedFrom, sourceVariants, poolVariants, ...rest } = song;
+  return { ...rest, hasFull: Boolean(song.mode === "filter" || fallback), ...(premaster ? { preview: false } : {}),
     ...(poolVariants ? { poolVariants: Object.fromEntries(Object.entries(poolVariants).map(([pool, variant]) => [pool, publicSong(variant)])) } : {}) };
 }
 
