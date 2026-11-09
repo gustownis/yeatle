@@ -1,6 +1,6 @@
 {
   "name": "yeatle-desktop",
-  "version": "1.13.8",
+  "version": "1.13.9",
   "description": "A self-hosted Yeat song guessing game for desktop and browser.",
   "private": true,
   "license": "Unlicense",
@@ -56,6 +56,7 @@
       "THIRD_PARTY_NOTICES.md",
       "licenses/**/*",
       "static-cache.cjs",
+      "audio-cache.cjs",
       "live-control.cjs",
       "stem-catalog.cjs",
       "daily-challenge.cjs",

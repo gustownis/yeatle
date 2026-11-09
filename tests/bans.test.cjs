@@ -48,8 +48,10 @@ test("a ban signs the account out, resets only its progress, reserves its name a
   await store.register({ username: "other", password: "pass1234" }, NOW, { ipHash: "ip-other", deviceHash: "dev-other" });
   store.rename(cheater.token, "cheater2", NOW, ctx);
 
+  store.flush();
   const before = JSON.parse(fs.readFileSync(file, "utf8")).users;
   const { bans } = store.banUser("CHEATER2", "aimbot karaoke", NOW);
+  store.flush();
   const after = JSON.parse(fs.readFileSync(file, "utf8")).users;
   for (const key of Object.keys(before).filter(k => k !== "cheater2")) {
     assert.equal(JSON.stringify(after[key]), JSON.stringify(before[key]), `${key} is byte-identical after someone else's ban`);
@@ -74,6 +76,7 @@ test("a ban signs the account out, resets only its progress, reserves its name a
   assert.equal(boards.totalAccounts, 2);
 
   // Restart: the ban and its revoked sessions hold.
+  store.flush();
   const reopened = createLeaderboardStore(file);
   assert.throws(() => reopened.sync(cheater.token, progress, NOW), isBanned);
   await assert.rejects(reopened.login({ username: "cheater2", password: "pass1234" }, NOW), isBanned);
@@ -177,7 +180,11 @@ test("the shared website bans through its admin panel, and copies pass the banne
   const reg = await (await call(`${host}/api/account/register`, { body: { username: "cheater", password: "pass1234" }, ip: "203.0.113.50", device: DEV(1) })).json();
   assert.ok(reg.token);
   // The authority recorded a hashed device and address, never the raw values.
-  const users = fs.readFileSync(path.join(hostDir, "leaderboard-users.json"), "utf8");
+  // Saves land shortly after the change.
+  const usersFile = path.join(hostDir, "leaderboard-users.json");
+  for (let i = 0; i < 60 && !fs.existsSync(usersFile); i++) await new Promise(r => setTimeout(r, 100));
+  const users = fs.readFileSync(usersFile, "utf8");
+
   assert.equal(users.includes(DEV(1)), false);
   assert.equal(users.includes("203.0.113.50"), false);
 

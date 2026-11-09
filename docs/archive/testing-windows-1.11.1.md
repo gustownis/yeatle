@@ -76,7 +76,7 @@ not evidence of unrun CI or public checks.
 Local evidence is ignored under `.tmp/windows-1.11.1/` and the timestamped
 `daily-ui-smoke-*`, `daily-browser-smoke-*`, `daily-smoke-*`,
 `desktop-smoke-*`, and `browser-smoke-*` folders. The earlier 1.11 Linux and
-physical Android results remain in `test-1.11/RESULTS.md`. Bluetooth, real
+physical Android results remain in `docs/archive/test-1.11/RESULTS.md`. Bluetooth, real
 microphone quality/scoring, heat/memory, long sessions and overnight checks
 remain pending. No result was sent to anyone. Desktop packages remain unsigned.
 

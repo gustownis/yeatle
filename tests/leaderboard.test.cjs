@@ -75,6 +75,7 @@ test("accounts hash passwords, reject duplicates, merge devices and rank players
   assert.match(first.token, /^[a-f0-9]{48}$/);
   assert.equal(first.account.metrics.dailyStreak, 2);
   assert.equal(first.account.metrics.stemsSolved, 3);
+  store.flush();
   assert.doesNotMatch(fs.readFileSync(file, "utf8"), /secretPassword/);
 
   await assert.rejects(store.register({ username: "YUGPOOG", password: "otherPassword" }, NOW), /already taken/);
@@ -107,6 +108,7 @@ test("accounts hash passwords, reject duplicates, merge devices and rank players
   assert.equal(computeMetrics(second.account.progress, NOW + 2 * DAY).bestDailyStreak, 2);
 
   // Tokens survive a restart and logout revokes only that device.
+  store.flush();
   const reopened = createLeaderboardStore(file);
   assert.equal(reopened.me(second.token).account.username, "yugpoog");
   reopened.logout(second.token);
@@ -116,6 +118,152 @@ test("accounts hash passwords, reject duplicates, merge devices and rank players
 
 function emptyStats() {
   return { songsAttempted: 0, correctlyGuessed: 0, totalStars: 0, currentStreak: 0, highestStreak: 0 };
+}
+
+const stemsProgress = (...ids) => ({ completed: { stems: ids } });
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+test("cached boards are still built for each viewer", async t => {
+  const store = newStore(t);
+  const first = await store.register({ username: "first", password: "password1", progress: stemsProgress("a", "b") }, NOW);
+  const second = await store.register({ username: "second", password: "password2", progress: stemsProgress("a") }, NOW);
+  const newcomer = await store.register({ username: "newcomer", password: "password3" }, NOW);
+
+  const forFirst = store.getLeaderboards(first.token, NOW + 10);
+  const forSecond = store.getLeaderboards(second.token, NOW + 20);
+  const forNewcomer = store.getLeaderboards(newcomer.token, NOW + 30);
+  const anonymous = store.getLeaderboards("", NOW + 40);
+
+  assert.equal(forFirst.viewer.username, "first");
+  assert.equal(forSecond.viewer.username, "second");
+  assert.deepEqual(forFirst.boards.stems.entries.filter(e => e.isViewer).map(e => e.username), ["first"]);
+  assert.deepEqual(forSecond.boards.stems.entries.filter(e => e.isViewer).map(e => e.username), ["second"]);
+  assert.equal(forSecond.boards.stems.viewer.rank, 2);
+
+  // Someone who hasn't played a mode is listed for themselves only.
+  assert.deepEqual(forNewcomer.boards.stems.entries.map(e => e.username), ["first", "second", "newcomer"]);
+  assert.equal(forNewcomer.boards.stems.viewer.rank, 3);
+  assert.equal(forNewcomer.boards.stems.totalPlayers, 3);
+  assert.deepEqual(anonymous.boards.stems.entries.map(e => e.username), ["first", "second"]);
+  assert.equal(anonymous.boards.stems.viewer, null);
+  assert.equal(anonymous.viewer, null);
+  assert.equal(anonymous.serverTime, NOW + 40, "the server time is never cached");
+  assert.equal(anonymous.boards.stems.entries.some(e => e.isViewer), false);
+});
+
+test("board changes appear at once, and a banned viewer is still refused from cache", async t => {
+  const store = newStore(t);
+  const leader = await store.register({ username: "leader", password: "password1", progress: stemsProgress("a", "b") }, NOW);
+  const chaser = await store.register({ username: "chaser", password: "password2", progress: stemsProgress("a") }, NOW);
+  const names = () => store.getLeaderboards("", NOW + 1).boards.stems.entries.map(e => e.username);
+  assert.deepEqual(names(), ["leader", "chaser"]);
+
+  store.sync(chaser.token, stemsProgress("a", "b", "c"), NOW);
+  assert.deepEqual(names(), ["chaser", "leader"], "a new solve moves the player immediately");
+  store.rename(leader.token, "renamed", NOW);
+  assert.deepEqual(names(), ["chaser", "renamed"]);
+  await store.register({ username: "third", password: "password3", progress: stemsProgress("a") }, NOW);
+  assert.deepEqual(names(), ["chaser", "renamed", "third"]);
+  store.setUsernameFilter("third", true);
+  assert.deepEqual(names(), ["chaser", "renamed", BLOCKED_NAME_LABEL]);
+
+  store.getLeaderboards(leader.token, NOW + 2);
+  store.banUser("renamed", "", NOW);
+  assert.deepEqual(names(), ["chaser", BLOCKED_NAME_LABEL]);
+  assert.throws(() => store.getLeaderboards(leader.token, NOW + 3), { banned: true });
+});
+
+test("the cached standings expire and never cross a UTC day", async t => {
+  const dayStart = Math.floor(NOW / DAY) * DAY;
+  const store = newStore(t);
+  await store.register({ username: "streaker", password: "password1", progress: { daily: { [day(0)]: won(day(0)) } } }, NOW);
+  const streak = at => store.getLeaderboards("", at).boards.daily.entries[0].dailyStreak;
+  assert.equal(streak(dayStart + DAY - 1000), 1);
+  assert.equal(streak(dayStart + 2 * DAY + 1), 0, "a missed day shows without waiting");
+  assert.equal(streak(dayStart + DAY - 1000), 1, "an earlier time rebuilds too");
+});
+
+test("a burst of changes is saved once, in the background, and nothing is lost", async t => {
+  const dir = tempDir(t);
+  const file = path.join(dir, "leaderboard-users.json");
+  const store = createLeaderboardStore(file, { saveDelayMs: 40 });
+  const account = await store.register({ username: "burster", password: "password1" }, NOW);
+  const writes = t.mock.method(fs.promises, "rename");
+  assert.equal(fs.existsSync(file), false, "the request doesn't wait for the disk");
+  for (let i = 0; i < 25; i++) store.sync(account.token, stemsProgress(`song${i}`), NOW);
+  await wait(160);
+  assert.equal(writes.mock.callCount(), 1);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).users.burster.progress.completed.stems.length, 25);
+  assert.equal(fs.existsSync(`${file}.tmp`), false);
+
+  store.sync(account.token, stemsProgress("late"), NOW);
+  await wait(160);
+  assert.equal(writes.mock.callCount(), 2, "a later change gets its own write");
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).users.burster.progress.completed.stems.length, 26);
+});
+
+test("constant traffic can't postpone a save", async t => {
+  const file = path.join(tempDir(t), "leaderboard-users.json");
+  const store = createLeaderboardStore(file, { saveDelayMs: 60 });
+  const account = await store.register({ username: "busy", password: "password1" }, NOW);
+  for (let i = 0; i < 20 && !fs.existsSync(file); i++) {
+    store.sync(account.token, stemsProgress(`song${i}`), NOW);
+    await wait(15);
+  }
+  assert.equal(fs.existsSync(file), true);
+});
+
+test("flush writes the latest state at once, and a slower background write can't replace it", async t => {
+  const file = path.join(tempDir(t), "leaderboard-users.json");
+  const store = createLeaderboardStore(file, { saveDelayMs: 5 });
+  const account = await store.register({ username: "flusher", password: "password1" }, NOW);
+  const { writeFile } = fs.promises;
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  t.mock.method(fs.promises, "writeFile", async (...args) => { await held; return writeFile(...args); });
+  await wait(30);
+  store.sync(account.token, stemsProgress("final"), NOW);
+  store.flush();
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).users.flusher.progress.completed.stems, ["final"]);
+  release();
+  await wait(50);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).users.flusher.progress.completed.stems, ["final"]);
+  assert.equal(fs.existsSync(`${file}.tmp`), false);
+});
+
+test("a failed background save is retried", async t => {
+  const file = path.join(tempDir(t), "leaderboard-users.json");
+  const store = createLeaderboardStore(file, { saveDelayMs: 10 });
+  const { rename } = fs.promises;
+  let failures = 2;
+  t.mock.method(fs.promises, "rename", async (...args) => {
+    if (failures-- > 0) throw Object.assign(new Error("file is busy"), { code: "EPERM" });
+    return rename(...args);
+  });
+  const warn = t.mock.method(console, "warn", () => {});
+  await store.register({ username: "retried", password: "password1" }, NOW);
+  for (let i = 0; i < 40 && !fs.existsSync(file); i++) await wait(20);
+  assert.ok(JSON.parse(fs.readFileSync(file, "utf8")).users.retried);
+  assert.equal(warn.mock.callCount(), 2);
+});
+
+for (const [name, stop] of [["SIGTERM", child => child.kill("SIGTERM")], ["the desktop app's shutdown message", child => child.send({ type: "shutdown" })]]) {
+  test(`recent progress is written before stopping on ${name}`, { skip: name === "SIGTERM" && process.platform === "win32" }, async t => {
+    const dir = tempDir(t);
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "" }));
+    const child = fork(path.join(root, "server.js"), [], { silent: true, env: { ...process.env, YEATLE_DATA_DIR: dir, YEATLE_STEMS_DIR: "", YEATLE_DESKTOP: "1", YEATLE_PORT: "0" } });
+    t.after(() => { if (child.exitCode === null && !child.signalCode) child.kill(); });
+    const port = await new Promise((resolve, reject) => {
+      child.on("message", message => { if (message.type === "yeatle-ready") resolve(message.port); });
+      child.once("exit", code => reject(new Error(`Server exited ${code}`)));
+    });
+    const response = await fetch(`http://127.0.0.1:${port}/api/account/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "stopper", password: "password1" }) });
+    assert.equal(response.status, 200);
+    const stopped = new Promise(resolve => child.once("exit", resolve));
+    stop(child);
+    await stopped;
+    assert.ok(JSON.parse(fs.readFileSync(path.join(dir, "leaderboard-users.json"), "utf8")).users.stopper);
+  });
 }
 
 test("prestige clears songs on every device instead of being restored by a sync", async t => {
@@ -381,6 +529,7 @@ test("a filter that matches an existing name blocks it until the player or an ad
   await assert.rejects(() => store.login({ username: "mat_bad", password: "yeatfan1" }, NOW), { status: 401 });
 
   // The exemption only covers the name the admin set, and survives a restart.
+  store.flush();
   const reopened = createLeaderboardStore(file);
   assert.equal(reopened.me(mat.token, NOW).account.usernameBlocked, false);
   assert.throws(() => reopened.rename(mat.token, "bad2", NOW), { message: BLOCKED_USERNAME_MESSAGE });

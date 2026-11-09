@@ -14,7 +14,7 @@ test('the standalone worker parses without optional helper modules', () => {
 });
 
 test('audio jobs distinguish playable sources while reusing the same source', async () => {
-  const first = bundle.indexOf('function vd('), last = bundle.indexOf('function km(', first);
+  const first = bundle.indexOf('function vd('), last = bundle.indexOf('function Cm(', first);
   const jobs = new Map();
   let protectedKey;
   const { audioCacheKey } = await import('../build/assets/performance.mjs');

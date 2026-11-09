@@ -1,6 +1,6 @@
 # Physical Android AI test
 
-Historical audit recorded before 1.9.5 release preparation. The verified repair and optimizations are included in the 1.9.5 release candidate, whose asset queries use `v=1.9.5`. See [release notes](releases/1.9.5.md). Website deployment remains separate.
+Historical audit recorded before 1.9.5 release preparation. The verified repair and optimizations are included in the 1.9.5 release candidate, whose asset queries use `v=1.9.5`. See [release notes](../releases/1.9.5.md). Website deployment remains separate.
 
 Date: 13 October 2026. The user connected the phone and authorized USB debugging for this test. Device identifiers are omitted from this report. Release metadata remains 1.9.4; no website deployment, push, or release publication occurred.
 
@@ -68,7 +68,7 @@ After this fix, Brave completed 60 WebGPU inferences, delivered its first stem i
 
 ## Test record and limits
 
-At the time of this report, the automated suite passed 43 tests, including a non-mutating probe case, a simulated privacy-mutating API, and an unavailable API. The [automated tests](../tests) are committed to the repository. This report summarizes the separate physical-phone observations; raw network traces, screenshots, temporary test scripts, settings backups, and device connection files were not published.
+At the time of this report, the automated suite passed 43 tests, including a non-mutating probe case, a simulated privacy-mutating API, and an unavailable API. The [automated tests](../../tests) are committed to the repository. This report summarizes the separate physical-phone observations; raw network traces, screenshots, temporary test scripts, settings backups, and device connection files were not published.
 
 Some earlier harness files retain test-only errors: an opaque `about:blank` storage access in an initial bootstrap, and a cleanup call made after the Rockets tab had already closed. The final local and Brave harnesses guard their test origin and close in the correct order. The hosted worker completed and settings were restored before the Rockets cleanup error. These harness errors do not establish a Yeatle browser failure.
 

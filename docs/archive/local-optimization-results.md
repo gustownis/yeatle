@@ -1,6 +1,6 @@
 # Local optimization results
 
-Historical audit recorded before 1.9.5 release preparation. The verified repair and optimizations are included in the 1.9.5 release candidate, whose asset queries use `v=1.9.5`. See [release notes](releases/1.9.5.md). Website deployment remains separate.
+Historical audit recorded before 1.9.5 release preparation. The verified repair and optimizations are included in the 1.9.5 release candidate, whose asset queries use `v=1.9.5`. See [release notes](../releases/1.9.5.md). Website deployment remains separate.
 
 Date: 13 October 2026. The user authorized implementing the doable improvements after reviewing the audits. At the time of this report, changes remained in the development checkout and version metadata was still 1.9.4. No deployment, push, release publication, or changes to real admin passwords or saved game data were made.
 
@@ -46,4 +46,4 @@ The user's physical Android phone subsequently completed real-song separation in
 
 ## Verification record
 
-The measurements above summarize local tests; raw logs and temporary diagnostic scripts were not published. The earlier observations are documented in the [AI repair audit](ai-repair-audit.md) and [further optimization audit](further-optimization-audit.md). The repository includes the [automated tests](../tests) for the shipped implementation; these are distinct from the one-off browser and performance measurements in this report.
+The measurements above summarize local tests; raw logs and temporary diagnostic scripts were not published. The earlier observations are documented in the [AI repair audit](ai-repair-audit.md) and [further optimization audit](further-optimization-audit.md). The repository includes the [automated tests](../../tests) for the shipped implementation; these are distinct from the one-off browser and performance measurements in this report.

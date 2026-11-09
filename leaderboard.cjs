@@ -10,6 +10,7 @@ const SNIPPET_MODES = ["snippet", "snippet:base", "snippet:easy", "snippet:hard"
 const MAX_TOKENS_PER_USER = 10;
 const LOGIN_FAILS_BEFORE_LOCK = 5;
 const LOGIN_LOCK_MS = 60000;
+const BOARD_CACHE_MS = 5000;
 const DAY_MS = 86400000;
 const BLOCKED_USERNAME_MESSAGE = "Error Username cannot be chosen because the song is dogshit";
 // Shown to a player whose existing name a filter now matches, until they pick another.
@@ -419,6 +420,89 @@ function writeJsonFile(file, value) {
   fs.renameSync(temp, file);
 }
 
+const SAVE_DELAY_MS = 1200;
+const unsavedStores = new Set();
+let exitHooksInstalled = false;
+
+function flushUnsavedStores() {
+  for (const saver of [...unsavedStores]) saver.flush();
+}
+
+// Installed once, however many stores a process opens.
+function installExitHooks() {
+  if (exitHooksInstalled) return;
+  exitHooksInstalled = true;
+  process.on("beforeExit", flushUnsavedStores);
+  process.on("exit", flushUnsavedStores);
+  // Windows reports a closed console window as SIGHUP. Elsewhere it is left alone, so a
+  // server started under nohup keeps ignoring it.
+  const signals = [["SIGINT", 130], ["SIGTERM", 143], ...(process.platform === "win32" ? [["SIGHUP", 129]] : [])];
+  for (const [signal, code] of signals) process.once(signal, () => { flushUnsavedStores(); process.exit(code); });
+}
+
+// Writes a JSON file in the background at most once per delay, so a burst of changes costs
+// one write and busy traffic can't postpone it. flush() writes synchronously for shutdown.
+function createStateSaver(file, snapshot, delayMs) {
+  let dirty = false, timer = null, inFlight = 0, generation = 0;
+  let queue = Promise.resolve();
+
+  // A deleted data folder has nothing left to save into; every other failure is retried.
+  const folderGone = err => err.code === "ENOENT" && !fs.existsSync(path.dirname(file));
+  const settle = () => { if (!dirty && !timer && !inFlight) unsavedStores.delete(saver); };
+  const schedule = () => {
+    if (timer) return;
+    timer = setTimeout(writeInBackground, delayMs);
+    timer.unref();
+  };
+
+  function writeInBackground() {
+    timer = null;
+    if (!dirty) return settle();
+    dirty = false;
+    const body = JSON.stringify(snapshot());
+    const mine = ++generation;
+    const temp = `${file}.tmp`;
+    inFlight++;
+    queue = queue.then(async () => {
+      if (mine !== generation) return;
+      await fs.promises.writeFile(temp, body);
+      // flush() or a newer write got here first; this copy is out of date.
+      if (mine !== generation) return void await fs.promises.rm(temp, { force: true });
+      await fs.promises.rename(temp, file);
+    }).catch(err => {
+      if (folderGone(err) || mine !== generation) return;
+      console.warn(`[leaderboard] Could not save ${path.basename(file)}: ${err.message}`);
+      dirty = true;
+      schedule();
+    }).finally(() => { inFlight--; settle(); });
+  }
+
+  const saver = {
+    mark() {
+      dirty = true;
+      unsavedStores.add(saver);
+      installExitHooks();
+      schedule();
+    },
+    flush() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (!dirty && !inFlight) return settle();
+      generation++;
+      const temp = `${file}.flush.tmp`;
+      try {
+        fs.writeFileSync(temp, JSON.stringify(snapshot()));
+        fs.renameSync(temp, file);
+        dirty = false;
+      } catch (err) {
+        if (folderGone(err)) dirty = false;
+        else console.warn(`[leaderboard] Could not save ${path.basename(file)}: ${err.message}`);
+      }
+      settle();
+    }
+  };
+  return saver;
+}
+
 
 const bannedError = () => Object.assign(httpError(BANNED_MESSAGE, 403), { banned: true });
 const networkBlockedError = () => Object.assign(httpError(NETWORK_BLOCKED_MESSAGE, 403), { banned: true });
@@ -446,7 +530,8 @@ function createLeaderboardStore(file, {
   matchesVersion = () => false,
   filtersFile = path.join(path.dirname(file), "username-filters.json"),
   bansFile = path.join(path.dirname(file), "leaderboard-bans.json"),
-  evidenceDir = path.join(path.dirname(file), "cheat-evidence")
+  evidenceDir = path.join(path.dirname(file), "cheat-evidence"),
+  saveDelayMs = SAVE_DELAY_MS
 } = {}) {
   for (const hook of JUDGE_HOOKS) if (typeof judge?.[hook] !== "function") throw new Error(`The anti-cheat module has no ${hook}() hook.`);
   const strikePolicy = { ...STAND_IN_JUDGE.strikePolicy, ...judge.strikePolicy };
@@ -471,10 +556,16 @@ function createLeaderboardStore(file, {
     evidence: Array.isArray(savedBans?.evidence) ? savedBans.evidence : []
   };
 
-  const save = () => writeJsonFile(file, state);
+  const saver = createStateSaver(file, () => state, saveDelayMs);
+  let boardCache = null;
+  // persist() is for changes that can't move anyone on the boards, like a session's last
+  // use. Everything else goes through save(), so a change is never left off the boards.
+  const persist = () => saver.mark();
+  const save = () => { boardCache = null; persist(); };
   const saveModeration = (now = Date.now()) => {
     for (const [hash, block] of Object.entries(moderation.ipBlocks)) if (!(block.until > now)) delete moderation.ipBlocks[hash];
     writeJsonFile(bansFile, moderation);
+    boardCache = null;
   };
 
   const freshRanked = now => ({ karaoke: {}, stems: { ranked: 0, tokens: SOLVE_CREDIT_BURST, at: now }, snippet: { ranked: 0, tokens: SOLVE_CREDIT_BURST, at: now }, prestige: { ranked: 0, at: now } });
@@ -505,7 +596,7 @@ function createLeaderboardStore(file, {
       migrated = true;
     }
   }
-  if (migrated) save();
+  if (migrated) writeJsonFile(file, state);
 
   const tokenIndex = new Map();
   for (const user of Object.values(state.users)) {
@@ -627,6 +718,9 @@ function createLeaderboardStore(file, {
   }
 
   const metricsFor = (user, now) => computeMetrics(user.progress, now, canonicalSongId, rankedFor(user));
+  const metricsStamp = (user, now) => JSON.stringify(metricsFor(user, now));
+  // For the frequent saves: only a change to the player's numbers rebuilds the boards.
+  const saveProgress = (user, before, now) => { if (metricsStamp(user, now) !== before) boardCache = null; persist(); };
 
   function publicProfile(user, now = Date.now()) {
     const blocked = isNameBlocked(user);
@@ -700,10 +794,11 @@ function createLeaderboardStore(file, {
 
   function sync(token, progress, now = Date.now(), ctx = {}) {
     const { user } = authUser(token, ctx, now);
+    const before = metricsStamp(user, now);
     user.progress = merge(user.progress, progress, now);
     user.updatedAt = now;
     creditProgress(user, now);
-    save();
+    saveProgress(user, before, now);
     return { account: publicProfile(user, now) };
   }
 
@@ -757,6 +852,7 @@ function createLeaderboardStore(file, {
     }
     usernameFilters = next;
     writeJsonFile(filtersFile, { filters: usernameFilters });
+    boardCache = null;
     return getUsernameFilters();
   }
 
@@ -773,7 +869,7 @@ function createLeaderboardStore(file, {
 
   function me(token, now = Date.now(), ctx = {}) {
     const { user, changed } = authUser(token, ctx, now, { optional: true });
-    if (changed) save();
+    if (changed) persist();
     return { account: user ? publicProfile(user, now) : null };
   }
 
@@ -784,51 +880,75 @@ function createLeaderboardStore(file, {
     return { banned: false };
   }
 
-  function getLeaderboards(token = "", now = Date.now(), ctx = {}) {
-    const { user: viewerUser, changed } = authUser(token, ctx, now, { optional: true });
-    const viewerKey = viewerUser ? viewerUser.key : "";
+  const BOARDS = [
+    { id: "daily",
+      compare: (a, b) => (b.dailyStreak - a.dailyStreak) || (b.dailyWins - a.dailyWins) || (b.bestDailyStreak - a.bestDailyStreak) || (b.dailyPlayed - a.dailyPlayed),
+      include: m => m.dailyPlayed > 0,
+      mapEntry: m => ({ primary: m.dailyWins, secondary: m.bestDailyStreak, dailyWins: m.dailyWins, dailyPlayed: m.dailyPlayed }) },
+    { id: "stems",
+      compare: (a, b) => (b.stemsSolved - a.stemsSolved) || (b.prestige - a.prestige),
+      include: m => m.stemsSolved > 0,
+      mapEntry: m => ({ primary: m.stemsSolved, secondary: 0 }) },
+    { id: "snippet",
+      compare: (a, b) => (b.snippetSolved - a.snippetSolved) || (b.prestige - a.prestige),
+      include: m => m.snippetSolved > 0,
+      mapEntry: m => ({ primary: m.snippetSolved, secondary: 0 }) },
+    { id: "karaoke",
+      compare: (a, b) => (b.karaokeTotalScore - a.karaokeTotalScore) || (b.karaokeSongs - a.karaokeSongs) || (b.karaokeBestScore - a.karaokeBestScore),
+      include: m => m.karaokeTotalScore > 0,
+      mapEntry: m => ({ primary: m.karaokeTotalScore, secondary: m.karaokeSongs, bestScore: m.karaokeBestScore }) }
+  ];
+
+  // The sorted standings, shared by every viewer. Streaks end at the UTC day change, so a
+  // cached copy never crosses one.
+  function currentStandings(now) {
+    const day = Math.floor(now / DAY_MS);
+    if (boardCache && boardCache.day === day && now >= boardCache.at && now - boardCache.at < BOARD_CACHE_MS) return boardCache;
     let grandfathered = false;
-    const allUsers = Object.values(state.users).filter(u => !isBanned(u)).map(u => {
+    const users = Object.values(state.users).filter(u => !isBanned(u)).map(u => {
       if (u.ranked?.grandfather && catalogReady()) { creditProgress(u, now); grandfathered = true; }
       return { key: u.key, username: isNameBlocked(u) ? BLOCKED_NAME_LABEL : u.username, metrics: metricsFor(u, now) };
     });
-    if (changed || grandfathered) save();
+    if (grandfathered) persist();
+    const boards = BOARDS.map(board => {
+      const order = (a, b) => board.compare(a.metrics, b.metrics) || a.username.localeCompare(b.username);
+      return { ...board, order, ranked: users.filter(u => board.include(u.metrics)).sort(order) };
+    });
+    boardCache = { day, at: now, users: new Map(users.map(u => [u.key, u])), boards };
+    return boardCache;
+  }
 
-    const buildBoard = (id, compare, include, mapEntry) => {
-      const ranked = allUsers.filter(u => include(u.metrics) || u.key === viewerKey)
-        .sort((a, b) => compare(a.metrics, b.metrics) || a.username.localeCompare(b.username))
-        .map((u, index) => ({
-          rank: index + 1,
-          username: u.username,
-          isViewer: u.key === viewerKey,
-          dailyStreak: u.metrics.dailyStreak,
-          bestDailyStreak: u.metrics.bestDailyStreak,
-          prestige: u.metrics.prestige,
-          ...mapEntry(u.metrics)
-        }));
-      return { id, totalPlayers: ranked.length, entries: ranked.slice(0, 50), viewer: viewerKey ? ranked.find(r => r.isViewer) || null : null };
+  // Each response is built for its viewer: a shared copy would carry someone else's
+  // isViewer rows and viewer entry. Signing in is still checked on every request.
+  function getLeaderboards(token = "", now = Date.now(), ctx = {}) {
+    const { user: viewerUser, changed } = authUser(token, ctx, now, { optional: true });
+    if (changed) persist();
+    const viewerKey = viewerUser ? viewerUser.key : "";
+    const standings = currentStandings(now);
+    const viewer = standings.users.get(viewerKey);
+
+    const buildBoard = board => {
+      let ranked = board.ranked;
+      // Viewers always see their own row, even before they've played this mode.
+      if (viewer && !board.include(viewer.metrics)) {
+        const at = ranked.findIndex(u => board.order(viewer, u) < 0);
+        ranked = at < 0 ? [...ranked, viewer] : [...ranked.slice(0, at), viewer, ...ranked.slice(at)];
+      }
+      const row = (u, index) => ({
+        rank: index + 1,
+        username: u.username,
+        isViewer: u.key === viewerKey,
+        dailyStreak: u.metrics.dailyStreak,
+        bestDailyStreak: u.metrics.bestDailyStreak,
+        prestige: u.metrics.prestige,
+        ...board.mapEntry(u.metrics)
+      });
+      const viewerIndex = viewer ? ranked.indexOf(viewer) : -1;
+      return { id: board.id, totalPlayers: ranked.length, entries: ranked.slice(0, 50).map(row), viewer: viewerIndex < 0 ? null : row(viewer, viewerIndex) };
     };
 
-    const boards = {
-      daily: buildBoard("daily",
-        (a, b) => (b.dailyStreak - a.dailyStreak) || (b.dailyWins - a.dailyWins) || (b.bestDailyStreak - a.bestDailyStreak) || (b.dailyPlayed - a.dailyPlayed),
-        m => m.dailyPlayed > 0,
-        m => ({ primary: m.dailyWins, secondary: m.bestDailyStreak, dailyWins: m.dailyWins, dailyPlayed: m.dailyPlayed })),
-      stems: buildBoard("stems",
-        (a, b) => (b.stemsSolved - a.stemsSolved) || (b.prestige - a.prestige),
-        m => m.stemsSolved > 0,
-        m => ({ primary: m.stemsSolved, secondary: 0 })),
-      snippet: buildBoard("snippet",
-        (a, b) => (b.snippetSolved - a.snippetSolved) || (b.prestige - a.prestige),
-        m => m.snippetSolved > 0,
-        m => ({ primary: m.snippetSolved, secondary: 0 })),
-      karaoke: buildBoard("karaoke",
-        (a, b) => (b.karaokeTotalScore - a.karaokeTotalScore) || (b.karaokeSongs - a.karaokeSongs) || (b.karaokeBestScore - a.karaokeBestScore),
-        m => m.karaokeTotalScore > 0,
-        m => ({ primary: m.karaokeTotalScore, secondary: m.karaokeSongs, bestScore: m.karaokeBestScore }))
-    };
-
-    return { serverTime: now, totalAccounts: allUsers.length, boards, viewer: viewerUser ? publicProfile(viewerUser, now) : null };
+    const boards = Object.fromEntries(standings.boards.map(board => [board.id, buildBoard(board)]));
+    return { serverTime: now, totalAccounts: standings.users.size, boards, viewer: viewerUser ? publicProfile(viewerUser, now) : null };
   }
 
   /* ---------- verified karaoke runs ---------- */
@@ -837,7 +957,7 @@ function createLeaderboardStore(file, {
   // difficulty and mode, and the server's own clock.
   function startKaraokeRun(token, body, now = Date.now(), ctx = {}) {
     const { user, changed } = authUser(token, ctx, now);
-    if (changed) save();
+    if (changed) persist();
     const songId = canonicalSongId ? canonicalSongId(String(body?.songId || "")) : String(body?.songId || "");
     if (!songId || !catalogReady()) throw httpError("This song can't be ranked right now.", 404);
     const difficulty = String(body?.difficulty || "");
@@ -1025,7 +1145,7 @@ function createLeaderboardStore(file, {
   // solved); the server picks one and keeps which one to itself.
   function startSnippetRound(token, body, now = Date.now(), ctx = {}) {
     const { user, changed } = authUser(token, ctx, now, { optional: true });
-    if (changed) save();
+    if (changed) persist();
     const difficulty = String(body?.difficulty || "base");
     const tries = SNIPPET_TRIES[difficulty];
     if (!tries) throw httpError("Unknown Snippets difficulty.", 400);
@@ -1146,6 +1266,7 @@ function createLeaderboardStore(file, {
     if (!daily) throw httpError("Not found", 404);
     const { user, changed } = authUser(token, ctx, now, { optional: true });
     checkDevice(ctx);
+    const metricsBefore = user ? metricsStamp(user, now) : "";
     if (String(body?.challenge || "") !== daily.id) throw httpError("A new daily challenge is available. Reload Daily.", 409);
     const owner = user ? "" : ctx.deviceHash ? `d:${ctx.deviceHash}` : ctx.ipHash ? `i:${ctx.ipHash}` : "";
     if (!user && !owner) throw httpError("Turn on browser storage to play the Daily.", 400);
@@ -1188,7 +1309,7 @@ function createLeaderboardStore(file, {
         while (dailyRounds.size > 200000) dailyRounds.delete(dailyRounds.keys().next().value);
       }
     }
-    if (user && (changed || kind !== "state")) save();
+    if (user && (changed || kind !== "state")) saveProgress(user, metricsBefore, now);
     return {
       id: daily.id,
       attempts: round.attempts,
@@ -1281,7 +1402,7 @@ function createLeaderboardStore(file, {
       user.updatedAt = now;
     }
     saveModeration(now);
-    if (user && restore) save();
+    if (user && restore) { save(); saver.flush(); }
     return listBans();
   }
 
@@ -1311,6 +1432,7 @@ function createLeaderboardStore(file, {
   }
 
   return {
+    flush: () => saver.flush(),
     register, login, sync, rename, adminRename, logout, me, status, getLeaderboards, getUsernameFilters, setUsernameFilter,
     startKaraokeRun, submitKaraokeRun, banUser, unbanUser, confirmBan, listBans, dismissFlag,
     startSnippetRound, snippetRoundAudio, snippetRoundAct, reportCheatTool, listPlayers, readEvidence, deleteEvidence, dailyRoundAct

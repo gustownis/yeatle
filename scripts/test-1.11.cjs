@@ -23,7 +23,7 @@ for (const name of ["era-covers.json", "hidden-songs.json", "song-edits.json", "
 console.log(`Yeatle ${require("../package.json").version} · ${process.platform}/${process.arch} · Node ${process.versions.node}`);
 console.log(`Test settings and reports: ${data}`);
 console.log(`Mode: ${desktop ? "desktop (port 3194)" : "browser (http://127.0.0.1:3193)"}`);
-console.log("Read test-1.11/README.md for Linux handoff and physical Android checks.");
+console.log("Read docs/archive/test-1.11/README.md for Linux handoff and physical Android checks.");
 const report = { version: require("../package.json").version, platform: process.platform, arch: process.arch, node: process.versions.node, mode: desktop ? "desktop" : "browser", startedAt: new Date().toISOString(), deviceChecks: "pending manual testing" };
 fs.writeFileSync(path.join(data, "session.json"), JSON.stringify(report, null, 2));
 if (process.argv.includes("--check")) process.exit(0);

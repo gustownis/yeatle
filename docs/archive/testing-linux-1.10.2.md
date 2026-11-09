@@ -16,7 +16,7 @@ The desktop navigation fix comes from the earlier local draft,
   continue to work. Incomplete folders are not listed as HQ stems.
 
 These checks describe the local draft before publication. The fixes are included
-in [Yeatle 1.10.3](releases/1.10.3.md); the AppImage below remains the earlier
+in [Yeatle 1.10.3](../releases/1.10.3.md); the AppImage below remains the earlier
 local 1.10.2 test package.
 
 ## Results

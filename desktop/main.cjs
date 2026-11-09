@@ -50,8 +50,17 @@ else {
     quitting = true;
     // unfinished downloads are removed; nothing half-downloaded is left behind
     if (stemDownloader) stemDownloader.cancelAll().catch(() => {});
-    if (serverProcess) serverProcess.kill();
+    if (serverProcess) stopServer(serverProcess);
   });
+}
+
+// Asks first, so the server can save progress; kill() alone gives it no chance on Windows.
+function stopServer(child) {
+  try {
+    child.send({ type: "shutdown" });
+    const fallback = setTimeout(() => child.kill(), 2000);
+    child.once("exit", () => clearTimeout(fallback));
+  } catch (_) { child.kill(); }
 }
 
 function failStartup(error) {

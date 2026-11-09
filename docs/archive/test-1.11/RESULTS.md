@@ -518,4 +518,4 @@ Evidence remains in ignored `.tmp/windows-1.11/`: `public-authority-final.json`,
 `ci-package-check/result.json`, `public-release-result.json`,
 `published-updater/result.json`, and `rendered-readme.json`. Physical limitations
 listed above remain pending. Follow-up 1.11.1 UI checks have their own report in
-`docs/testing-windows-1.11.1.md`.
+`docs/archive/testing-windows-1.11.1.md`.

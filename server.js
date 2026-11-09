@@ -15,6 +15,9 @@
 
   No npm install needed - only Node 18+ (or the packaged Yeatle.exe).
 */
+// Password hashing shares this pool with file access; set it before anything can use it.
+process.env.UV_THREADPOOL_SIZE ||= "16";
+
 const http = require("http");
 const https = require("https");
 const fs = require("fs");
@@ -24,6 +27,7 @@ const { exec } = require("child_process");
 const { pipeline } = require("stream/promises");
 const { createGzip, constants: zlibConstants } = require("node:zlib");
 const { staticCacheHeaders, isNotModified, rangeAllowed, createCompressedCache, gzipBuffer } = require("./static-cache.cjs");
+const { createAudioCache } = require("./audio-cache.cjs");
 const { createActiveSongFeed } = require("./live-control.cjs");
 const { createStemCatalog } = require("./stem-catalog.cjs");
 const { createDailyChallenges } = require("./daily-challenge.cjs");
@@ -1925,7 +1929,9 @@ async function pipeAudio(req, res, url) {
   req.on("close", () => upstream.destroy());
 }
 
-async function serveSongAudio(req, res, id, pinnedSong) {
+const roundAudioCache = createAudioCache({ dir: path.join(DATA_DIR, ".tmp", "audio-cache"), detectType: detectAudioType });
+
+async function serveSongAudio(req, res, id, pinnedSong, { cache = false } = {}) {
   const song = pinnedSong || SONG_INDEX.get(id);
   if (!song) return sendJson(res, 404, { error: "This song is no longer in the list. Refresh the game and try again." });
 
@@ -1934,8 +1940,13 @@ async function serveSongAudio(req, res, id, pinnedSong) {
   if (!source) return sendJson(res, 404, { error: "No full audio file is available for this song. Use its local stems or choose another song." });
 
   try {
+    // Keyed by the song's source, not its resolved link: some hosts issue a new one each time.
+    const cacheKey = cache ? `${song.id}\n${JSON.stringify(source)}` : "";
+    const cached = cacheKey && roundAudioCache.lookup(cacheKey);
+    if (cached && await roundAudioCache.serve(req, res, cached)) return;
     const url = await resolveSource(song, source);
     if (!url) return sendJson(res, 404, { error: "No playable audio link was found for this song. Try another song or use local stems." });
+    if (cacheKey && req.method === "GET") roundAudioCache.fill(cacheKey, () => request(url));
     await pipeAudio(req, res, url);
   } catch (err) {
     console.warn(`[audio] ${song.title}: ${err.message}`);
@@ -1963,7 +1974,7 @@ async function serveRoundAudio(req, res, roundId, stem) {
     if (!entry.stems) return sendJson(res, 404, { error: "Not found" });
     return serveStatic(req, res, `/Songs/${encodePath(entry.raw.folder)}/${stem}.mp3`, { noStore: true });
   }
-  return serveSongAudio(req, res, entry.raw.audioId || entry.raw.id, entry.raw);
+  return serveSongAudio(req, res, entry.raw.audioId || entry.raw.id, entry.raw, { cache: true });
 }
 
 /* ------------------------------------------------------------------ *
@@ -2384,6 +2395,25 @@ function songListGzip() {
   songListJson();
   const entry = preparedSongList;
   return entry.gzip || (entry.gzip = gzipBuffer(entry.json).catch(error => { delete entry.gzip; throw error; }));
+}
+
+// Hashes the list itself: hiding a song or editing a photo changes it without a new sync.
+function songListEtag(gzip) {
+  songListJson();
+  const entry = preparedSongList;
+  entry.hash ||= crypto.createHash("sha256").update(entry.json).digest("hex").slice(0, 16);
+  return `"${LAST_UPDATE}-${SONGS.length}-${entry.hash}${gzip ? "-gzip" : ""}"`;
+}
+
+// Rebuilding the catalog re-reads the whole tracker, so anonymous requests share a limit.
+// The desktop app's server has one player, who can reload whenever they like.
+const PUBLIC_REFRESH_COOLDOWN_MS = 15 * 60 * 1000;
+let lastPublicRefresh = 0;
+function mayRefreshSongs(req) {
+  if (process.env.YEATLE_DESKTOP || loggedIn(req)) return true;
+  if (Date.now() - lastPublicRefresh < PUBLIC_REFRESH_COOLDOWN_MS) return false;
+  lastPublicRefresh = Date.now();
+  return true;
 }
 
 function attachJokes(songs) {
@@ -3767,13 +3797,19 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/songs") {
-      if (searchParams.get("refresh")) await refreshOnce();
-      else if (!SONGS.length) await refreshOnce();
+      if (!SONGS.length || (searchParams.get("refresh") && mayRefreshSongs(req))) await refreshOnce();
 
       const json = songListJson();
       const gzip = acceptsGzip(req.headers["accept-encoding"]);
+      const etag = songListEtag(gzip);
+      const validators = { "ETag": etag, "Cache-Control": "no-cache", "Vary": "Accept-Encoding" };
+      if (req.headers["if-none-match"] !== undefined && isNotModified(req.headers, etag, 0)) {
+        res.writeHead(304, validators);
+        res.end();
+        return;
+      }
       const body = gzip ? await songListGzip() : json;
-      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store", "Vary": "Accept-Encoding", "Content-Length": Buffer.byteLength(body), ...(gzip ? { "Content-Encoding": "gzip" } : {}) });
+      res.writeHead(200, { "Content-Type": "application/json", ...validators, "Content-Length": Buffer.byteLength(body), ...(gzip ? { "Content-Encoding": "gzip" } : {}) });
       res.end(req.method === "HEAD" ? undefined : body);
       return;
     }
@@ -3814,7 +3850,7 @@ const server = http.createServer(async (req, res) => {
           return serveStatic(req, res, `/Songs/${encodePath(daily.song.folder)}/${stemParts[index]}.mp3`, { noStore: true });
         }
         if (index !== 0) return sendJson(res, 404, { error: "Daily audio not found." });
-        return serveSongAudio(req, res, daily.song.id, daily.song);
+        return serveSongAudio(req, res, daily.song.id, daily.song, { cache: true });
       }
       const song = publicSong(daily.song);
       const audio = CONFIG.dailyHideAnswer
@@ -3883,7 +3919,11 @@ server.listen(CONFIG.port, "127.0.0.1", async () => {
   }
   if (process.send) {
     process.send({ type: "yeatle-ready", port });
+    // Windows can't deliver a stop signal to a child, so the desktop app asks over IPC.
+    const stopForParent = () => { leaderboardStore?.flush(); process.exit(0); };
+    process.once("disconnect", stopForParent);
     process.on("message", message => {
+      if (message?.type === "shutdown") return stopForParent();
       if (message?.type !== "rescan-stems") return;
       rescanStems().then(count => process.send({ type: "stems-rescanned", id: message.id, count }))
         .catch(error => process.send({ type: "stems-rescanned", id: message.id, error: error.message }));

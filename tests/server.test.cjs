@@ -23,9 +23,9 @@ function config(folder, changes = {}) {
     fs.closeSync(fd);
   }
 }
-async function launch(t, folder) {
+async function launch(t, folder, env = {}) {
   const child = spawn(process.execPath, [path.join(root, "server.js")], {
-    env: { ...process.env, YEATLE_DATA_DIR: folder, YEATLE_PORT: "", YEATLE_DESKTOP: "1" },
+    env: { ...process.env, YEATLE_DATA_DIR: folder, YEATLE_PORT: "", YEATLE_DESKTOP: "1", ...env },
     stdio: ["ignore", "pipe", "pipe", "ipc"]
   });
   let logs = "";
@@ -236,7 +236,57 @@ test("refresh detects completed stem packs and removes packs whose audio was del
   assert.equal((await list()).length, 0);
 });
 
-test("broken stems and directory symlinks do not turn incomplete folders into HQ songs", { skip: process.platform === "win32" }, async t => {
+function packFolder(folder, name) {
+  const songs = path.join(folder, "Songs", name);
+  fs.mkdirSync(songs, { recursive: true });
+  for (const stem of ["Drums", "Bass", "Other", "Vocals"]) fs.writeFileSync(path.join(songs, `${stem}.mp3`), "audio");
+}
+
+test("anonymous refreshes of a public server are limited, and admins are not", async t => {
+  const folder = dataFolder(t); config(folder);
+  fs.writeFileSync(path.join(folder, "admin.json"), JSON.stringify({ password: "letmein" }));
+  fs.writeFileSync(path.join(folder, "songs-cache.json"), JSON.stringify({ songs: [], eras: [] }));
+  packFolder(folder, "First");
+  const { url } = await launch(t, folder, { YEATLE_DESKTOP: "" });
+  const count = async (headers = {}) => (await (await fetch(`${url}/api/songs?refresh=1`, { headers })).json()).songs.length;
+  assert.equal(await count(), 1, "the first refresh runs");
+  packFolder(folder, "Second");
+  assert.equal(await count(), 1, "another within the cooldown serves the current list without a rebuild");
+  const login = await fetch(`${url}/api/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "letmein" }) });
+  assert.equal(login.status, 200);
+  assert.equal(await count({ Cookie: login.headers.get("set-cookie").split(";")[0] }), 2, "a signed-in admin can always refresh");
+});
+
+test("the song list revalidates, per encoding, and any change to its contents changes the tag", async t => {
+  const folder = dataFolder(t); config(folder);
+  fs.writeFileSync(path.join(folder, "songs-cache.json"), JSON.stringify({ songs: [], eras: [] }));
+  for (const name of ["First", "Second"]) packFolder(folder, name);
+  const { url } = await launch(t, folder);
+  const plain = await fetch(`${url}/api/songs`, { headers: { "Accept-Encoding": "identity" } });
+  const etag = plain.headers.get("etag");
+  assert.match(etag, /^"\d+-2-[a-f0-9]{16}"$/);
+  assert.equal(plain.headers.get("cache-control"), "no-cache", "stored by the browser, always revalidated");
+  assert.equal((await plain.json()).songs.length, 2);
+
+  const same = await fetch(`${url}/api/songs`, { headers: { "Accept-Encoding": "identity", "If-None-Match": etag } });
+  assert.equal(same.status, 304);
+  assert.equal(same.headers.get("etag"), etag);
+  assert.equal(await same.text(), "");
+
+  const zipped = await fetch(`${url}/api/songs`, { headers: { "Accept-Encoding": "gzip" } });
+  assert.notEqual(zipped.headers.get("etag"), etag, "compressed and plain bodies have different tags");
+  assert.equal((await fetch(`${url}/api/songs`, { headers: { "Accept-Encoding": "identity", "If-None-Match": '"stale"' } })).status, 200);
+  assert.equal((await fetch(`${url}/api/songs`, { headers: { "Accept-Encoding": "identity", "If-Modified-Since": new Date().toUTCString() } })).status, 200, "only the tag can answer 304");
+
+  // Same sync time and the same catalog length: only the list's contents differ.
+  fs.writeFileSync(path.join(folder, "joke-photos.json"), JSON.stringify({ photos: [{ song: "first", image: "first.jpg" }] }));
+  const edited = await fetch(`${url}/api/songs`, { headers: { "Accept-Encoding": "identity", "If-None-Match": etag } });
+  assert.equal(edited.status, 200);
+  assert.notEqual(edited.headers.get("etag"), etag);
+  assert.match(edited.headers.get("etag"), /^"\d+-2-/);
+});
+
+test("broken stems and directory symlinks do not turn incomplete folders into HQ songs",{ skip: process.platform === "win32" }, async t => {
   const folder = dataFolder(t); config(folder);
   for (const name of ["Broken", "Directory"]) {
     const songs = path.join(folder, "Songs", name);

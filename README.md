@@ -2,7 +2,7 @@
 
 Yeatle is a Yeat song guessing game with online, desktop, and local browser versions. Test your knowledge of released and unreleased tracks, choose the eras you want to play, and guess songs from isolated stems, filtered audio, or short snippets.
 
-![Yeatle desktop app with Stems, Snippets, and Karaoke tabs](docs/desktop-preview-1.10.png)
+![Yeatle desktop app with Stems, Snippets, and Karaoke tabs](docs/desktop-preview-1.13.webp)
 
 **The original Yeatle application was vibecoded in its entirety**: it was
 created through AI-assisted coding by the original creator from the
@@ -322,7 +322,7 @@ the lyrics.
 For Android testing against this PC, use USB port reversal so the phone opens
 the local server at `http://localhost:3095/karaoke`. A plain HTTP Wi-Fi IP
 address cannot provide microphone access. The server normally listens only on
-loopback; see the [test checklist](docs/testing-1.10.1.md) for the USB setup.
+loopback; see the [test checklist](docs/archive/testing-1.10.1.md) for the USB setup.
 
 ## Optional HQ stems
 
@@ -391,7 +391,7 @@ The server caches compressed code and WebAssembly downloads within a 32 MiB budg
 
 The AI repair restores the 1.9.3 model-loading behavior and prepares models when Real stems is selected. The standalone worker keeps its original GPU correctness check. Brief listener detachment no longer cancels an unfinished job; explicit cache eviction and switching to Light or Snippets still cancel unused jobs. If AI fails, the game shows its reason and selects Light in the dropdown. Selecting Real stems retries without changing the saved AI preference or round. Phone and tablet identities hide the keyboard hint; narrow windows and touch on a desktop keep it visible.
 
-Version 1.9.5 releases idle AI sessions after one minute, dismantle retired audio graphs, and stop unfinished separation when the final level switches to the original song. Rolling worker buffers and reused calculations preserve the original sample results and snippet timing. Completed stems can also survive reloads in a lossless browser cache, capped at 192 MiB total and 100 MiB per song. The cache checks the audio content, model content, algorithm, sample rate, and browser identity; unavailable storage or an invalid entry simply causes normal separation. Privacy settings that alter audio-buffer reads, as observed in Brave, disable this optional persistent cache so it cannot alter live samples. Model warmup remains available even on a stem-cache hit. Measurements and validation are in [docs/local-optimization-results.md](docs/local-optimization-results.md) and the [physical Android test](docs/android-ai-test.md).
+Version 1.9.5 releases idle AI sessions after one minute, dismantle retired audio graphs, and stop unfinished separation when the final level switches to the original song. Rolling worker buffers and reused calculations preserve the original sample results and snippet timing. Completed stems can also survive reloads in a lossless browser cache, capped at 192 MiB total and 100 MiB per song. The cache checks the audio content, model content, algorithm, sample rate, and browser identity; unavailable storage or an invalid entry simply causes normal separation. Privacy settings that alter audio-buffer reads, as observed in Brave, disable this optional persistent cache so it cannot alter live samples. Model warmup remains available even on a stem-cache hit. Measurements and validation are in [docs/archive/local-optimization-results.md](docs/archive/local-optimization-results.md) and the [physical Android test](docs/archive/android-ai-test.md).
 
 The admin song list shows 100 songs per page, keeps selections across pages, and waits briefly between search keystrokes. **Select all matches** selects every song matching the current filters. The desktop admin window opens without the game menu bar.
 

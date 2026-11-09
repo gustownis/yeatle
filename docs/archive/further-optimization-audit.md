@@ -1,6 +1,6 @@
 # Further optimization audit
 
-Historical audit recorded before 1.9.5 release preparation. The verified repair and optimizations are included in the 1.9.5 release candidate, whose asset queries use `v=1.9.5`. See [release notes](releases/1.9.5.md). Website deployment remains separate.
+Historical audit recorded before 1.9.5 release preparation. The verified repair and optimizations are included in the 1.9.5 release candidate, whose asset queries use `v=1.9.5`. See [release notes](../releases/1.9.5.md). Website deployment remains separate.
 
 Date: 13 October 2026. This extends the AI measurements in `ai-repair-audit.md`. Optimization candidates were measured or inspected without changing their production implementation. Nothing has been deployed or released.
 

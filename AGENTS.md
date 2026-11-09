@@ -69,6 +69,7 @@ private notes intact throughout synchronization.
   Follow the user's requested delivery through to completion; distinguish
   local changes, committed changes, and changes actually pushed to GitHub.
   Release publication and deployments must stay within the user's request.
+- When asked to commit work, push the commits to `origin/main` automatically unless the user explicitly asks to keep the changes local-only.
 
 ## Markdown and release-note formatting
 
@@ -126,6 +127,9 @@ private notes intact throughout synchronization.
   not establish equivalent vocal recordings.
 - The anti-cheat rules live in a separate private repository that the website loads through `antiCheatModule` in its `config.json`. This repository only calls the judge's hooks (`STAND_IN_JUDGE` in `leaderboard.cjs` is the interface and the no-op default). Don't add detection rules, thresholds or their tests here, and don't document them anywhere in this public repository (docs, README, release notes, commit messages, the admin page's text). If you need the private repository and don't have it, ask the user.
 - Admin Hide/Show is manual curation of eligible entries. Catalog exclusions use the same eligibility policy in gameplay, admin status and live control; do not duplicate them in default hidden-song settings or bypass them through Play in game. Clearing an old duplicate manual hide must not restore an excluded recording.
+- Any single-line pill, badge, or table cell with `overflow: hidden; text-overflow: ellipsis;` must keep a line-height of at least `1.3`, with padding-bottom clearance, so font descenders (`g`, `y`, `p`, `q`, `j`) are never sliced off.
+- WebP is the canonical image format for UI graphics. Unused `.png` and `.mp4` duplicates must never be committed to `build/`; confirm with `git grep` that a file is unreferenced before deleting it, because the minified bundles load some media by bare filename.
+- User state persistence in `leaderboard.cjs` must remain asynchronous and debounced to keep the event loop responsive during concurrent gameplay. Tests and shutdown paths use the store's synchronous `flush()`. Leaderboard responses are built per viewer from shared cached standings; never cache a whole response across viewers, and use `save()` rather than `persist()` for any change that can move a player on the boards.
 
 ## Run and verify
 
@@ -149,7 +153,7 @@ outputs go in ignored `release/`; use ignored `.tmp/` for temporary checks.
 
 Run checks appropriate to the change. For browser or desktop behavior, consult
 `scripts/browser-smoke.cjs`, `scripts/desktop-smoke.cjs`, and the relevant reports
-under `docs/` for prerequisites and limits. `scripts/desktop-stems-smoke.cjs`
+under `docs/archive/` for prerequisites and limits. `scripts/desktop-stems-smoke.cjs`
 covers HQ stem downloads in the desktop app, and `scripts/karaoke-skip-smoke.cjs`
 covers Karaoke White people mode with a synthetic microphone. `scripts/bans-browser-smoke.cjs`
 covers the banned screen and admin ban panel, and `scripts/snippet-rounds-smoke.cjs` (needs

@@ -40,7 +40,7 @@ export function attachSongSuggestions(input, list) {
       if (song.title.startsWith(key) || song.key.startsWith(key) || song.alts.some(alt => alt.startsWith(key))) first.push(song);
       else if (song.key.includes(key) || song.alts.some(alt => alt.includes(key))) rest.push(song);
     }
-    matches = [...first, ...rest].slice(0, 40);
+    matches = [...first, ...rest].slice(0, 10);
     if (!matches.length) return close();
     list.replaceChildren(...matches.map((song, index) => {
       const option = document.createElement("div");

@@ -17,7 +17,7 @@ node --test --test-reporter=spec tests/*.test.cjs
 
 ## Standalone browsers
 
-Chrome 155.0.8059.84 and Brave's Chromium 155.0.8059.85 each passed the optional [browser smoke check](../scripts/browser-smoke.cjs) with no page errors:
+Chrome 155.0.8059.84 and Brave's Chromium 155.0.8059.85 each passed the optional [browser smoke check](../../scripts/browser-smoke.cjs) with no page errors:
 
 - Twenty rapid Stems/Snippets selections ended on the last selection, with zero animated mode-transition calls.
 - Navigation to Karaoke used normal browser navigation and loaded the local "Lyfe stealer" HQ song.
@@ -29,7 +29,7 @@ The script requires the optional `playwright-core` package and a Chromium-compat
 
 ## Desktop checks
 
-The [desktop smoke check](../scripts/desktop-smoke.cjs) uses the actual desktop entry point, a disposable profile, real HQ stems, muted output, and a synthetic microphone. It checks source/package file agreement, the desktop runtime flag, microphone/camera permissions, vocal analysis, countdown, pause/resume, five consecutive restarts during the count-in, and returning to song selection.
+The [desktop smoke check](../../scripts/desktop-smoke.cjs) uses the actual desktop entry point, a disposable profile, real HQ stems, muted output, and a synthetic microphone. It checks source/package file agreement, the desktop runtime flag, microphone/camera permissions, vocal analysis, countdown, pause/resume, five consecutive restarts during the count-in, and returning to song selection.
 
 With the project's Electron dependencies installed for the host platform:
 

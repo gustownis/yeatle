@@ -1,6 +1,6 @@
 # Local AI repair and optimization audit
 
-Historical audit recorded before 1.9.5 release preparation. The verified repair and optimizations are included in the 1.9.5 release candidate, whose asset queries use `v=1.9.5`. See [release notes](releases/1.9.5.md). Website deployment remains separate.
+Historical audit recorded before 1.9.5 release preparation. The verified repair and optimizations are included in the 1.9.5 release candidate, whose asset queries use `v=1.9.5`. See [release notes](../releases/1.9.5.md). Website deployment remains separate.
 
 Date: 13 October 2026. Release metadata remains 1.9.4. This work is local and has not been deployed, pushed, packaged as a release, or published.
 
