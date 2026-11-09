@@ -2391,8 +2391,9 @@ function snippetEntry(id, pool = "all") {
   const variant = pool !== "all" ? song.poolVariants?.[pool] : null;
   const pub = variant ? { ...base, ...publicSong(variant), id: song.id, poolVariants: base.poolVariants } : base;
   const raw = variant || song;
-  const hasStemFiles = Boolean(raw.folder) && fs.existsSync(path.join(STEMS_DIR, raw.folder));
-  const stems = raw.mode === "stems" && (hasStemFiles || !raw.fallback) && Boolean(raw.folder);
+  // Like Daily: a song with a full-file source plays that (one cached file, no stem syncing);
+  // only a stem pack with no full file at all streams its four stems.
+  const stems = raw.mode === "stems" && !raw.fallback && Boolean(raw.folder);
   const playable = raw.mode === "stems" ? Boolean(raw.fallback || raw.folder) : Boolean(raw.source);
   return { pub, raw, stems, playable };
 }
