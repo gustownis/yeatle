@@ -574,6 +574,8 @@
     {"id": "ifwebeingreal", "source": {"kind": "pillows", "id": "1b039bca290e9d7b5f990c576ca68f80"}, "basis": "Master file for 2093 track 21 (If We being real [V3] on pillows 1b039bca290e9d7b5f990c576ca68f80, 2:52) replaces 30s Apple preview for released If We Being Rëal."},
     {"id": "nothingchange", "source": {"kind": "pillows", "id": "b4aef006c64b8980b0ab69e61101dbbd"}, "basis": "Master file for 2093 track 6 (nothing change [V3] on pillows b4aef006c64b8980b0ab69e61101dbbd, 3:57) replaces 30s Apple preview for released Nothing Changë."},
     {"id": "riotandsetitoff", "source": {"kind": "pillows", "id": "b2eb9a0bbc549fa924c182ce2f9dff84"}, "basis": "Master file for 2093 track 13 (RIOt / set it off [V2] on pillows b2eb9a0bbc549fa924c182ce2f9dff84, 2:38) replaces 30s Apple preview for released Riot & Set it off."},
-    {"id": "more", "source": {"kind": "pillows", "id": "a8eef8321168da3c326bcc81a7efbecb"}, "basis": "Master file for 2093 track 4 (more [V2] on pillows a8eef8321168da3c326bcc81a7efbecb, 2:45) replaces 30s Apple preview for released Morë."}
+    {"id": "more", "source": {"kind": "pillows", "id": "a8eef8321168da3c326bcc81a7efbecb"}, "basis": "Master file for 2093 track 4 (more [V2] on pillows a8eef8321168da3c326bcc81a7efbecb, 2:45) replaces 30s Apple preview for released Morë."},
+    {"id": "powertrip@edit-59016e656922", "source": {"kind": "pillows", "id": "5d87c60977a56cc385f7622eb9e55f61"}, "basis": "Master file for 2093 track 2 (Power Trip on pillows 5d87c60977a56cc385f7622eb9e55f61, 4:24) replaces 30s Apple preview for released Power Trip."},
+    {"id": "powertrip", "source": {"kind": "pillows", "id": "5d87c60977a56cc385f7622eb9e55f61"}, "basis": "Master file for 2093 track 2 (Power Trip on pillows 5d87c60977a56cc385f7622eb9e55f61, 4:24) replaces 30s Apple preview for released Power Trip."}
   ]
 }
