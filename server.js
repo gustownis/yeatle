@@ -628,7 +628,7 @@ function parseNameCell(cell) {
     }
 
     inner.split(",").forEach(alias => {
-      const a = alias.trim();
+      const a = alias.trim().replace(/\bset\s+if\s+off\b/gi, "Set it off");
       if (a && a.length <= 60) aliases.push(a);
     });
     return "";

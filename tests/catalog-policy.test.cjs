@@ -346,9 +346,10 @@ test("verified premasters and matching unreleased OG files replace 30s Apple pre
 
   const more = list.find(s => s.id === "more");
   const rawMore = catalog.index().get("more");
-  assert.equal(rawMore.poolVariants.released.premaster, undefined, "Morë released variant does not use 2:21 More V1 (diff > 2)");
-  assert.equal(rawMore.poolVariants.released.preview, true, "Morë released variant retains preview: true");
-  assert.equal(more.poolVariants.released.preview, true, "Morë public released variant retains preview: true");
+  assert.equal(rawMore.poolVariants.released.premaster.id, "a8eef8321168da3c326bcc81a7efbecb", "Morë released variant uses verified master file");
+  assert.notEqual(rawMore.poolVariants.released.premaster.id, "more-v1", "Morë released variant does not use 2:21 More V1 (diff > 2)");
+  assert.equal(rawMore.poolVariants.released.preview, false);
+  assert.equal(more.poolVariants.released.preview, false);
 
   const diffTwo = list.find(s => s.id === "difftwo");
   const rawDiffTwo = catalog.index().get("difftwo");
@@ -398,6 +399,37 @@ test("verified premasters and matching unreleased OG files replace 30s Apple pre
   const appliedHoly1 = applyCatalogMetadata(holy1);
   assert.equal(appliedHoly1.premaster.id, "0bd480ae941bb860b08bb5a2eaec3bef", "Holy 1 uses verified master file");
   assert.equal(appliedHoly1.preview, false);
+
+  // 2093 master files
+  const track2093 = catalog.index().get("2093") || { id: "2093", tab: "Released", source: { kind: "apple", id: "1731044701" } };
+  const applied2093 = applyCatalogMetadata(track2093);
+  assert.equal(applied2093.premaster.id, "cef5790536b466a9eebfaf3ac240b40b", "2093 uses verified master file");
+  assert.equal(applied2093.preview, false);
+
+  const familia = catalog.index().get("familia") || { id: "familia", tab: "Released", source: { kind: "apple", id: "1731044703" } };
+  const appliedFamilia = applyCatalogMetadata(familia);
+  assert.equal(appliedFamilia.premaster.id, "5691c2dfd14511c98f06dbae0bfa7130", "Familia uses verified master file");
+  assert.equal(appliedFamilia.preview, false);
+
+  const ifWeBeingReal = catalog.index().get("ifwebeingreal") || { id: "ifwebeingreal", tab: "Released", source: { kind: "apple", id: "1731057886" } };
+  const appliedIfWeBeingReal = applyCatalogMetadata(ifWeBeingReal);
+  assert.equal(appliedIfWeBeingReal.premaster.id, "1b039bca290e9d7b5f990c576ca68f80", "If We Being Rëal uses verified master file");
+  assert.equal(appliedIfWeBeingReal.preview, false);
+
+  const nothingChange = catalog.index().get("nothingchange") || { id: "nothingchange", tab: "Released", source: { kind: "apple", id: "1731057859" } };
+  const appliedNothingChange = applyCatalogMetadata(nothingChange);
+  assert.equal(appliedNothingChange.premaster.id, "b4aef006c64b8980b0ab69e61101dbbd", "Nothing Changë uses verified master file");
+  assert.equal(appliedNothingChange.preview, false);
+
+  const riotAndSetItOff = catalog.index().get("riotandsetitoff") || { id: "riotandsetitoff", tab: "Released", source: { kind: "apple", id: "1731057870" } };
+  const appliedRiot = applyCatalogMetadata(riotAndSetItOff);
+  assert.equal(appliedRiot.premaster.id, "b2eb9a0bbc549fa924c182ce2f9dff84", "Riot & Set it off uses verified master file");
+  assert.equal(appliedRiot.preview, false);
+
+  const moreTrack = catalog.index().get("more") || { id: "more", tab: "Released", source: { kind: "apple", id: "1731044410" } };
+  const appliedMore = applyCatalogMetadata(moreTrack);
+  assert.equal(appliedMore.premaster.id, "a8eef8321168da3c326bcc81a7efbecb", "Morë uses verified master file");
+  assert.equal(appliedMore.preview, false);
 });
 
 test("redundant unreleased Morë V1 is excluded while released Morë remains eligible", () => {
