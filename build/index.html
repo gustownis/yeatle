@@ -6,6 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
     <title>Yeatle</title>
+    <!-- Start what yeatle.js imports, the song list and the backdrop while the main script is still downloading. Each URL must stay identical to the one the code requests (tests/optimization.test.cjs checks the modules). -->
+    <link rel="modulepreload" href="./assets/navigation.mjs?v=1.10.3">
+    <link rel="modulepreload" href="./assets/interface-motion.mjs?v=1.10.3">
+    <link rel="modulepreload" href="./assets/performance.mjs?v=1.13.6">
+    <link rel="modulepreload" href="./assets/snippet-rules.mjs?v=1.13.9">
+    <link rel="modulepreload" href="./assets/song-pools.mjs?v=1.13.9">
+    <link rel="preload" href="api/songs" as="fetch" crossorigin>
+    <link rel="preload" href="/Images/Background.webp" as="image" type="image/webp">
     <script type="module" crossorigin src="./assets/yeatle.js?v=1.13.9" blocking="render"></script>
     <link rel="stylesheet" crossorigin href="./assets/yeatle.css?v=1.13.9">
     <link rel="stylesheet" href="./assets/navigation.css?v=1.13.9">

@@ -23,6 +23,32 @@ test('compressed variants coalesce, invalidate on edits, and remain within their
  const tiny=createCompressedCache({maxBytes:1});await tiny.get(file,fs.statSync(file));assert.equal(tiny.size,0);
 });
 
+test('Brotli is chosen when offered, gzip otherwise, and both variants are cached separately',async t=>{
+ const {acceptedEncoding}=require('../static-cache.cjs');const {brotliDecompressSync}=require('node:zlib');
+ assert.equal(acceptedEncoding('gzip, deflate, br, zstd'),'br');assert.equal(acceptedEncoding('gzip, deflate'),'gzip');
+ assert.equal(acceptedEncoding('br;q=0, gzip'),'gzip');assert.equal(acceptedEncoding('*'),'gzip');
+ assert.equal(acceptedEncoding('gzip;q=0, *;q=1'),null);assert.equal(acceptedEncoding('identity'),null);assert.equal(acceptedEncoding(undefined),null);
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'yeatle-brotli-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const file=path.join(dir,'asset.js');fs.writeFileSync(file,'song'.repeat(5000));const stat=fs.statSync(file),cache=createCompressedCache();
+ const [br,gz]=await Promise.all([cache.get(file,stat,'br'),cache.get(file,stat,'gzip')]);
+ assert.equal(brotliDecompressSync(br).toString(),'song'.repeat(5000));assert.equal(gunzipSync(gz).toString(),'song'.repeat(5000));
+ assert.equal(cache.size,2);assert.equal(await cache.get(file,stat,'br'),br);
+});
+
+test('preloaded modules are exactly the URLs the page\'s own code imports',()=>{
+ const build=path.join(__dirname,'../build');
+ // A preload whose version differs from the import is downloaded twice.
+ const imports=file=>[...fs.readFileSync(path.join(build,'assets',file),'utf8').matchAll(/from\s*["'](\.\/[\w.-]+\?v=[\d.]+)["']/g)].map(match=>match[1].slice(2));
+ const graph=entry=>{const seen=new Set(),queue=[entry];while(queue.length)for(const url of imports(queue.pop().split('?')[0]))if(!seen.has(url)){seen.add(url);queue.push(url);}return seen;};
+ for(const [page,entry] of [['index.html','yeatle.js'],['daily.html','daily.mjs']]){
+  const html=fs.readFileSync(path.join(build,page),'utf8'),wanted=graph(entry);
+  const preloaded=[...html.matchAll(/rel="modulepreload" href="\.\/assets\/([^"]+)"/g)].map(match=>match[1]);
+  assert.ok(preloaded.length>0,page);
+  for(const url of preloaded)assert.ok(wanted.has(url),`${page} preloads ${url}, which ${entry} does not import`);
+  for(const url of wanted)assert.equal([...wanted].filter(other=>other.split('?')[0]===url.split('?')[0]).length,1,`${url} is imported under two versions`);
+ }
+});
+
 test('live updates use one stream, close while hidden, and reconnect with the latest song',async()=>{
  const {watchActiveSong}=await performanceModule;
  const handlers=new Set(),sources=[],received=[];let polls=0;

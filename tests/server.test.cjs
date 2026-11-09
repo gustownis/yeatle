@@ -94,6 +94,10 @@ test("desktop server serves compiled game, runtime, and external stems; admin de
   assert.equal(code.headers.get("content-encoding"), "gzip");
   assert.equal(code.headers.get("vary"), "Accept-Encoding");
   assert.equal(await code.text(), fs.readFileSync(path.join(root, "build/assets/yeatle.js"), "utf8"));
+  const brotli = await fetch(`${url}/assets/yeatle.js`, { headers: { "Accept-Encoding": "gzip, deflate, br" } });
+  assert.equal(brotli.headers.get("content-encoding"), "br");
+  assert.ok(Number(brotli.headers.get("content-length")) < Number(code.headers.get("content-length")), "Brotli is the smaller variant");
+  assert.equal(await brotli.text(), fs.readFileSync(path.join(root, "build/assets/yeatle.js"), "utf8"));
   const identity = await fetch(`${url}/assets/yeatle.js`, { headers: { "Accept-Encoding": "gzip;q=0, *;q=1" } });
   assert.equal(identity.headers.get("content-encoding"), null);
   const codeRange = await fetch(`${url}/assets/yeatle.js`, { headers: { "Accept-Encoding": "gzip", Range: "bytes=0-3" } });
@@ -275,6 +279,10 @@ test("the song list revalidates, per encoding, and any change to its contents ch
 
   const zipped = await fetch(`${url}/api/songs`, { headers: { "Accept-Encoding": "gzip" } });
   assert.notEqual(zipped.headers.get("etag"), etag, "compressed and plain bodies have different tags");
+  const brotliList = await fetch(`${url}/api/songs`, { headers: { "Accept-Encoding": "gzip, br" } });
+  assert.equal(brotliList.headers.get("content-encoding"), "br");
+  assert.notEqual(brotliList.headers.get("etag"), zipped.headers.get("etag"), "each encoding has its own tag");
+  assert.deepEqual(await brotliList.json(), await zipped.json());
   assert.equal((await fetch(`${url}/api/songs`, { headers: { "Accept-Encoding": "identity", "If-None-Match": '"stale"' } })).status, 200);
   assert.equal((await fetch(`${url}/api/songs`, { headers: { "Accept-Encoding": "identity", "If-Modified-Since": new Date().toUTCString() } })).status, 200, "only the tag can answer 304");
 

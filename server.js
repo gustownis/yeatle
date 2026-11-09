@@ -26,7 +26,7 @@ const { URL } = require("url");
 const { exec } = require("child_process");
 const { pipeline } = require("stream/promises");
 const { createGzip, constants: zlibConstants } = require("node:zlib");
-const { staticCacheHeaders, isNotModified, rangeAllowed, createCompressedCache, gzipBuffer } = require("./static-cache.cjs");
+const { staticCacheHeaders, isNotModified, rangeAllowed, createCompressedCache, encodeBuffer, acceptedEncoding } = require("./static-cache.cjs");
 const { createAudioCache } = require("./audio-cache.cjs");
 const { createActiveSongFeed } = require("./live-control.cjs");
 const { createStemCatalog } = require("./stem-catalog.cjs");
@@ -2079,11 +2079,13 @@ function serveStatic(req, res, pathname, { noStore = false } = {}) {
 
     // Keep byte ranges and audio untouched. Reuse bounded compressed variants;
     // larger files still stream so their full contents are not held in memory.
-    if (compressible && !req.headers.range && acceptsGzip(req.headers["accept-encoding"])) {
+    const encoding = compressible && !req.headers.range ? acceptedEncoding(req.headers["accept-encoding"]) : null;
+    if (encoding) {
       try {
-        const body = await compressedAssets.get(file, stat);
+        const body = await compressedAssets.get(file, stat, encoding);
         if (res.destroyed) return;
-        res.writeHead(200, { "Content-Type": type, "Content-Encoding": "gzip", ...(body ? { "Content-Length": body.length } : {}) });
+        // Files too large to retain are streamed as gzip, which every client offering Brotli also reads.
+        res.writeHead(200, { "Content-Type": type, "Content-Encoding": body ? encoding : "gzip", ...(body ? { "Content-Length": body.length } : {}) });
         if (req.method === "HEAD") { res.end(); return; }
         if (body) res.end(body);
         else pipeline(fs.createReadStream(file), createGzip({ level: zlibConstants.Z_BEST_SPEED }), res).catch(() => res.destroy());
@@ -2096,14 +2098,6 @@ function serveStatic(req, res, pathname, { noStore = false } = {}) {
     if (req.method === "HEAD") { res.end(); return; }
     fs.createReadStream(file).pipe(res);
   });
-}
-
-function acceptsGzip(value = "") {
-  const encodings = String(value).split(",").map(item => item.trim().split(";"));
-  const entry = encodings.find(([name]) => name.trim().toLowerCase() === "gzip") || encodings.find(([name]) => name.trim() === "*");
-  if (!entry) return false;
-  const quality = entry.slice(1).find(parameter => /^\s*q\s*=/i.test(parameter));
-  return quality === undefined || Number(quality.split("=")[1]) > 0;
 }
 
 function sendJson(res, status, body) {
@@ -2422,18 +2416,18 @@ function songListJson() {
   return json;
 }
 
-function songListGzip() {
+function songListEncoded(encoding) {
   songListJson();
   const entry = preparedSongList;
-  return entry.gzip || (entry.gzip = gzipBuffer(entry.json).catch(error => { delete entry.gzip; throw error; }));
+  return entry[encoding] || (entry[encoding] = encodeBuffer(Buffer.from(entry.json), encoding).catch(error => { delete entry[encoding]; throw error; }));
 }
 
 // Hashes the list itself: hiding a song or editing a photo changes it without a new sync.
-function songListEtag(gzip) {
+function songListEtag(encoding) {
   songListJson();
   const entry = preparedSongList;
   entry.hash ||= crypto.createHash("sha256").update(entry.json).digest("hex").slice(0, 16);
-  return `"${LAST_UPDATE}-${SONGS.length}-${entry.hash}${gzip ? "-gzip" : ""}"`;
+  return `"${LAST_UPDATE}-${SONGS.length}-${entry.hash}${encoding ? `-${encoding}` : ""}"`;
 }
 
 // Rebuilding the catalog re-reads the whole tracker, so anonymous requests share a limit.
@@ -3831,16 +3825,16 @@ const server = http.createServer(async (req, res) => {
       if (!SONGS.length || (searchParams.get("refresh") && mayRefreshSongs(req))) await refreshOnce();
 
       const json = songListJson();
-      const gzip = acceptsGzip(req.headers["accept-encoding"]);
-      const etag = songListEtag(gzip);
+      const encoding = acceptedEncoding(req.headers["accept-encoding"]);
+      const etag = songListEtag(encoding);
       const validators = { "ETag": etag, "Cache-Control": "no-cache", "Vary": "Accept-Encoding" };
       if (req.headers["if-none-match"] !== undefined && isNotModified(req.headers, etag, 0)) {
         res.writeHead(304, validators);
         res.end();
         return;
       }
-      const body = gzip ? await songListGzip() : json;
-      res.writeHead(200, { "Content-Type": "application/json", ...validators, "Content-Length": Buffer.byteLength(body), ...(gzip ? { "Content-Encoding": "gzip" } : {}) });
+      const body = encoding ? await songListEncoded(encoding) : json;
+      res.writeHead(200, { "Content-Type": "application/json", ...validators, "Content-Length": Buffer.byteLength(body), ...(encoding ? { "Content-Encoding": encoding } : {}) });
       res.end(req.method === "HEAD" ? undefined : body);
       return;
     }
