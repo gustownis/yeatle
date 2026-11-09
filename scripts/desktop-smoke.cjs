@@ -151,6 +151,8 @@ async function runWindow() {
   for (const mode of ["Stems", "Snippets"]) {
     await evaluate(`[...document.querySelectorAll("[role=tab]")].find(tab => tab.textContent === ${JSON.stringify(mode)}).click()`);
     await until(`document.querySelector('[role=tab][aria-selected=true]')?.textContent === ${JSON.stringify(mode)}`, mode);
+    // Leave once the round is on screen, as a player would; Snippets rounds come from the server.
+    await until('document.querySelector("main.game:not([aria-busy])")', `${mode} round`);
     await wait(250);
     const before = await evaluate(geometry);
     await evaluate('[...document.querySelectorAll("[role=tab]")].find(tab => tab.textContent === "Daily").click()');
