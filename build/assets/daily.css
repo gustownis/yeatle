@@ -10,7 +10,7 @@ html,body{height:auto;min-height:100%}body{padding:28px 0 16px}.daily-shell{posi
 #clips .seg.now{background:#8901b9}
 #clips .seg.now.close{background:#d4a017}
 #clips .seg.right{background:#1db954;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
-#clips .seg.wrong{background:#3a1821}
+#clips .seg.wrong{background:#e5322d}
 #clips .daily-play-fill{position:absolute;inset:0 auto 0 0;width:0%;pointer-events:none;background:linear-gradient(90deg,rgba(255,255,255,.16),rgba(255,255,255,.36));border-right:2px solid #fff;box-shadow:0 0 8px rgba(255,255,255,.55)}
 .daily-controls{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:14px 0 16px}
 .daily-guess{display:flex;gap:8px;flex-wrap:wrap}.daily-guess>.guess-input-wrap{flex:1 1 220px;min-width:0}.daily-guess .suggestions{touch-action:pan-y}
