@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const runtime = require("./fixtures/catalog-runtime.cjs");
-const { creditFor, isGuessingEligible } = require("../catalog-policy.cjs");
+const { creditFor, isGuessingEligible, applyCatalogMetadata } = require("../catalog-policy.cjs");
 const { validateCatalog } = require("../desktop/stem-downloads.cjs");
 const root = path.join(__dirname, "..");
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -322,7 +322,13 @@ test("verified premasters and matching unreleased OG files replace 30s Apple pre
     { title: "Yung Kayo - YEET", features: ["feat. Yeat"], aliases: [], era: "2 Alivë", tab: "Released", type: "Feature", length: "2:37", source: { kind: "apple", id: "1606768032" } },
     { title: "Rackz got më", features: ["feat. Gunna"], aliases: [], era: "2 Alivë", tab: "Released", type: "Album Track", length: "3:01", source: { kind: "apple", id: "1609701863" } },
     { title: "Rackz got më", features: [], aliases: [], era: "2 Alivë", tab: "Unreleased", type: "Demo", length: "1:36", source: { kind: "pillows", id: "demo-v1" } },
-    { title: "Rackz got më", features: ["feat. Gunna"], aliases: [], era: "2 Alivë", tab: "Unreleased", type: "OG File", availability: "OG File", length: "3:01", version: "V3", source: { kind: "pillows", id: "og-v3" } }
+    { title: "Rackz got më", features: ["feat. Gunna"], aliases: [], era: "2 Alivë", tab: "Unreleased", type: "OG File", availability: "OG File", length: "3:01", version: "V3", source: { kind: "pillows", id: "og-v3" } },
+    { title: "Morë", features: [], aliases: [], era: "2093", tab: "Released", type: "Album Track", length: "2:45", source: { kind: "apple", id: "more-apple" } },
+    { title: "Morë", features: [], aliases: [], era: "2093", tab: "Unreleased", type: "OG", availability: "OG File", length: "2:21", version: "V1", source: { kind: "pillows", id: "more-v1" } },
+    { title: "Diff Two", features: [], aliases: [], era: "2093", tab: "Released", type: "Album Track", length: "2:00", source: { kind: "apple", id: "diff2-apple" } },
+    { title: "Diff Two", features: [], aliases: [], era: "2093", tab: "Unreleased", type: "Master", availability: "Master", length: "2:02", source: { kind: "pillows", id: "diff2-pillows" } },
+    { title: "Diff One", features: [], aliases: [], era: "2093", tab: "Released", type: "Album Track", length: "2:40", source: { kind: "apple", id: "diff1-apple" } },
+    { title: "Diff One", features: [], aliases: [], era: "2093", tab: "Unreleased", type: "OG File", availability: "OG File", length: "2:39", source: { kind: "pillows", id: "diff1-pillows" } }
   ];
   const songs = catalog.buildSongList(rows, []);
   catalog.setSongs(songs, "test");
@@ -337,4 +343,43 @@ test("verified premasters and matching unreleased OG files replace 30s Apple pre
   assert.equal(rawRackz.poolVariants.released.premaster.id, "og-v3", "Rackz got më released pool variant uses matching V3 OG File premaster");
   assert.equal(rawRackz.poolVariants.released.preview, false, "Rackz got më released pool variant has preview: false");
   assert.equal(rackz.poolVariants.released.preview, false, "publicSong released variant has preview: false");
+
+  const more = list.find(s => s.id === "more");
+  const rawMore = catalog.index().get("more");
+  assert.equal(rawMore.poolVariants.released.premaster, undefined, "Morë released variant does not use 2:21 More V1 (diff > 2)");
+  assert.equal(rawMore.poolVariants.released.preview, true, "Morë released variant retains preview: true");
+  assert.equal(more.poolVariants.released.preview, true, "Morë public released variant retains preview: true");
+
+  const diffTwo = list.find(s => s.id === "difftwo");
+  const rawDiffTwo = catalog.index().get("difftwo");
+  assert.equal(rawDiffTwo.poolVariants.released.premaster, undefined, "2-second difference is not less than 2 seconds");
+  assert.equal(rawDiffTwo.poolVariants.released.preview, true);
+
+  const diffOne = list.find(s => s.id === "diffone");
+  const rawDiffOne = catalog.index().get("diffone");
+  assert.equal(rawDiffOne.poolVariants.released.premaster.id, "diff1-pillows", "1-second difference is less than 2 seconds");
+  assert.equal(rawDiffOne.poolVariants.released.preview, false);
+
+  // Verified master rows in premasters (Dangerous Summer and Lyfestyle)
+  const mfu = catalog.index().get("mfu") || { id: "mfu", tab: "Released", source: { kind: "apple", id: "1830347053" } };
+  const appliedMfu = applyCatalogMetadata(mfu);
+  assert.equal(appliedMfu.premaster.id, "fd4d5d9e9c54ddca73873d344404a652", "M.F.U. uses verified MixedByTheBest master file");
+  assert.equal(appliedMfu.preview, false);
+
+  const ohidid = catalog.index().get("ohidid") || { id: "ohidid", tab: "Released", source: { kind: "apple", id: "1830346718" } };
+  const appliedOhIdid = applyCatalogMetadata(ohidid);
+  assert.equal(appliedOhIdid.premaster.id, "bea6d61c02fd8c9be4a86c52db6e52a5", "OH I DID uses verified MixedByTheBest master file");
+  assert.equal(appliedOhIdid.preview, false);
+
+  const flytroop = catalog.index().get("flytroop") || { id: "flytroop", tab: "Released", source: { kind: "apple", id: "1774384698" } };
+  const appliedFlytroop = applyCatalogMetadata(flytroop);
+  assert.equal(appliedFlytroop.premaster.id, "2c8f2012ccbc92eebbb2262c7aae1b70", "FLYTROOP uses verified Lyfestyle master file");
+  assert.equal(appliedFlytroop.preview, false);
+
+  // Alter-ego and imprint features (Luh Geeky, Kranky Kranky, Lyfestyle Corporation) match matching OG files
+  const nowRel = { id: "now", tab: "Released", length: "4:32", features: ["feat. LUH GEEKY"], source: { kind: "apple", id: "apple-now" } };
+  const nowUnrel = { id: "now", tab: "Unreleased", length: "4:32", type: "OG File", features: ["feat. Luh geekum"], source: { kind: "pillows", id: "now-og" } };
+  const appliedNow = applyCatalogMetadata(nowRel, [nowRel, nowUnrel]);
+  assert.equal(appliedNow.premaster?.id, "now-og", "Now matches unreleased OG file across Luh Geeky / Luh geekum personas");
+  assert.equal(appliedNow.preview, false);
 });

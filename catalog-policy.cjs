@@ -276,27 +276,32 @@ function trackSeconds(length) {
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 }
 
-const guestFeatureKey = features => (features || []).map(f =>
-  answerKey(String(f).replace(/^(feat|ft|with)\b\.?\s*/i, ""))).filter(Boolean).sort().join("+");
+const guestFeatureKey = features => (features || [])
+  .flatMap(f => String(f).replace(/^(feat|ft|with)\b\.?\s*/i, "").split(/\s*(?:&|,|\band\b)\s*/i))
+  .map(f => answerKey(f))
+  .filter(k => k && !["yeat", "lilyeat", "krankykranky", "luhgeeky", "luhgeekum", "lyfestylecorporation"].includes(k))
+  .sort()
+  .join("+");
 
 function findOgPremaster(releasedSong, variants) {
   if (!variants || !variants.length) return null;
   const relSec = trackSeconds(releasedSong.length);
   const relGuests = guestFeatureKey(releasedSong.features);
+  if (relSec == null) return null;
 
   const candidates = variants.filter(v => v !== releasedSong && v.tab === "Unreleased" && v.source?.kind === "pillows");
   if (!candidates.length) return null;
 
   const matching = candidates.filter(v => {
     const sec = trackSeconds(v.length);
-    if (relSec != null && sec != null && Math.abs(relSec - sec) > 3) return false;
+    if (sec == null || Math.abs(relSec - sec) >= 2) return false;
     if (guestFeatureKey(v.features) !== relGuests) return false;
     return true;
   });
   if (!matching.length) return null;
 
   const ogs = matching.filter(v => /og|master/i.test(v.type) || /og/i.test(v.availability));
-  const picked = ogs.length ? ogs[ogs.length - 1] : matching[matching.length - 1];
+  const picked = ogs.length ? ogs[ogs.length - 1] : null;
   return picked ? picked.source : null;
 }
 

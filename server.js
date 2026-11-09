@@ -1069,7 +1069,12 @@ function buildSongList(sheetRows, stemFolders) {
     const aliases = held.aliases;
     row.aliases.forEach(a => { if (!aliases.includes(a)) aliases.push(a); });
 
-    const betterSource = SOURCE_RANK[row.source.kind] < SOURCE_RANK[held.source.kind] ? row.source : held.source;
+    const aSec = trackSeconds(row.length);
+    const bSec = trackSeconds(held.length);
+    const hasLengthDiff = aSec == null || bSec == null || Math.abs(aSec - bSec) >= 2;
+    const rankRow = (row.tab !== "Released" && held.tab === "Released" && hasLengthDiff) ? 999 : SOURCE_RANK[row.source.kind];
+    const rankHeld = (held.tab !== "Released" && row.tab === "Released" && hasLengthDiff) ? 999 : SOURCE_RANK[held.source.kind];
+    const betterSource = rankRow < rankHeld ? row.source : held.source;
     const infoRow = held.tab !== "Released" && row.tab === "Released" ? row : held;
     byKey.set(key, { ...infoRow, aliases, source: betterSource, mergedFrom: [...held.mergedFrom, piece], variants: [...held.variants, row] });
   });
