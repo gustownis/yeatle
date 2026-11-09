@@ -93,6 +93,11 @@ test("same recordings share one answer and their progress; open verses stay sepa
   const pair = ["jealousy", "jelousy"].map(id => applyCatalogMetadata(byId.get(id)));
   assert.equal(pair[0].answerId, pair[1].answerId);
   assert.deepEqual(pair[0].equivalentIds, ["jelousy"]);
+  const geeked = ["dontolivergeeked", "dontolivergeekedup"].map(id => applyCatalogMetadata(byId.get(id)));
+  assert.equal(geeked[0].answerId, "dontolivergeekedup");
+  assert.equal(geeked[1].answerId, "dontolivergeekedup");
+  assert.deepEqual(geeked[0].equivalentIds, ["dontolivergeekedup"]);
+  assert.deepEqual(geeked[1].equivalentIds, ["dontolivergeeked"]);
   const krank = ["krank", "krank@edit-e5a02f262fbf"].map(id => applyCatalogMetadata(byId.get(id)));
   assert.equal(krank[0].answerId, "krank");
   assert.equal(krank[1].answerId, "krank");
