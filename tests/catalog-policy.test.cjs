@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const runtime = require("./fixtures/catalog-runtime.cjs");
-const { creditFor, isGuessingEligible, applyCatalogMetadata } = require("../catalog-policy.cjs");
+const { creditFor, isGuessingEligible, applyCatalogMetadata, reconcileCatalogEligibility } = require("../catalog-policy.cjs");
 const { validateCatalog } = require("../desktop/stem-downloads.cjs");
 const root = path.join(__dirname, "..");
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -398,4 +398,29 @@ test("verified premasters and matching unreleased OG files replace 30s Apple pre
   const appliedHoly1 = applyCatalogMetadata(holy1);
   assert.equal(appliedHoly1.premaster.id, "0bd480ae941bb860b08bb5a2eaec3bef", "Holy 1 uses verified master file");
   assert.equal(appliedHoly1.preview, false);
+});
+
+test("redundant unreleased Morë V1 is excluded while released Morë remains eligible", () => {
+  const moreRel = {
+    id: "more", title: "Morë", tab: "Released", length: "2:45", type: "Album Track",
+    source: { kind: "apple", id: "1731044410" }, features: []
+  };
+  const moreV1 = {
+    id: "more", title: "Morë", trackerVersion: "V1", tab: "Unreleased", length: "2:21", type: "OG",
+    source: { kind: "pillows", id: "c518828171b688ef8746aaee07d57313" }, features: []
+  };
+  assert.equal(isGuessingEligible(moreRel), true);
+  assert.equal(isGuessingEligible(applyCatalogMetadata(moreV1)), false);
+
+  const merged = {
+    ...moreV1,
+    sourceVariants: [moreRel, moreV1],
+    poolVariants: { released: moreRel, unreleased: moreV1 }
+  };
+  const SOURCE_RANK = { stems: 0, pillows: 1, drive: 1, exofile: 1, exoshare: 1, pixeldrain: 1, imgur: 1, url: 1, apple: 2, search: 3 };
+  const reconciled = reconcileCatalogEligibility(applyCatalogMetadata(merged), SOURCE_RANK);
+  assert.equal(reconciled.tab, "Released");
+  assert.equal(reconciled.source.id, "1731044410");
+  assert.equal(reconciled.poolVariants.unreleased, undefined, "excluded unreleased V1 does not project into unreleased pool");
+  assert.equal(reconciled.poolVariants.released.source.id, "1731044410");
 });

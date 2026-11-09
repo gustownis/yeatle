@@ -51,11 +51,7 @@ and restores Alivë's original source. A saved practice snapshot using the
 pack follows the same files, keeping attempts and clip start. Pinned Daily
 snapshots are excluded from this source repair.
 
-The solo Kankan Zaza V1 and solo Yung Kayo Fleek V1 lack Yeat vocals and are
-excluded; GOONIE's Zaza V2 with Yeat remains eligible. At the maintainer's
-request, the separate Fleek V2 tracker entry is also excluded, retaining only
-Yung Kayo's YEET featuring Yeat. This explicit eligibility decision does not
-change Fleek V2's tracker credits or declare two recordings interchangeable.
+The solo Kankan Zaza V1 and solo Yung Kayo Fleek V1 lack Yeat vocals and are excluded; GOONIE's Zaza V2 with Yeat remains eligible. At the maintainer's request, the separate Fleek V2 tracker entry is also excluded, retaining only Yung Kayo's YEET featuring Yeat. Similarly, the unreleased Morë V1 recording is excluded as redundant with the released Morë (the same vocal performance with only a shorter outro), retaining the released album track for gameplay. This explicit eligibility decision does not change tracker credits or declare two recordings interchangeable.
 
 The maintainer's 2026-10-22 exclusion list covers 60 tracker rows, including early solo demos, reference tracks, the released Have You Ever without Yeat's verse, Eaters V2 without Yeat, fuëgo's instrumental, and producer-only AMG C63, ATM and Louder. `excludedRecordings` in `catalog-metadata.json` scopes the rules to the supplied titles, tabs and tracker versions; the two untitled rows additionally require their Firemane or Houston, Texas alias. Known audio source ids also cover older caches and installed packs with those sources as fallbacks. These are selection exclusions and do not rewrite credits: for example, the tracker describes background vocals on No Clout, which is still excluded at the maintainer's request. Unavailable rows are covered if they acquire playable links later.
 
