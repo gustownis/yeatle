@@ -771,7 +771,14 @@ async function loadTab(tab) {
       });
       // "℗ 2017 YEAT" - the one place an era's year is written down
       const stamped = nameCell.match(/[℗©]\s*(\d{4})/);
-      if (stamped && !ERA_YEARS.has(looseEraKey(headingEra))) ERA_YEARS.set(looseEraKey(headingEra), Number(stamped[1]));
+      if (stamped) {
+        const year = Number(stamped[1]);
+        if (!ERA_YEARS.has(looseEraKey(headingEra))) ERA_YEARS.set(looseEraKey(headingEra), year);
+        if (/^a dangerous lyfe\s*\[?v1\]?$/i.test(headingEra) || /^adl\s*\[?v1\]?$/i.test(headingEra)) {
+          ERA_YEARS.set("adlv1", 2024);
+          ERA_YEARS.set("adangerouslyfev1", 2024);
+        }
+      }
       return;
     }
 
@@ -1305,6 +1312,7 @@ async function refreshSongs() {
       if (cached && Array.isArray(cached.songs) && cached.songs.length) {
         setSongs(upgradeCachedSongs(cached), "cache");
         ERAS = Array.isArray(cached.eras) ? cached.eras : [];
+        ERAS.forEach(normalizeAdlV1Era);
         LAST_UPDATE = cached.updated || 0;
         console.log(`Couldn't reach the sheet - using the saved list (${SONGS.length} songs).`);
       } else {
@@ -1629,6 +1637,16 @@ function eraSpan(notes) {
   };
 }
 
+// ADL [V1] is strictly 2024 (ADL [V2] begins in 2025); keep its span and year in 2024
+// rather than carrying the January 2025 transition note into V1.
+function normalizeAdlV1Era(era) {
+  if (!era) return;
+  if (/^a dangerous lyfe\s*\[?v1\]?$/i.test(era.name) || /^adl\s*\[?v1\]?$/i.test(era.name)) {
+    era.year = 2024;
+    if (/2025/.test(era.end)) era.end = "Late 2024";
+  }
+}
+
 function buildEras(songs) {
   const unreleased = [...ERA_HEADINGS.entries()].filter(([tab]) => /^unreleased/i.test(tab)).flatMap(([, h]) => h);
   const released = [...ERA_HEADINGS.entries()].filter(([tab]) => !/^unreleased/i.test(tab)).flatMap(([, h]) => h);
@@ -1653,6 +1671,7 @@ function buildEras(songs) {
       sortKey: roughDate(span.start),
       image: heading.image ? atCoverSize(heading.image) : ""
     };
+    normalizeAdlV1Era(era);
     byKey.set(key, era);
     eras.push(era);
     return era;
@@ -1672,6 +1691,12 @@ function buildEras(songs) {
     const key = looseEraKey(alias);
     if (key && !ERA_LOOKUP.has(key)) ERA_LOOKUP.set(key, era.name);
   }));
+  eras.forEach(era => {
+    if (/^a dangerous lyfe\s*\[?v1\]?$/i.test(era.name)) {
+      ERA_LOOKUP.set("adlv1", era.name);
+      ERA_LOOKUP.set("adangerouslyfev1", era.name);
+    }
+  });
 
   // put every song under its era's proper name
   const resolve = name => {
@@ -3915,6 +3940,7 @@ server.listen(CONFIG.port, "127.0.0.1", async () => {
   if (cached && Array.isArray(cached.songs)) {
     setSongs(upgradeCachedSongs(cached), "cache");
     ERAS = Array.isArray(cached.eras) ? cached.eras : [];
+    ERAS.forEach(normalizeAdlV1Era);
     LAST_UPDATE = cached.updated || 0;
   }
   if (process.send) {

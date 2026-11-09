@@ -256,3 +256,58 @@ test("multi-table Google Sheets HTML exports retain later chunks and display dis
     ["Money N Drugs (YEAT REMIX)", "also m.a.d", "Hold Ön · 2020"]
   ]);
 });
+
+test("ADL [V1] is forced to 2024 only and does not extend into 2025", async t => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-adlv1-"));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  const runtime = require("./fixtures/catalog-runtime.cjs")(folder);
+  const rows = [
+    {
+      title: "ADL V1 Demo",
+      era: "A DANGEROUS LYFE [V1]",
+      tab: "Unreleased",
+      features: [],
+      producers: [],
+      aliases: [],
+      source: { kind: "pillows", id: "11111111111111111111111111111111" }
+    },
+    {
+      title: "ADL V1 Alias Song",
+      era: "ADL [V1]",
+      tab: "Unreleased",
+      features: [],
+      producers: [],
+      aliases: [],
+      source: { kind: "pillows", id: "22222222222222222222222222222222" }
+    }
+  ];
+  runtime.years.set("adangerouslyfev1", 2024);
+  runtime.years.set("adlv1", 2024);
+  const songs = runtime.buildSongList(rows, []).map(song => runtime.publicSong(song));
+  assert.equal(runtime.years.get("adlv1"), 2024);
+  assert.equal(runtime.years.get("adangerouslyfev1"), 2024);
+  for (const s of songs) {
+    assert.equal(s.eraYear, 2024, `${s.title} has eraYear 2024`);
+  }
+
+  const cachedFolder = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-adlv1-cache-"));
+  t.after(() => fs.rmSync(cachedFolder, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(cachedFolder, "config.json"), JSON.stringify({ port: 0, openBrowser: false, refreshMinutes: 0, tabs: [] }));
+  fs.writeFileSync(path.join(cachedFolder, "songs-cache.json"), JSON.stringify({
+    updated: 5,
+    eras: [{ name: "A DANGEROUS LYFE [V1]", start: "April 10, 2024", end: "January 2025", year: 2024, cover: "" }],
+    songs: [{ id: "adlv1demo", title: "ADL V1 Demo", display: "ADL V1 Demo", era: "A DANGEROUS LYFE [V1]", eraYear: 2024, year: 2024, tab: "Unreleased", mode: "filter" }]
+  }));
+  const child = spawn(process.execPath, [path.join(root, "server.js")], { env: { ...process.env, YEATLE_DATA_DIR: cachedFolder, YEATLE_PORT: "", YEATLE_DESKTOP: "1" }, stdio: ["ignore", "pipe", "pipe", "ipc"] });
+  t.after(() => child.kill());
+  const port = await new Promise((resolve, reject) => {
+    child.on("message", message => message.type === "yeatle-ready" && resolve(message.port));
+    child.once("exit", code => reject(new Error(`Server exited ${code}`)));
+  });
+  const res = await (await fetch(`http://127.0.0.1:${port}/api/songs`)).json();
+  const adl = res.eras.find(e => e.name === "A DANGEROUS LYFE [V1]");
+  assert.ok(adl, "A DANGEROUS LYFE [V1] is in eras");
+  assert.equal(adl.year, 2024);
+  assert.equal(adl.start, "April 10, 2024");
+  assert.equal(adl.end, "Late 2024");
+});
