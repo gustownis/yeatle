@@ -109,7 +109,10 @@ async function load(context, daily, songs) {
   assert.equal(await page.locator("#share").textContent(), "Copy result");
   await page.locator("#share").click();
   const copied = await page.evaluate(() => uiAudit.copied);
-  assert.ok(copied.startsWith(`Yeatle Daily ${daily.date}\n0.1s · 1/6\n🟩⬜⬜⬜⬜⬜\n`));
+  // the page labels the Daily with the local date it started on
+  const started = new Date(daily.resetsAt - 86400000);
+  const label = `${started.getFullYear()}-${String(started.getMonth() + 1).padStart(2, "0")}-${String(started.getDate()).padStart(2, "0")}`;
+  assert.ok(copied.startsWith(`Yeatle Daily ${label}\n0.1s · 1/6\n🟩⬜⬜⬜⬜⬜\n`));
   assert.ok(copied.endsWith((daily.shareUrl || `${origin}/daily`).replace(/\/daily\.html(?=$|[?#])/, "/daily")));
   assert.ok(!copied.toLowerCase().includes(daily.song.title.toLowerCase()));
   assert.equal(await page.evaluate(() => uiAudit.shareCalls), 0);

@@ -616,9 +616,10 @@ const foldTo = (m, ref) => m + 12 * Math.round((ref - m) / 12);
 
 /* ---------- everything below needs a browser ---------- */
 
-const state = { songs: [], artist: "Yeat", song: null, lyricsCache: new Map(), lyricsPending: new Map(), job: null, foundSkips: new Map() };
+const state = { songs: [], artist: "Yeat", song: null, lyricsCache: new Map(), lyricsPending: new Map(), job: null, foundSkips: new Map(), shuffled: new Set() };
 const settings = Object.assign({
   difficulty: "medium", volume: 100, guide: 0, speakers: true, micDelay: 90, audioDelay: null, sensitivity: 50, whiteMode: false,
+  shuffleEras: [], // eras Shuffle picks from; empty means every era
   players: [{ name: "Singer 1", deviceId: "" }]
 }, store.get("yeatle-karaoke-settings", {}));
 function saveSettings() { store.set("yeatle-karaoke-settings", settings); }
@@ -951,6 +952,86 @@ function pickSong(song) {
   renderSongList();
   renderPicked();
   lookUpLyrics(song).then(() => { if (state.song === song) renderPicked(); });
+}
+
+/* ---------- shuffle ---------- */
+
+const eraName = song => song.era || "No era";
+
+// Songs Shuffle can pick: the chosen eras (none chosen means all of them), leaving out the
+// current song and the ones already shuffled, until every song has had a turn.
+export function shufflePool(songs, eras = [], seen = new Set(), currentId = null) {
+  const inEras = songs.filter(song => !eras.length || eras.includes(eraName(song)));
+  const fresh = inEras.filter(song => song.id !== currentId && !seen.has(song.id));
+  if (fresh.length) return fresh;
+  seen.clear();
+  const others = inEras.filter(song => song.id !== currentId);
+  return others.length ? others : inEras;
+}
+
+// the chosen eras that still exist in the song list
+function shuffleEras() {
+  const known = new Set(state.songs.map(eraName));
+  return (Array.isArray(settings.shuffleEras) ? settings.shuffleEras : []).filter(era => known.has(era));
+}
+
+function renderShuffle() {
+  const chosen = shuffleEras().length, total = new Set(state.songs.map(eraName)).size;
+  $("#shuffle-eras").textContent = chosen ? `Eras: ${chosen} of ${total}` : "Eras: All";
+  $("#shuffle").disabled = !state.songs.length;
+}
+
+function shuffleSong() {
+  const pool = shufflePool(state.songs, shuffleEras(), state.shuffled, state.song?.id);
+  if (!pool.length) return null;
+  const song = pool[Math.floor(Math.random() * pool.length)];
+  state.shuffled.add(song.id);
+  pickSong(song);
+  document.querySelector("#song-list .song.picked")?.scrollIntoView({ block: "nearest" });
+  return song;
+}
+
+function openEraPicker() {
+  const eras = new Map();
+  for (const song of state.songs) {
+    const held = eras.get(eraName(song)) || { count: 0, year: Infinity };
+    held.count++;
+    held.year = Math.min(held.year, Number(song.eraYear || song.year) || Infinity);
+    eras.set(eraName(song), held);
+  }
+  const chosen = new Set(shuffleEras());
+  const boxes = [...eras].sort((a, b) => a[1].year - b[1].year || a[0].localeCompare(b[0])).map(([name, info]) => {
+    const input = el("input", { type: "checkbox", checked: !chosen.size || chosen.has(name) });
+    return { name, input, node: el("label", { class: "check" }, input, el("span", { text: name }), el("small", { text: String(info.count) })) };
+  });
+  const note = el("p", { class: "error" });
+  const setAll = on => boxes.forEach(b => { b.input.checked = on; });
+  const close = () => modal.remove();
+  const modal = el("div", { class: "modal" },
+    el("div", { class: "modal-box" },
+      el("h2", { text: "Shuffle eras" }),
+      el("p", { class: "muted", text: "Shuffle picks a random song from the eras you tick here." }),
+      el("div", { class: "row" },
+        el("button", { class: "btn small", text: "All", onclick: () => setAll(true) }),
+        el("button", { class: "btn small", text: "None", onclick: () => setAll(false) })
+      ),
+      el("div", { class: "era-grid" }, ...boxes.map(b => b.node)),
+      note,
+      el("div", { class: "row" },
+        el("button", { class: "btn primary", text: "Save", onclick: () => {
+          const picked = boxes.filter(b => b.input.checked).map(b => b.name);
+          if (!picked.length) { note.textContent = "Tick at least one era."; return; }
+          settings.shuffleEras = picked.length === boxes.length ? [] : picked;
+          state.shuffled.clear();
+          saveSettings();
+          renderShuffle();
+          close();
+        } }),
+        el("button", { class: "btn", text: "Cancel", onclick: close })
+      )
+    )
+  );
+  document.body.append(modal);
 }
 
 function renderPicked() {
@@ -1339,8 +1420,8 @@ function openCalibration(kind) {
   const tap = kind === "tap";
   const title = tap ? "Tap test: audio delay" : "Clap test: mic delay";
   const intro = tap
-    ? "Put on the headphones or speakers you'll sing with. You'll hear 4 count-in beeps, then 8 more. Tap along to the 8 by ear (Space, Enter, or the circle), not by watching the screen."
-    : "Use the mic you'll sing with. You'll hear 4 count-in beeps, then 8 more. Clap, or say \"ta\" sharply, on each of the 8. Stay quiet between beeps.";
+    ? "Put on the headphones or speakers you'll sing with. You'll hear 4 count-in beeps, then 8 more. Tap along to the 8 (Space, Enter, or the circle). The ring closes in on the circle as each beep comes up so you can get ready, but tap on the beep you hear."
+    : "Use the mic you'll sing with. You'll hear 4 count-in beeps, then 8 more. Clap, or say \"ta\" sharply, on each of the 8. The ring closes in on the circle as each beep comes up so you can get ready. Stay quiet between beeps.";
   const status = el("p", { class: "cal-status", text: "Press Start when you're ready." });
   const dots = el("div", { class: "cal-dots" }, ...Array.from({ length: 8 }, () => el("i")));
   const pad = tap ? el("button", { class: "cal-pad", text: "Tap" }) : el("div", { class: "cal-pad mic" }, el("span", { text: "🎤" }));
@@ -1348,7 +1429,10 @@ function openCalibration(kind) {
   const startBtn = el("button", { class: "btn primary", text: "Start" });
   const useBtn = el("button", { class: "btn primary", text: "Use this", hidden: true });
   const closeBtn = el("button", { class: "btn", text: "Close" });
-  const box = el("div", { class: "modal-box cal" }, el("h2", { text: title }), el("p", { class: "muted", text: intro }), pad, status, dots, result, el("div", { class: "row" }, startBtn, useBtn, closeBtn));
+  // a ring that shrinks onto the pad as each beep approaches, so the beat is easy to anticipate
+  const ring = el("i", { class: "cal-ring", hidden: true });
+  const target = el("div", { class: "cal-target" }, pad, ring);
+  const box = el("div", { class: "modal-box cal" }, el("h2", { text: title }), el("p", { class: "muted", text: intro }), target, status, dots, result, el("div", { class: "row" }, startBtn, useBtn, closeBtn));
   const modal = el("div", { class: "modal" }, box);
   document.body.append(modal);
 
@@ -1423,9 +1507,19 @@ function openCalibration(kind) {
         const got = r.events.some(e => e >= c - before && e < c + after);
         dots.children[k].className = got ? "hit" : "miss";
       });
+      // the ring reaches the pad exactly when the next beep is heard; the pad flashes on it
+      const pos = (heard - t0) / beat, last = Math.floor(pos), into = pos - last, coming = last + 1;
+      ring.hidden = coming < 0 || coming >= lead + count;
+      ring.style.transform = `scale(${1 + (1 - into) * 0.5})`;
+      ring.style.opacity = String(0.15 + 0.85 * into * into);
+      ring.classList.toggle("lead", coming < lead);
+      pad.classList.toggle("beat", last >= lead && last < lead + count && into < 0.2);
+      Array.from(dots.children).forEach((d, k) => d.classList.toggle("next", k === Math.max(lead, coming) - lead && !d.classList.contains("hit") && !d.classList.contains("miss")));
       if (now < clicks[clicks.length - 1] + after + 0.1) { requestAnimationFrame(frame); return; }
 
       run = null;
+      ring.hidden = true;
+      pad.classList.remove("beat");
       startBtn.hidden = false;
       startBtn.textContent = "Try again";
       const est = estimateDelay(clicks, r.events, before, after, tap ? "nearest" : "first");
@@ -2257,6 +2351,7 @@ async function loadSongs() {
     carryFormerIds(state.songs);
     state.artist = data.artist || "Yeat";
     renderSongList();
+    renderShuffle();
   } catch (err) {
     list.replaceChildren(el("p", { class: "muted", text: `Couldn't load the song list (${err.message}). Is Yeatle running?` }));
   }
@@ -2300,6 +2395,10 @@ function init() {
   });
   $("#again").addEventListener("click", restart);
   $("#another").addEventListener("click", backToSetup);
+  $("#shuffle").addEventListener("click", shuffleSong);
+  $("#shuffle-eras").addEventListener("click", openEraPicker);
+  $("#random-next").addEventListener("click", () => { backToSetup(); if (shuffleSong()) startSong(); });
+  renderShuffle();
   window.addEventListener("resize", resizeCanvas);
   window.addEventListener("yeatle:banned", () => { if (state.job) state.job.cancel(); if (game) { game.ranked = null; endGame(); } });
   document.addEventListener("visibilitychange", () => { if (document.hidden) setPaused(true); });

@@ -300,6 +300,15 @@ function expired() {
   return false;
 }
 
+// The Daily changes at 00:00 UTC, which is still the evening before in the Americas. Show the
+// player's own calendar date at the moment this Daily started, so it never reads as tomorrow.
+// (Saved rounds and the server keep using the UTC date.)
+function dayLabel(daily) {
+  const d = new Date(daily.resetsAt - 86400000);
+  if (Number.isNaN(d.getTime())) return daily.date;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 async function loadChallenge() {
   if (loading) return;
   loading = true;
@@ -318,7 +327,7 @@ async function loadChallenge() {
     storageKey = `yeatle:daily:${body.date}`;
     round = readRound();
     if (body.checked) applyServerRound(await dailyRounds.act({ challenge: body.id, kind: "state" }));
-    $("#day").textContent = `${body.date} · ${body.scope === "global" ? "Same song and clip for every Yeatle player" : "Local test · shared by this server's clients"}`;
+    $("#day").textContent = `${dayLabel(body)} ·${body.scope === "global" ? "Same song and clip for every Yeatle player" : "Local test · shared by this server's clients"}`;
     $("#game").hidden = false;
     notice(round.status === "playing" ? "Tap Play to load today's song." : "Today's result is saved. Share it or keep playing Snippets.");
     render();
@@ -342,7 +351,7 @@ $("#mute").onclick = () => { muted = !muted; syncVolume(false); };
 $("#volume").oninput = () => { muted = false; volumeLevel = Math.max(0, Math.min(1, Number($("#volume").value) || 0)); syncVolume(true); };
 syncVolume(false);
 $("#share").onclick = async () => {
-  const text = shareResult(challenge.date, round, challenge.shareUrl || new URL("daily", location.href).href);
+  const text = shareResult(dayLabel(challenge), round, challenge.shareUrl || new URL("daily", location.href).href);
   try {
     if (!navigator.clipboard?.writeText) throw new Error("Copy manually");
     await navigator.clipboard.writeText(text);

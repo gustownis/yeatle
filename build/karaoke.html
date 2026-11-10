@@ -32,6 +32,10 @@
           <section class="panel songs">
             <h2>Pick a song</h2>
             <input id="search" type="search" placeholder="Search songs, eras or features" autocomplete="off">
+            <div class="row shuffle-row">
+              <button id="shuffle" class="btn small" title="Pick a random song from the chosen eras">Shuffle</button>
+              <button id="shuffle-eras" class="btn small" title="Choose which eras Shuffle picks from">Eras: All</button>
+            </div>
             <div id="song-list" class="song-list"></div>
             <p id="song-count" class="muted"></p>
           </section>
@@ -121,6 +125,7 @@
           <div id="results-cards" class="results-cards"></div>
           <div class="row center">
             <button id="again" class="btn primary">Sing it again</button>
+            <button id="random-next" class="btn" title="Sing a random song from the chosen eras">Shuffle a song</button>
             <button id="another" class="btn">Pick another song</button>
           </div>
         </div>
