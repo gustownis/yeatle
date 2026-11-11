@@ -461,3 +461,18 @@ test("redundant unreleased Morë V1 is excluded while released Morë remains eli
   assert.equal(reconciled.poolVariants.unreleased, undefined, "excluded unreleased V1 does not project into unreleased pool");
   assert.equal(reconciled.poolVariants.released.source.id, "1731044410");
 });
+
+test("unauthorized open-verse Vyne - Ball Wit Us is excluded while solo demo ball w us remains eligible", () => {
+  const ballwus = {
+    id: "ballwus", title: "ball w us", tab: "Unreleased", length: "1:45", type: "Demo",
+    source: { kind: "pillows", id: "f764a9f167f44afafbd8114bf778f7c4" }, features: [],
+    aliases: ["Ball Wit Us"]
+  };
+  const vyne = {
+    id: "vyneballwitus", title: "Vyne - Ball Wit Us", display: "Vyne - Ball Wit Us (feat. Yeat)",
+    tab: "Released", length: "1:51", type: "Feature",
+    source: { kind: "pillows", id: "6218144c332c8fc59db4b26c781a061c" }, features: ["feat. Yeat"]
+  };
+  assert.equal(isGuessingEligible(applyCatalogMetadata(ballwus)), true);
+  assert.equal(isGuessingEligible(applyCatalogMetadata(vyne)), false);
+});

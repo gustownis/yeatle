@@ -332,9 +332,20 @@
       "tab": "Unreleased",
       "versions": ["V1"],
       "sources": [{"kind":"pillows","id":"c518828171b688ef8746aaee07d57313"}]
+    },
+    {
+      "title": "Vyne - Ball Wit Us",
+      "titleKey": "vyneballwitus",
+      "tab": "Released",
+      "sources": [{"kind":"pillows","id":"6218144c332c8fc59db4b26c781a061c"}]
     }
   ],
   "corrections": [
+    {
+      "match": { "id": "vyneballwitus" },
+      "set": { "guessingEligible": false },
+      "basis": "Maintainer request, 2026-11-11: exclude the released Vyne - Ball Wit Us (feat. Yeat) entry as an unauthorized open-verse SoundCloud hop; retain Yeat's unreleased solo demo ball w us for gameplay."
+    },
     {
       "match": { "id": "yungkayofleek@2alive" },
       "set": { "artist": "Yung Kayo", "guessingEligible": false },
@@ -490,7 +501,6 @@
     {"ids": ["tooin", "boltpradau", "dre2xdowhatiwant", "plsbugpercasseur"], "kind": "open-verse", "basis": "Open-verse demo and the released feature or features built on it. They are different recordings, so each stays its own round, but the names answer for each other. Maintainer list, 2026-11-01."},
     {"ids": ["domjordaninsidetoday", "drxcomoneyinsidetoday"], "kind": "open-verse", "basis": "Open-verse demo and the released feature or features built on it. They are different recordings, so each stays its own round, but the names answer for each other. Maintainer list, 2026-11-01."},
     {"ids": ["popout", "killbunkpopout"], "kind": "open-verse", "basis": "Open-verse demo and the released feature or features built on it. They are different recordings, so each stays its own round, but the names answer for each other. Maintainer list, 2026-11-01."},
-    {"ids": ["ballwus", "vyneballwitus"], "kind": "open-verse", "basis": "Open-verse demo and the released feature or features built on it. They are different recordings, so each stays its own round, but the names answer for each other. Maintainer list, 2026-11-01."},
     {"ids": ["bigboyrackz", "joonybigboyracks"], "kind": "open-verse", "basis": "Open-verse demo and the released feature or features built on it. They are different recordings, so each stays its own round, but the names answer for each other. Maintainer list, 2026-11-01."},
     {"ids": ["cc@edit-5316e4dbe1d8", "drgrimdoubletree"], "kind": "open-verse", "basis": "Open-verse demo and the released feature or features built on it. They are different recordings, so each stays its own round, but the names answer for each other. Maintainer list, 2026-11-01."},
     {"ids": ["fun", "leelshottyfun"], "kind": "open-verse", "basis": "Open-verse demo and the released feature or features built on it. They are different recordings, so each stays its own round, but the names answer for each other. Maintainer list, 2026-11-01."},
