@@ -226,7 +226,7 @@ test("flush writes the latest state at once, and a slower background write can't
   store.flush();
   assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).users.flusher.progress.completed.stems, ["final"]);
   release();
-  await wait(50);
+  for (let i = 0; i < 50 && fs.existsSync(`${file}.tmp`); i++) await wait(10);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).users.flusher.progress.completed.stems, ["final"]);
   assert.equal(fs.existsSync(`${file}.tmp`), false);
 });

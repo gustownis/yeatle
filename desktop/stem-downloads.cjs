@@ -221,20 +221,27 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
       if (Number.isFinite(declared) && declared > 0 && declared !== file.size) throw new Error(`${file.name} has the wrong size on the server`);
       const part = path.join(dir, `${file.name}.part`);
       const out = fs.createWriteStream(part, { flags: "w" });
+      let writeError = null;
+      out.on("error", err => { writeError = err; });
       const hash = crypto.createHash("sha256");
       let bytes = 0, head = Buffer.alloc(0);
       try {
         for await (const chunk of res.body) {
           if (signal.aborted) throw abortError();
+          if (writeError) throw writeError;
           const buf = Buffer.from(chunk);
           bytes += buf.length;
           if (bytes > file.size) throw new Error(`${file.name} is bigger than the server said`);
           if (head.length < 3) head = Buffer.concat([head, buf.subarray(0, 3)]).subarray(0, 3);
           hash.update(buf);
-          if (!out.write(buf)) await new Promise(resolve => out.once("drain", resolve));
+          if (!out.write(buf)) await new Promise((resolve, reject) => {
+            out.once("drain", resolve);
+            out.once("error", reject);
+          });
           progress(buf.length);
         }
         await new Promise((resolve, reject) => out.end(err => (err ? reject(err) : resolve())));
+        if (writeError) throw writeError;
       } catch (err) {
         out.destroy();
         progress(-bytes);
