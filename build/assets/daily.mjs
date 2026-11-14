@@ -328,7 +328,7 @@ async function loadChallenge() {
     storageKey = `yeatle:daily:${body.date}`;
     round = readRound();
     if (body.checked) applyServerRound(await dailyRounds.act({ challenge: body.id, kind: "state" }));
-    $("#day").textContent = `${dayLabel(body)} ·${body.scope === "global" ? "Same song and clip for every Yeatle player" : "Local test · shared by this server's clients"}`;
+    $("#day").textContent = `${dayLabel(body)} · ${body.scope === "global" ? "Same song and clip for every Yeatle player" : "Local test · shared by this server's clients"}`;
     $("#game").hidden = false;
     notice(round.status === "playing" ? "Tap Play to load today's song." : "Today's result is saved. Share it or keep playing Snippets.");
     render();
