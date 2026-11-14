@@ -30,7 +30,7 @@ h2:first-child { margin-top: 0; }
 .top { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 16px 20px 0; max-width: 1180px; margin: 0 auto; }
 .top .back { color: var(--muted); text-decoration: none; font-size: 14px; }
 .top .back:hover { color: #fff; }
-.top .logo { height: 38px; }
+.top .logo { width: auto; height: 38px; }
 .tabs { display: flex; gap: 20px; margin-left: 8px; }
 .tab { padding: 8px 0; background: none; border: 0; border-bottom: 2px solid transparent; color: rgba(255, 255, 255, 0.55); font-weight: 600; cursor: pointer; }
 .tab:hover { color: #fff; }
@@ -102,7 +102,7 @@ h2:first-child { margin-top: 0; }
 
 /* loading */
 .loading-box, .results-box { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 28px; text-align: center; }
-.loading-box .logo { height: 46px; }
+.loading-box .logo { width: auto; height: 46px; }
 .loading-box h2 { color: #fff; text-transform: none; letter-spacing: 0; font-size: 20px; margin: 12px 0 4px; }
 .bar { --p: 0%; position: relative; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.1); overflow: hidden; margin: 16px 0; }
 .bar i { position: absolute; inset: 0 auto 0 0; width: var(--p); background: var(--accent); transition: width 0.2s; }

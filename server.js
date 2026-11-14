@@ -35,7 +35,7 @@ const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs")
 const { createLeaderboardStore } = require("./leaderboard.cjs");
 const { DEVICE_HEADER, cleanDeviceId, clientIp, normalIp, loadSecret, createSignalHasher, createRateLimiter } = require("./client-signals.cjs");
 const { pathToFileURL } = require("url");
-const { guessKeys, answerGroupFor, groupAnswerKeys, resolveGroupKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
+const { answerKey, guessKeys, answerGroupFor, groupAnswerKeys, resolveGroupKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
 const APP_VERSION = require("./package.json").version;
@@ -240,15 +240,7 @@ try {
 
 // "Bëttr 0ff" and "Bettr 0ff" are the same guess; so are "$trips" and "Strips"
 function norm(text) {
-  return String(text || "")
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/æ/gi, "ae")
-    .replace(/ø/gi, "o")
-    .replace(/\$/g, "s")
-    .replace(/&/g, "and")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
+  return answerKey(text);
 }
 
 function looseEraKey(name) {
@@ -1257,6 +1249,14 @@ function upgradeCachedSongs(cached) {
   });
 }
 
+function rebuildSongIndex() {
+  SONG_INDEX = new Map(SONGS.map(s => [s.id, s]));
+  for (const song of SONGS) {
+    for (const variant of song.sourceVariants || Object.values(song.poolVariants || {})) if (variant.audioId) SONG_INDEX.set(variant.audioId, variant);
+    for (const id of song.formerIds || []) if (!SONG_INDEX.has(id)) SONG_INDEX.set(id, song);
+  }
+}
+
 function setSongs(songs, source) {
   songs = reconcileStemSources(songs);
   const covers = new Map(songs.filter(song => song.cover).map(song => [song.era, song.cover]));
@@ -1267,11 +1267,7 @@ function setSongs(songs, source) {
     const entry = { ...song, ...creditFor(song, CONFIG.artist) };
     return override ? { ...entry, display: override } : entry;
   });
-  SONG_INDEX = new Map(SONGS.map(s => [s.id, s]));
-  for (const song of SONGS) {
-    for (const variant of song.sourceVariants || Object.values(song.poolVariants || {})) if (variant.audioId) SONG_INDEX.set(variant.audioId, variant);
-    for (const id of song.formerIds || []) if (!SONG_INDEX.has(id)) SONG_INDEX.set(id, song);
-  }
+  rebuildSongIndex();
   LAST_SOURCE = source;
 }
 
@@ -2250,7 +2246,7 @@ const JOKES_FILE = path.join(DATA_DIR, "joke-photos.json");
 let preparedSongList;
 
 // Names a song also answers to or shares as another version, cached per catalog.
-let groupKeyCache = { songs: null, index: null, rules: null, byId: new Map(), byTitle: new Map() };
+let groupKeyCache = { songs: null, index: null, rules: null, byId: new Map(), byTitle: new Map(), corrected: new WeakMap() };
 function applyVersionAndGroupKeys(song) {
   if (groupKeyCache.songs !== SONGS || groupKeyCache.index !== SONG_INDEX || groupKeyCache.rules !== snippetRules) {
     const byTitle = new Map();
@@ -2261,7 +2257,7 @@ function applyVersionAndGroupKeys(song) {
       list.push(entry);
       byTitle.set(key, list);
     }
-    groupKeyCache = { songs: SONGS, index: SONG_INDEX, rules: snippetRules, byId: new Map(), byTitle };
+    groupKeyCache = { songs: SONGS, index: SONG_INDEX, rules: snippetRules, byId: new Map(), byTitle, corrected: new WeakMap() };
   }
   let cached = groupKeyCache.byId.get(song.id);
   if (!cached) {
@@ -2270,7 +2266,11 @@ function applyVersionAndGroupKeys(song) {
     const extraVersions = new Set(resolved.versionKeys || []);
     const selfKey = resolved.answerId || resolved.id;
     for (const other of sameTitle) {
-      const corr = applyCatalogMetadata(other);
+      let corr = groupKeyCache.corrected.get(other);
+      if (!corr) {
+        corr = applyCatalogMetadata(other);
+        groupKeyCache.corrected.set(other, corr);
+      }
       if ((corr.answerId || corr.id) === selfKey) continue;
       for (const val of [corr.display, corr.title, ...(corr.keys || []), ...(corr.answerKeys || [])]) {
         const k = norm(val);
@@ -2292,34 +2292,58 @@ function applyVersionAndGroupKeys(song) {
   };
 }
 
-function cleanMangledDisplayAndAliases(song) {
-  const looseNorm = s => norm(String(s || "").replace(/\b(n|and)\b/gi, "and"));
-  const extraAliases = [];
-  const stripAliasParens = str => String(str || "").replace(/\s*\(([^()]*(?:,|\([^()]*\))[^()]*)\)/g, (_, inner) => {
-    inner.split(",").forEach(part => { const p = part.trim(); if (p) extraAliases.push(p); });
+const ALIAS_PARENS_RE = /\s*\(([^()]*(?:,|\([^()]*\))[^()]*)\)/g;
+const PAREN_BLOCK_RE = /\s*\([^()]*\)/g;
+const PAREN_CAPTURE_RE = /\(([^()]+)\)/g;
+const FEAT_PREFIX_RE = /^(feat|ft|with)\b/i;
+const GENERIC_ALIAS_RE = /^(yeat\s+)?(remix|mix|version|edit|intro|outro|interlude|freestyle|skit|open|solo|bonus)$/i;
+const N_AND_WORD_TEST_RE = /\b(?:n|and)\b/i;
+const N_AND_WORD_RE = /\b(?:n|and)\b/gi;
+const WHITESPACE_RUN_RE = /\s+/g;
+
+const looseNorm = text => {
+  const s = String(text || "");
+  return N_AND_WORD_TEST_RE.test(s) ? norm(s.replace(N_AND_WORD_RE, "and")) : norm(s);
+};
+
+function stripAliasParens(str, extraAliases) {
+  return String(str || "").replace(ALIAS_PARENS_RE, (_, inner) => {
+    for (const part of inner.split(",")) {
+      const p = part.trim();
+      if (p) extraAliases.push(p);
+    }
     return "";
-  }).replace(/\s+/g, " ").trim();
-  let title = stripAliasParens(song.title);
-  let display = stripAliasParens(song.display || title);
-  const stripRedundantParen = str => {
-    const base = str.replace(/\s*\([^()]*\)/g, "").trim();
-    const baseKey = looseNorm(base);
-    return baseKey ? str.replace(/\s*\(([^()]+)\)/g, (whole, inner) => (/^(feat|ft|with)\b/i.test(inner) ? whole : looseNorm(inner) === baseKey ? "" : whole)).replace(/\s+/g, " ").trim() : str;
-  };
+  }).replace(WHITESPACE_RUN_RE, " ").trim();
+}
+
+function stripRedundantParen(str) {
+  const base = str.replace(PAREN_BLOCK_RE, "").trim();
+  const baseKey = looseNorm(base);
+  if (!baseKey) return str;
+  return str.replace(/\s*\(([^()]+)\)/g, (whole, inner) => (
+    FEAT_PREFIX_RE.test(inner) ? whole : looseNorm(inner) === baseKey ? "" : whole
+  )).replace(WHITESPACE_RUN_RE, " ").trim();
+}
+
+function cleanMangledDisplayAndAliases(song) {
+  const extraAliases = [];
+  let title = stripAliasParens(song.title, extraAliases);
+  let display = stripAliasParens(song.display || title, extraAliases);
   title = stripRedundantParen(title);
   display = stripRedundantParen(display);
-  const baseTitle = title.replace(/\s*\([^()]*\)/g, "").trim();
-  const baseDisplay = display.replace(/\s*\([^()]*\)/g, "").trim();
-  const keptTags = [...title.matchAll(/\(([^()]+)\)/g)].map(m => looseNorm(m[1]));
-  const seen = new Set([norm(title), norm(display), looseNorm(title), looseNorm(display), norm(baseTitle), norm(baseDisplay), looseNorm(baseTitle), looseNorm(baseDisplay), ...keptTags].filter(Boolean));
+  const baseTitle = title.replace(PAREN_BLOCK_RE, "").trim();
+  const baseDisplay = display.replace(PAREN_BLOCK_RE, "").trim();
+  const seen = new Set([norm(title), norm(display), looseNorm(title), looseNorm(display), norm(baseTitle), norm(baseDisplay), looseNorm(baseTitle), looseNorm(baseDisplay)]);
+  for (const m of title.matchAll(PAREN_CAPTURE_RE)) seen.add(looseNorm(m[1]));
+  seen.delete("");
   const aliases = [];
   const extraKeys = new Set(song.keys || []);
   for (const raw of [...extraAliases, ...(song.aliases || [])]) {
     const trimmed = String(raw || "").trim();
     if (!trimmed) continue;
-    const aliasBase = trimmed.replace(/\s*\([^()]*\)/g, "").trim();
+    const aliasBase = trimmed.replace(PAREN_BLOCK_RE, "").trim();
     const k = norm(trimmed), kl = looseNorm(trimmed), kb = looseNorm(aliasBase);
-    if (!k || k.length <= 1 || /^(yeat\s+)?(remix|mix|version|edit|intro|outro|interlude|freestyle|skit|open|solo|bonus)$/i.test(trimmed)) continue;
+    if (!k || k.length <= 1 || GENERIC_ALIAS_RE.test(trimmed)) continue;
     extraKeys.add(k);
     if (seen.has(k) || seen.has(kl) || (kb && seen.has(kb))) continue;
     seen.add(k);
@@ -2334,18 +2358,36 @@ function cleanMangledDisplayAndAliases(song) {
   return { ...song, title, display, aliases, keys: [...extraKeys] };
 }
 
+let publicSongCache = { songs: null, index: null, rules: null, map: new WeakMap() };
 function publicSong(song) {
+  if (!song || typeof song !== "object") return song;
+  if (publicSongCache.songs !== SONGS || publicSongCache.index !== SONG_INDEX || publicSongCache.rules !== snippetRules) {
+    publicSongCache = { songs: SONGS, index: SONG_INDEX, rules: snippetRules, map: new WeakMap() };
+  }
+  const cached = publicSongCache.map.get(song);
+  if (cached) return cached;
   // Correct names/answers on a pinned challenge without changing its stored
   // recording, identity, clip start or source selection.
-  song = applyVersionAndGroupKeys(applyCatalogMetadata(song));
-  if (!song.aliases?.length) {
-    const aliases = SONG_INDEX.get(song.id)?.aliases;
-    if (aliases?.length) song = { ...song, aliases };
+  let out = applyVersionAndGroupKeys(applyCatalogMetadata(song));
+  if (!out.aliases?.length) {
+    const aliases = SONG_INDEX.get(out.id)?.aliases;
+    if (aliases?.length) out = { ...out, aliases };
   }
-  song = cleanMangledDisplayAndAliases(song);
-  const { source, fallback, premaster, mergedFrom, sourceVariants, poolVariants, ...rest } = song;
-  return { ...rest, hasFull: Boolean(song.mode === "filter" || fallback), ...(premaster ? { preview: false } : {}),
-    ...(poolVariants ? { poolVariants: Object.fromEntries(Object.entries(poolVariants).map(([pool, variant]) => [pool, publicSong(variant)])) } : {}) };
+  out = cleanMangledDisplayAndAliases(out);
+  const { source, fallback, premaster, mergedFrom, sourceVariants, poolVariants, ...rest } = out;
+  let pubPools;
+  if (poolVariants) {
+    pubPools = {};
+    for (const [pool, variant] of Object.entries(poolVariants)) pubPools[pool] = publicSong(variant);
+  }
+  const result = {
+    ...rest,
+    hasFull: Boolean(out.mode === "filter" || fallback),
+    ...(premaster ? { preview: false } : {}),
+    ...(pubPools ? { poolVariants: pubPools } : {})
+  };
+  publicSongCache.map.set(song, result);
+  return result;
 }
 
 // Songs from dailyFromEra onwards (ERAS is oldest first). If that era isn't on the tracker,
@@ -2367,10 +2409,12 @@ function dailyEraSongs(songs) {
 
 // Every song a Snippets round could pick in a pool with some eras excluded, the way the
 // game builds its own list (songsForPool, then the era filter). Cached per catalog.
-let poolCache = { songs: null, byPool: new Map() };
+let poolCache = { songs: null, hiddenIds: null, hiddenKeys: null, byPool: new Map() };
 function snippetPoolIds(pool, excludedEras) {
   if (!songPools) return null;
-  if (poolCache.songs !== SONGS) poolCache = { songs: SONGS, byPool: new Map() };
+  if (poolCache.songs !== SONGS || poolCache.hiddenIds !== HIDDEN_IDS || poolCache.hiddenKeys !== HIDDEN_KEYS) {
+    poolCache = { songs: SONGS, hiddenIds: HIDDEN_IDS, hiddenKeys: HIDDEN_KEYS, byPool: new Map() };
+  }
   let list = poolCache.byPool.get(pool);
   if (!list) {
     list = songPools.songsForPool(SONGS.filter(s => !isHidden(s) && isGuessingEligible(s)).map(publicSong), pool).map(s => ({ id: s.id, era: s.era || "No era listed" }));
@@ -2382,11 +2426,29 @@ function snippetPoolIds(pool, excludedEras) {
 
 // A song as a Snippets round in one pool sees it: the public entry the page would have
 // used (with that pool's recording, as songsForPool builds it) and the recording itself.
+let snippetEntryCache = { songs: null, index: null, hiddenIds: null, hiddenKeys: null, rules: null, pools: null, byPool: new Map() };
 function snippetEntry(id, pool = "all") {
+  if (
+    snippetEntryCache.songs !== SONGS || snippetEntryCache.index !== SONG_INDEX ||
+    snippetEntryCache.hiddenIds !== HIDDEN_IDS || snippetEntryCache.hiddenKeys !== HIDDEN_KEYS ||
+    snippetEntryCache.rules !== snippetRules || snippetEntryCache.pools !== songPools
+  ) {
+    snippetEntryCache = { songs: SONGS, index: SONG_INDEX, hiddenIds: HIDDEN_IDS, hiddenKeys: HIDDEN_KEYS, rules: snippetRules, pools: songPools, byPool: new Map() };
+  }
+  let poolMap = snippetEntryCache.byPool.get(pool);
+  if (!poolMap) { poolMap = new Map(); snippetEntryCache.byPool.set(pool, poolMap); }
+  if (poolMap.has(id)) return poolMap.get(id);
+
   const song = SONG_INDEX.get(id);
-  if (!song || song.id !== id || isHidden(song) || !isGuessingEligible(song)) return null;
+  if (!song || song.id !== id || isHidden(song) || !isGuessingEligible(song)) {
+    poolMap.set(id, null);
+    return null;
+  }
   const base = publicSong(song);
-  if (songPools && !songPools.inSongPool(base, pool)) return null;
+  if (songPools && !songPools.inSongPool(base, pool)) {
+    poolMap.set(id, null);
+    return null;
+  }
   const variant = pool !== "all" ? song.poolVariants?.[pool] : null;
   const pub = variant ? { ...base, ...publicSong(variant), id: song.id, poolVariants: base.poolVariants } : base;
   const raw = variant || song;
@@ -2394,7 +2456,9 @@ function snippetEntry(id, pool = "all") {
   // only a stem pack with no full file at all streams its four stems.
   const stems = raw.mode === "stems" && !raw.fallback && Boolean(raw.folder);
   const playable = raw.mode === "stems" ? Boolean(raw.fallback || raw.folder) : Boolean(raw.source);
-  return { pub, raw, stems, playable };
+  const entry = { pub, raw, stems, playable };
+  poolMap.set(id, entry);
+  return entry;
 }
 
 function songListJson() {
@@ -2502,10 +2566,13 @@ function rebuildHidden() {
 rebuildHidden();
 
 function isHidden(song) {
-  return HIDDEN_IDS.has(song.id) || HIDDEN_KEYS.has(hiddenKey(song)) ||
-    Boolean(song.recordedIn && HIDDEN_KEYS.has(hiddenKey({ ...song, era: song.recordedIn }))) ||
+  if (HIDDEN_IDS.has(song.id)) return true;
+  if (!HIDDEN_KEYS.size) return false;
+  const titlePart = norm(song.display || song.title);
+  return HIDDEN_KEYS.has(`${titlePart}|${norm(song.era)}`) ||
+    Boolean(song.recordedIn && HIDDEN_KEYS.has(`${titlePart}|${norm(song.recordedIn)}`)) ||
     // a throwaway hidden while it was still shown under its release era
-    Boolean(song.releasedOn && HIDDEN_KEYS.has(hiddenKey({ ...song, era: song.releasedOn })));
+    Boolean(song.releasedOn && HIDDEN_KEYS.has(`${titlePart}|${norm(song.releasedOn)}`));
 }
 
 function saveHidden() {
@@ -2573,22 +2640,36 @@ function readJsonBody(req, limit = 200000) {
 }
 
 // every song, hidden or not, plus hidden entries the tracker no longer has
+let adminCatalogCache = { songs: null, index: null, rows: null, ids: null, keys: null };
 function adminSongList() {
-  const songs = SONGS.map(s => {
-    const rows = (s.mergedFrom || []).map(row => {
-      const recording = s.sourceVariants?.find(variant => variant.trackerKey === row.trackerKey) || s;
-      return { ...row, trackerVersion: recording.trackerVersion || "", guessingEligible: isGuessingEligible(recording), exclusionReason: catalogExclusionReason(recording) };
+  if (adminCatalogCache.songs !== SONGS || adminCatalogCache.index !== SONG_INDEX) {
+    const ids = new Set();
+    const keys = new Set();
+    const rows = SONGS.map(s => {
+      ids.add(s.id);
+      keys.add(hiddenKey(s));
+      let variantByTracker;
+      if (s.mergedFrom?.length && s.sourceVariants?.length) {
+        variantByTracker = new Map(s.sourceVariants.map(v => [v.trackerKey, v]));
+      }
+      const subRows = (s.mergedFrom || []).map(row => {
+        const recording = variantByTracker?.get(row.trackerKey) || s;
+        return { ...row, trackerVersion: recording.trackerVersion || "", guessingEligible: isGuessingEligible(recording), exclusionReason: catalogExclusionReason(recording) };
+      });
+      return {
+        songRef: s,
+        base: {
+          id: s.id, title: s.title, display: s.display, era: s.era || "", tab: s.tab, date: s.date || "",
+          type: s.type || "", length: s.length || "", preview: Boolean(s.preview),
+          guessingEligible: isGuessingEligible(s), exclusionReason: catalogExclusionReason(s), excludedRows: subRows.filter(row => !row.guessingEligible).length,
+          rows: subRows, stems: s.mode === "stems" ? (s.folder || "") : ""
+        }
+      };
     });
-    return {
-      id: s.id, title: s.title, display: s.display, era: s.era || "", tab: s.tab, date: s.date || "",
-      type: s.type || "", length: s.length || "", preview: Boolean(s.preview), hidden: isHidden(s),
-      guessingEligible: isGuessingEligible(s), exclusionReason: catalogExclusionReason(s), excludedRows: rows.filter(row => !row.guessingEligible).length,
-      rows, stems: s.mode === "stems" ? (s.folder || "") : ""
-    };
-  });
-  const ids = new Set(SONGS.map(s => s.id));
-  const keys = new Set(SONGS.map(hiddenKey));
-  const stale = HIDDEN.filter(h => !ids.has(h.id) && !keys.has(h.key)).map(h => ({ id: h.id, name: h.name, era: h.era }));
+    adminCatalogCache = { songs: SONGS, index: SONG_INDEX, rows, ids, keys };
+  }
+  const songs = adminCatalogCache.rows.map(({ songRef, base }) => ({ ...base, hidden: isHidden(songRef) }));
+  const stale = HIDDEN.filter(h => !adminCatalogCache.ids.has(h.id) && !adminCatalogCache.keys.has(h.key)).map(h => ({ id: h.id, name: h.name, era: h.era }));
   return { songs, stale, splits: SPLITS, liveControl: LIVE_CONTROL };
 }
 
@@ -3510,7 +3591,7 @@ async function handleAdmin(req, res, pathname) {
     saveRenames();
     // Update display only; canonical title/id and spreadsheet mapping remain untouched.
     SONGS = SONGS.map(s => s.id === id ? { ...s, display: name || s.title } : s);
-    SONG_INDEX = new Map(SONGS.map(s => [s.id, s]));
+    rebuildSongIndex();
     try { fs.writeFileSync(CACHE_FILE, JSON.stringify({ format: SONG_CACHE_FORMAT, updated: LAST_UPDATE, songs: SONGS, eras: ERAS })); } catch (err) { /* cache is optional */ }
     sendJson(res, 200, adminSongList());
     return true;

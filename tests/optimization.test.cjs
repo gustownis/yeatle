@@ -38,9 +38,9 @@ test('Brotli is chosen when offered, gzip otherwise, and both variants are cache
 test('preloaded modules are exactly the URLs the page\'s own code imports',()=>{
  const build=path.join(__dirname,'../build');
  // A preload whose version differs from the import is downloaded twice.
- const imports=file=>[...fs.readFileSync(path.join(build,'assets',file),'utf8').matchAll(/from\s*["'](\.\/[\w.-]+\?v=[\d.]+)["']/g)].map(match=>match[1].slice(2));
+ const imports=file=>[...fs.readFileSync(path.join(build,'assets',file),'utf8').matchAll(/(?:from\s*|import\s*\(\s*)["'](\.\/[\w.-]+\?v=[\d.]+)["']/g)].map(match=>match[1].slice(2));
  const graph=entry=>{const seen=new Set(),queue=[entry];while(queue.length)for(const url of imports(queue.pop().split('?')[0]))if(!seen.has(url)){seen.add(url);queue.push(url);}return seen;};
- for(const [page,entry] of [['index.html','yeatle.js'],['daily.html','daily.mjs']]){
+ for(const [page,entry] of [['index.html','yeatle.js'],['daily.html','daily.mjs'],['karaoke.html','karaoke.js']]){
   const html=fs.readFileSync(path.join(build,page),'utf8'),wanted=graph(entry);
   const preloaded=[...html.matchAll(/rel="modulepreload" href="\.\/assets\/([^"]+)"/g)].map(match=>match[1]);
   assert.ok(preloaded.length>0,page);
@@ -89,4 +89,94 @@ test('persistent stems skip audio APIs that perturb samples without reading any 
  function context(perturb){return{sampleRate:44100,createBuffer(_channels,length){const samples=new Float32Array(length);return{copyToChannel(input){samples.set(input)},getChannelData(){if(perturb)for(let i=0;i<samples.length;i++)samples[i]*=0.9998;return samples}}}}}
  assert.equal(canCacheStems(context(false)),true);assert.equal(canCacheStems(context(true)),false);
  assert.equal(canCacheStems({createBuffer(){throw Error('Unavailable')}}),false);
+});
+
+test('pages preload song catalogs, defer leaderboard scripts, and set explicit logo dimensions',()=>{
+ const build=path.join(__dirname,'../build');
+ for(const page of ['index.html','daily.html','karaoke.html']){
+  const html=fs.readFileSync(path.join(build,page),'utf8');
+  assert.match(html,/<link rel="preload" href="api\/songs" as="fetch" crossorigin>/,`${page} should preload api/songs`);
+  const leaderboardTag=html.match(/<script[^>]*src="\.\/assets\/leaderboard\.mjs\?v=[^"]+"[^>]*>/);
+  assert.ok(leaderboardTag,`${page} should load leaderboard.mjs`);
+  assert.equal(/blocking="render"/.test(leaderboardTag[0]),false,`${page} should not render-block on leaderboard.mjs`);
+ }
+ for(const page of ['daily.html','karaoke.html','stems-download.html']){
+  const html=fs.readFileSync(path.join(build,page),'utf8');
+  const logos=[...html.matchAll(/<img\s+class="logo"[^>]*>/g)].map(m=>m[0]);
+  assert.ok(logos.length>0,`${page} should include logo images`);
+  for(const tag of logos){
+   assert.match(tag,/\bwidth="\d+"/,`${page} logo missing width: ${tag}`);
+   assert.match(tag,/\bheight="\d+"/,`${page} logo missing height: ${tag}`);
+  }
+ }
+ const karaokeCss=fs.readFileSync(path.join(build,'assets/karaoke.css'),'utf8');
+ assert.match(karaokeCss,/\.top \.logo\s*\{[^}]*\bwidth:\s*auto;/);
+ assert.match(karaokeCss,/\.loading-box \.logo\s*\{[^}]*\bwidth:\s*auto;/);
+});
+
+test('catalog metadata, karaoke migration, and round selection avoid quadratic scaling regressions',async t=>{
+ const {performance}=require('node:perf_hooks');
+ const {pathToFileURL}=require('node:url');
+ const nodeOs=require('node:os');
+ const catalogPolicy=require('../catalog-policy.cjs');
+ const {createLeaderboardStore}=require('../leaderboard.cjs');
+
+ const makeSongs=()=>Array.from({length:1500},(_,i)=>({
+  id:`song-${i}`,
+  title:i%5===0?`Flawless ${i} [v${i%3+1}]`:`Track ${i} (feat. Uzi)`,
+  display:`Track ${i}`,
+  era:i%2===0?'2093':'Alivë',
+  year:2021+(i%4),
+  mode:'filter',
+  features:i%3===0?['Lil Uzi Vert']:[],
+  producers:['BNYX'],
+  source:{kind:'url',id:`https://audio.test/${i}`}
+ }));
+ const warmCatalog=makeSongs();
+ for(const song of warmCatalog)catalogPolicy.applyCatalogMetadata(song,warmCatalog);
+ const freshCatalog=makeSongs();
+ const tCatalog=performance.now();
+ const applied=freshCatalog.map(song=>catalogPolicy.applyCatalogMetadata(song,freshCatalog));
+ const catalogMs=performance.now()-tCatalog;
+ assert.equal(applied.length,1500);
+ assert.ok(catalogMs<80,`applyCatalogMetadata over 1500 uncached songs took ${catalogMs.toFixed(1)}ms`);
+
+ const {carryFormerIds}=await import(pathToFileURL(path.join(__dirname,'../build/assets/karaoke.js')).href);
+ const map=new Map();
+ for(let i=0;i<400;i++)map.set(`yeatle-karaoke-best:old-${i*3}:hard:wpm`,JSON.stringify({score:100+i}));
+ let keyLookups=0;
+ const keys=[...map.keys()];
+ const storage={
+  get length(){return map.size;},
+  key:i=>{keyLookups++;return keys[i]??null;},
+  getItem:k=>map.get(k)??null,
+  setItem:(k,v)=>map.set(k,String(v))
+ };
+ const kSongs=Array.from({length:1500},(_,i)=>({id:`new-${i}`,formerIds:[`old-${i}`]}));
+ const tKaraoke=performance.now();
+ const moved=carryFormerIds(kSongs,storage);
+ const karaokeMs=performance.now()-tKaraoke;
+ assert.equal(moved,400);
+ assert.ok(keyLookups<=400,`carryFormerIds scanned storage.key ${keyLookups} times for 400 keys (expected <= 400 single pass)`);
+ assert.ok(karaokeMs<80,`carryFormerIds over 1500 songs x 400 keys took ${karaokeMs.toFixed(1)}ms`);
+
+ const dir=fs.mkdtempSync(path.join(nodeOs.tmpdir(),'yeatle-opt-rounds-'));
+ t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const ids=Array.from({length:1500},(_,i)=>`s${i}`);
+ const known=new Set(ids);
+ const store=createLeaderboardStore(path.join(dir,'leaderboard-users.json'),{
+  canonicalSongId:id=>(known.has(id)?id:null),
+  snippetSong:id=>(known.has(id)?{playable:true,stems:false,canonical:id}:null),
+  snippetHints:()=>({era:'2093',eraYear:2024,year:2024,producers:['BNYX']}),
+  snippetReveal:id=>({id,title:id,display:id}),
+  matchesAnswer:()=>false,
+  matchesVersion:()=>false
+ });
+ const ctx={ipHash:'a'.repeat(32),deviceHash:'b'.repeat(32)};
+ store.startSnippetRound('',{candidates:ids,difficulty:'base',pool:'all',excludedEras:['Alivë']},Date.now(),ctx);
+ const tRound=performance.now();
+ const round=store.startSnippetRound('',{candidates:ids,difficulty:'base',pool:'all',excludedEras:['Alivë']},Date.now(),ctx);
+ const roundMs=performance.now()-tRound;
+ assert.match(round.roundId,/^[a-f0-9]{32}$/);
+ assert.ok(roundMs<80,`startSnippetRound over 1500 candidates took ${roundMs.toFixed(1)}ms`);
 });

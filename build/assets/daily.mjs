@@ -317,6 +317,7 @@ async function loadChallenge() {
   $("#retry").hidden = true;
   $("#share-text").hidden = true;
   notice("Loading today's challenge…");
+  const songsPromise = fetch("api/songs").then(r => r.json()).catch(() => null);
   try {
     const response = await fetch("api/daily", { cache: "no-store" });
     const body = await response.json();
@@ -335,10 +336,10 @@ async function loadChallenge() {
     // A checked Daily has no song to add: it would give the answer away.
     const pinned = body.checked ? [] : [body.song];
     suggestions.setSongs(pinned);
-    fetch("api/songs").then(r => r.json()).then(list => {
-      if (challenge !== body) return;
+    songsPromise.then(list => {
+      if (!list || challenge !== body) return;
       suggestions.setSongs([...pinned, ...(list.songs || [])]);
-    }).catch(() => {});
+    });
   } catch (error) { challenge = null; notice(error.message); $("#retry").hidden = false; }
   finally { loading = false; render(); }
 }

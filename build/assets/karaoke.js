@@ -642,6 +642,7 @@ function el(tag, props = {}, ...kids) {
 }
 function showScreen(id) {
   document.querySelectorAll(".screen").forEach(s => { s.hidden = s.id !== id; });
+  if (id === "setup") scheduleMeters();
 }
 
 /* ---------- audio context and microphones ---------- */
@@ -932,14 +933,18 @@ function songTag(song) {
 function renderSongList() {
   const query = norm($("#search").value);
   const list = $("#song-list");
-  const matches = state.songs.filter(song => !query || norm(`${song.display} ${song.era} ${(song.features || []).join(" ")}`).includes(query));
+  const matches = !query ? state.songs : state.songs.filter(song => {
+    const hay = song._searchHay ?? (song._searchHay = norm(`${song.display} ${song.era} ${(song.features || []).join(" ")}`));
+    return hay.includes(query);
+  });
   list.replaceChildren(...matches.slice(0, 250).map(song => {
     const tag = songTag(song);
     return el("button", {
       class: "song" + (state.song && state.song.id === song.id ? " picked" : ""),
+      "data-song-id": song.id,
       onclick: () => pickSong(song)
     },
-      song.cover ? el("img", { src: song.cover, alt: "", loading: "lazy" }) : el("span", { class: "nocover" }),
+      song.cover ? el("img", { src: song.cover, alt: "", width: 40, height: 40, loading: "lazy", decoding: "async" }) : el("span", { class: "nocover" }),
       el("span", { class: "song-text" }, el("b", { text: song.display }), el("small", { text: [song.era || "No era", song.eraYear || song.year, song.tab, song.relatedRecording].filter(Boolean).join(" · ") })),
       el("span", { class: "tag " + tag.cls, text: tag.text })
     );
@@ -949,7 +954,13 @@ function renderSongList() {
 
 function pickSong(song) {
   state.song = song;
-  renderSongList();
+  const list = $("#song-list");
+  list.querySelector(".song.picked")?.classList.remove("picked");
+  let matched = false;
+  for (const btn of list.children) {
+    if (btn.dataset?.songId === song.id) { btn.classList.add("picked"); matched = true; break; }
+  }
+  if (!matched && !list.querySelector(".song")) renderSongList();
   renderPicked();
   lookUpLyrics(song).then(() => { if (state.song === song) renderPicked(); });
 }
@@ -1047,7 +1058,7 @@ function renderPicked() {
   // (leave out the parts that don't apply; replaceChildren would print a null as text)
   box.replaceChildren(...[
     el("div", { class: "picked-song" },
-      song.cover ? el("img", { src: song.cover, alt: "" }) : null,
+      song.cover ? el("img", { src: song.cover, alt: "", width: 54, height: 54, decoding: "async" }) : null,
       el("div", {}, el("b", { text: song.display }), el("small", { text: `${song.era || "No era"} · ${tag.text}` }))
     ),
     el("p", { class: "muted", text: lyricText }),
@@ -1330,12 +1341,19 @@ function renderPlayers() {
   $("#enable-mics").hidden = mics.allowed && mics.detectors.some(Boolean);
   $("#mic-settings").hidden = !(globalThis.yeatleDesktop && (!mics.allowed || Boolean(mics.error)));
   $("#mic-error").textContent = mics.error;
+  scheduleMeters();
 }
 
-// live level + note readout for each singer while on the setup screen
+// live level + note readout for each singer while on the setup screen with mics active
+let meterFrame = 0;
+function scheduleMeters() {
+  if (typeof requestAnimationFrame !== "function" || typeof document === "undefined") return;
+  if (meterFrame || $("#setup")?.hidden || document.hidden || !mics.allowed || !mics.detectors.some(Boolean)) return;
+  meterFrame = requestAnimationFrame(setupMeters);
+}
 function setupMeters() {
-  requestAnimationFrame(setupMeters);
-  if ($("#setup").hidden) return;
+  meterFrame = 0;
+  if (typeof document === "undefined" || $("#setup")?.hidden || document.hidden || !mics.allowed || !mics.detectors.some(Boolean)) return;
   const gate = micGate();
   settings.players.forEach((_, index) => {
     const det = mics.detectors[index];
@@ -1346,6 +1364,7 @@ function setupMeters() {
     bar.style.width = `${clamp(det.level / 0.25, 0, 1) * 100}%`;
     heard.textContent = r.voiced ? noteName(r.midi) : r.loud ? "~" : "";
   });
+  scheduleMeters();
 }
 
 function buildOptions() {
@@ -2318,19 +2337,37 @@ function backToSetup() {
 
 // Songs the tracker lists under two names became one entry. Keep best scores,
 // pasted lyrics and lyric timing saved under an old id; the newer id wins.
+const KARAOKE_FORMER_KEY_RE = /^(yeatle-karaoke-(?:best|lrc|shift|skips)):(.+)$/;
+
 export function carryFormerIds(songs, storage = globalThis.localStorage) {
   if (!storage) return 0;
   let moved = 0;
   try {
-    const keys = [];
-    for (let i = 0; i < storage.length; i++) keys.push(storage.key(i));
+    const entriesByOldId = new Map();
+    const indexBoundary = (idPart, entry) => {
+      let list = entriesByOldId.get(idPart);
+      if (!list) { list = []; entriesByOldId.set(idPart, list); }
+      list.push(entry);
+    };
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      const m = KARAOKE_FORMER_KEY_RE.exec(key);
+      if (!m) continue;
+      const prefix = m[1], rest = m[2];
+      const entry = { key, prefix, rest };
+      indexBoundary(rest, entry);
+      for (let pos = rest.indexOf(":"); pos !== -1; pos = rest.indexOf(":", pos + 1)) {
+        if (pos > 0) indexBoundary(rest.slice(0, pos), entry);
+      }
+    }
+    if (!entriesByOldId.size) return 0;
     for (const song of songs) {
-      for (const old of [...song.formerIds || [], ...song.equivalentIds || []]) {
-        for (const key of keys) {
-          const m = /^(yeatle-karaoke-(?:best|lrc|shift|skips)):(.+?)(:[^:]*)?$/.exec(key);
-          if (!m) continue;
-          const [prefix, rest] = [m[1], key.slice(m[1].length + 1)];
-          if (rest !== old && !rest.startsWith(`${old}:`)) continue;
+      const legacy = [...song.formerIds || [], ...song.equivalentIds || []];
+      for (const old of legacy) {
+        if (!old) continue;
+        const matches = entriesByOldId.get(old);
+        if (!matches) continue;
+        for (const { key, prefix, rest } of matches) {
           const next = `${prefix}:${song.id}${rest.slice(old.length)}`;
           if (storage.getItem(next) == null) { storage.setItem(next, storage.getItem(key)); moved++; }
         }
@@ -2344,9 +2381,11 @@ async function loadSongs() {
   const list = $("#song-list");
   list.replaceChildren(el("p", { class: "muted", text: "Loading songs…" }));
   try {
-    const res = await fetch("api/songs");
+    const [res, { songsForPool }] = await Promise.all([
+      fetch("api/songs"),
+      import("./song-pools.mjs?v=1.13.9")
+    ]);
     const data = await res.json();
-    const { songsForPool } = await import("./song-pools.mjs?v=1.13.9");
     state.songs = songsForPool(data.songs || []).slice().sort((a, b) => a.display.localeCompare(b.display));
     carryFormerIds(state.songs);
     state.artist = data.artist || "Yeat";
@@ -2362,7 +2401,7 @@ function init() {
   renderPlayers();
   renderPicked();
   loadSongs();
-  setupMeters();
+  scheduleMeters();
   // Stems / Snippets tabs go back to the game in that mode
   document.querySelectorAll(".tabs [data-mode]").forEach(tab => tab.addEventListener("click", () => {
     store.set("yeatle:gameMode", tab.dataset.mode);
@@ -2401,7 +2440,7 @@ function init() {
   renderShuffle();
   window.addEventListener("resize", resizeCanvas);
   window.addEventListener("yeatle:banned", () => { if (state.job) state.job.cancel(); if (game) { game.ranked = null; endGame(); } });
-  document.addEventListener("visibilitychange", () => { if (document.hidden) setPaused(true); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) setPaused(true); else scheduleMeters(); });
   document.addEventListener("keydown", e => {
     if (!game || game.ended || $("#stage").hidden) return;
     if (e.key === "Escape" || e.key === " ") { e.preventDefault(); setPaused(!game.paused); }

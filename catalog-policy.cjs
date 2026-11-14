@@ -1,6 +1,20 @@
 const { corrections, stemBindings = [], excludedRecordings = [], answerGroups = [], sameRecordings = [], premasters = [] } = require("./catalog-metadata.json");
 const crypto = require("node:crypto");
-const titleKey = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const MAX_KEY_CACHE = 10000;
+const titleKeyCache = new Map();
+const titleKey = value => {
+  if (typeof value === "string") {
+    const cached = titleKeyCache.get(value);
+    if (cached !== undefined) return cached;
+  }
+  const key = String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (typeof value === "string") {
+    if (titleKeyCache.size >= MAX_KEY_CACHE) titleKeyCache.clear();
+    titleKeyCache.set(value, key);
+  }
+  return key;
+};
 
 function stemBindingFor(folder) {
   return stemBindings.find(binding => binding.folder === folder);
@@ -75,22 +89,58 @@ function catalogExclusionReason(song) {
   return role === "producer-only" ? "Production credit only" : role === "non-vocal" ? "No Yeat vocal performance" : "Excluded by catalog rules";
 }
 
+const excludedSourceByKind = new Map();
+const excludedByTitleKey = new Map();
+const excludedNoTitle = [];
+const parseVersionRange = value => {
+  const m = /^V(\d+)(?:-V?(\d+))?$/i.exec(value || "");
+  return m ? [Number(m[1]), Number(m[2] || m[1])] : null;
+};
+
+for (const rule of excludedRecordings) {
+  for (const source of rule.sources || []) {
+    if (!source?.kind) continue;
+    let ids = excludedSourceByKind.get(source.kind);
+    if (!ids) { ids = new Set(); excludedSourceByKind.set(source.kind, ids); }
+    ids.add(source.id);
+  }
+  const compiled = {
+    tab: rule.tab,
+    aliasKeys: (rule.aliases || (rule.alias ? [rule.alias] : [])).map(titleKey),
+    versionRanges: rule.versions ? rule.versions.map(parseVersionRange).filter(Boolean) : null
+  };
+  if (rule.titleKey) {
+    let list = excludedByTitleKey.get(rule.titleKey);
+    if (!list) { list = []; excludedByTitleKey.set(rule.titleKey, list); }
+    list.push(compiled);
+  } else {
+    excludedNoTitle.push({ ...compiled, titleKey: rule.titleKey });
+  }
+}
+
+const hasExcludedSource = source => Boolean(source && excludedSourceByKind.get(source.kind)?.has(source.id));
+
 function isExcludedRecording(song) {
-  const sameSource = (left, right) => left && right && left.kind === right.kind && left.id === right.id;
-  const versionRange = value => /^V(\d+)(?:-V?(\d+))?$/i.exec(value || "");
-  return excludedRecordings.some(rule => {
-    // Source ids also identify older caches, which did not retain version labels.
-    if ((rule.sources || []).some(source => sameSource(song.source, source) || sameSource(song.fallback, source))) return true;
-    if (titleKey(song.title) !== rule.titleKey || song.tab !== rule.tab) return false;
-    const aliases = [...song.aliases || [], ...song.keys || []].map(titleKey);
-    if ((rule.aliases || (rule.alias ? [rule.alias] : [])).some(alias => !aliases.includes(titleKey(alias)))) return false;
-    if (!rule.versions) return true;
-    const version = versionRange(song.trackerVersion);
-    return version && rule.versions.some(value => {
-      const range = versionRange(value);
-      return Number(version[1]) >= Number(range[1]) && Number(version[2] || version[1]) <= Number(range[2] || range[1]);
-    });
-  });
+  // Source ids also identify older caches, which did not retain version labels.
+  if (hasExcludedSource(song.source) || hasExcludedSource(song.fallback)) return true;
+  const songTitle = titleKey(song.title);
+  const byTitle = excludedByTitleKey.get(songTitle);
+  if (!byTitle && !excludedNoTitle.length) return false;
+  const candidates = byTitle && excludedNoTitle.length ? [...byTitle, ...excludedNoTitle] : (byTitle || excludedNoTitle);
+  let aliasSet = null;
+  let parsedVersion;
+  for (const rule of candidates) {
+    if (song.tab !== rule.tab) continue;
+    if (rule.titleKey !== undefined && songTitle !== rule.titleKey) continue;
+    if (rule.aliasKeys.length) {
+      if (!aliasSet) aliasSet = new Set([...song.aliases || [], ...song.keys || []].map(titleKey));
+      if (rule.aliasKeys.some(alias => !aliasSet.has(alias))) continue;
+    }
+    if (!rule.versionRanges) return true;
+    if (parsedVersion === undefined) parsedVersion = parseVersionRange(song.trackerVersion);
+    if (parsedVersion && rule.versionRanges.some(([minV, maxV]) => parsedVersion[0] >= minV && parsedVersion[1] <= maxV)) return true;
+  }
+  return false;
 }
 
 // Metadata changes can retire the source previously selected for a merged title.
@@ -115,10 +165,20 @@ function reconcileCatalogEligibility(song, sourceRank) {
 }
 
 // The same normalization as the server's norm() and the game's normalizeGuess().
+const answerKeyCache = new Map();
 function answerKey(text) {
-  return String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  if (typeof text === "string") {
+    const cached = answerKeyCache.get(text);
+    if (cached !== undefined) return cached;
+  }
+  const key = String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/æ/gi, "ae").replace(/ø/gi, "o").replace(/\$/g, "s")
     .replace(/&/g, "and").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (typeof text === "string") {
+    if (answerKeyCache.size >= MAX_KEY_CACHE) answerKeyCache.clear();
+    answerKeyCache.set(text, key);
+  }
+  return key;
 }
 
 // The tracker names a song accepts. A featured song's aliases also answer with
@@ -324,16 +384,76 @@ function premasterFor(song, variants) {
   return null;
 }
 
+const compiledCorrections = corrections.map(rule => ({
+  matchEntries: Object.entries(rule.match).map(([key, value]) => [
+    key,
+    value,
+    typeof value === "object" && value !== null ? Object.entries(value) : null
+  ]),
+  set: rule.set
+}));
+const correctionsById = new Map();
+const correctionsByTitleKey = new Map();
+const correctionsGeneral = [];
+for (const compiled of compiledCorrections) {
+  const idEntry = compiled.matchEntries.find(([key]) => key === "id");
+  const titleEntry = !idEntry && compiled.matchEntries.find(([key]) => key === "titleKey");
+  if (idEntry && typeof idEntry[1] === "string") {
+    let list = correctionsById.get(idEntry[1]);
+    if (!list) { list = []; correctionsById.set(idEntry[1], list); }
+    list.push(compiled);
+  } else if (titleEntry && typeof titleEntry[1] === "string") {
+    let list = correctionsByTitleKey.get(titleEntry[1]);
+    if (!list) { list = []; correctionsByTitleKey.set(titleEntry[1], list); }
+    list.push(compiled);
+  } else {
+    correctionsGeneral.push(compiled);
+  }
+}
+
+function matchesCorrection(song, rule) {
+  for (const [key, value, nested] of rule.matchEntries) {
+    if (key === "titleKey") {
+      if (titleKey(song.title) !== value) return false;
+    } else if (nested) {
+      const target = song[key];
+      for (const [field, expected] of nested) {
+        if (target?.[field] !== expected) return false;
+      }
+    } else if (song[key] !== value) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function applyCorrections(song) {
+  let result = song;
+  const hasIdCandidate = correctionsById.has(result.id);
+  const hasTitleCandidate = correctionsByTitleKey.size && correctionsByTitleKey.has(titleKey(result.title));
+  if (!hasIdCandidate && !hasTitleCandidate && !correctionsGeneral.length) return result;
+  for (const rule of compiledCorrections) {
+    if (matchesCorrection(result, rule)) result = { ...result, ...rule.set };
+  }
+  return result;
+}
+
 function applyCatalogMetadata(song, parentSourceVariants) {
   let result = song;
   const same = sameById.get(result.id);
   if (same) result = { ...result, answerId: same.answerId, equivalentIds: same.ids.filter(id => id !== result.id) };
-  for (const rule of corrections) {
-    if (Object.entries(rule.match).every(([key, value]) => key === "titleKey" ? titleKey(result.title) === value : typeof value === "object" ? Object.entries(value).every(([field, expected]) => result[key]?.[field] === expected) : result[key] === value)) result = { ...result, ...rule.set };
-  }
+  result = applyCorrections(result);
   const sourceVariants = result.sourceVariants || parentSourceVariants;
-  if (result.poolVariants) result = { ...result, poolVariants: Object.fromEntries(Object.entries(result.poolVariants).map(([pool, variant]) => [pool, applyCatalogMetadata(variant, sourceVariants)])) };
-  if (result.sourceVariants) result = { ...result, sourceVariants: result.sourceVariants.map(v => applyCatalogMetadata(v, sourceVariants)) };
+  if (result.poolVariants) {
+    const nextPools = {};
+    for (const [pool, variant] of Object.entries(result.poolVariants)) {
+      nextPools[pool] = applyCatalogMetadata(variant, sourceVariants);
+    }
+    result = { ...result, poolVariants: nextPools };
+  }
+  if (result.sourceVariants) {
+    result = { ...result, sourceVariants: result.sourceVariants.map(v => applyCatalogMetadata(v, sourceVariants)) };
+  }
   if (isExcludedRecording(result)) result = { ...result, guessingEligible: false };
   const premaster = premasterFor(result, sourceVariants);
   if (premaster) result = { ...result, premaster, preview: false };

@@ -1126,7 +1126,9 @@ function initLeaderboardUI() {
   ensureTriggerMounted();
   window.addEventListener("DOMContentLoaded", ensureTriggerMounted);
   window.addEventListener("pagereveal", ensureTriggerMounted, true);
-  new MutationObserver(() => ensureTriggerMounted()).observe(document.body, { childList: true, subtree: true });
+  new MutationObserver(() => {
+    if (!triggerBtn.isConnected) ensureTriggerMounted();
+  }).observe(document.body, { childList: true, subtree: true });
 
   watchForCheatTools();
 

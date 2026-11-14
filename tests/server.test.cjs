@@ -511,3 +511,67 @@ test("a failed model stream never becomes a cached model, and retry works", asyn
   await context.ensureModel("drums");
   assert.equal(fs.statSync(path.join(folder, "drums.fp16.onnx")).size, 1000001);
 });
+
+test("admin song rename keeps formerIds and variant audioIds resolvable", async t => {
+  const folder = dataFolder(t);
+  config(folder, { dailyAuthority: "" });
+  fs.writeFileSync(path.join(folder, "admin.json"), JSON.stringify({ password: "garlic" }));
+  fs.writeFileSync(path.join(folder, "songs-cache.json"), JSON.stringify({
+    updated: 123,
+    eras: [],
+    songs: [{
+      id: "one",
+      title: "One",
+      display: "One",
+      era: "Alivë",
+      mode: "filter",
+      formerIds: ["legacy-one"],
+      source: { kind: "url", id: "https://audio.test/one" },
+      sourceVariants: [{
+        label: "Alt",
+        mode: "stems",
+        audioId: "variant-one",
+        stems: { vocals: { kind: "url", id: "https://audio.test/one-vocals" } }
+      }]
+    }]
+  }));
+  const { url } = await launch(t, folder);
+
+  const checkAudioVariant = async label => {
+    const res = await fetch(`${url}/api/audio/variant-one`);
+    const body = await res.json();
+    assert.equal(res.status, 404, label);
+    assert.match(body.error, /No full audio file is available/, `${label}: variant audioId should remain indexed`);
+  };
+  const checkFormerIdRound = async label => {
+    const res = await fetch(`${url}/api/account/round/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ candidates: ["legacy-one"], difficulty: "base", pool: "all" })
+    });
+    const body = await res.json();
+    assert.equal(res.status, 200, `${label}: formerId should resolve in SONG_INDEX (${JSON.stringify(body)})`);
+    assert.match(body.roundId, /^[a-f0-9]{32}$/);
+  };
+
+  await checkAudioVariant("before rename");
+  await checkFormerIdRound("before rename");
+
+  const login = await fetch(`${url}/api/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "garlic" })
+  });
+  assert.equal(login.status, 200);
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+
+  const rename = await fetch(`${url}/api/admin/rename`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify({ id: "one", name: "Renamed One" })
+  });
+  assert.equal(rename.status, 200);
+
+  await checkAudioVariant("after rename");
+  await checkFormerIdRound("after rename");
+});

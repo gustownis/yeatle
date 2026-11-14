@@ -38,7 +38,7 @@ function shownSongs() {
   const query = norm($("#search").value);
   const hide = $("#hide-installed").checked;
   return state.catalog.songs.filter(song => (!hide || statusOf(song.id).status !== "installed") &&
-    (!query || norm(`${song.display} ${song.title} ${song.era} ${song.year || ""} ${song.features.join(" ")}`).includes(query)));
+    (!query || (song._searchHay ??= norm(`${song.display} ${song.title} ${song.era} ${song.year || ""} ${song.features.join(" ")}`)).includes(query)));
 }
 
 function rowFor(song) {
@@ -76,7 +76,7 @@ function rowFor(song) {
 
   return el("div", { class: "dl-row" + (picked.has(song.id) ? " on" : ""), "data-id": song.id },
     check,
-    song.cover ? el("img", { src: song.cover, alt: "", loading: "lazy", onerror: e => e.target.replaceWith(el("span", { class: "nocover" })) }) : el("span", { class: "nocover" }),
+    song.cover ? el("img", { src: song.cover, alt: "", width: 40, height: 40, loading: "lazy", decoding: "async", onerror: e => e.target.replaceWith(el("span", { class: "nocover" })) }) : el("span", { class: "nocover" }),
     el("span", { class: "song-text" }, el("b", { text: song.display }), el("small", { text: meta })),
     el("span", { class: "size", text: mb(song.size) }),
     act,

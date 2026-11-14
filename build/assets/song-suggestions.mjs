@@ -1,6 +1,33 @@
 import { normalizeGuess } from "./snippet-rules.mjs?v=1.13.9";
 import { songsForPool } from "./song-pools.mjs?v=1.13.9";
 
+const ALIAS_PARENS_RE = /\s*\(([^()]*(?:,|\([^()]*\))[^()]*)\)/g;
+const PAREN_BLOCK_RE = /\s*\([^()]*\)/g;
+const PAREN_CAPTURE_RE = /\(([^()]+)\)/g;
+const GENERIC_ALIAS_RE = /^(yeat\s+)?(remix|mix|version|edit|intro|outro|interlude|freestyle|skit|open|solo|bonus)$/i;
+const N_AND_TEST_RE = /\b(?:n|and)\b/i;
+const N_AND_RE = /\b(?:n|and)\b/gi;
+const WHITESPACE_RE = /\s+/g;
+const ALREADY_NORM_RE = /^[a-z0-9]+$/;
+
+const fastNorm = s => (typeof s === "string" && ALREADY_NORM_RE.test(s) ? s : normalizeGuess(s));
+const looseNorm = s => {
+  const str = String(s || "");
+  return N_AND_TEST_RE.test(str) ? normalizeGuess(str.replace(N_AND_RE, "and")) : fastNorm(str);
+};
+
+function stripAliasParens(str, extraAliases) {
+  const s = String(str || "");
+  if (!s.includes("(")) return s.replace(WHITESPACE_RE, " ").trim();
+  return s.replace(ALIAS_PARENS_RE, (_, inner) => {
+    for (const part of inner.split(",")) {
+      const p = part.trim();
+      if (p) extraAliases.push(p);
+    }
+    return "";
+  }).replace(WHITESPACE_RE, " ").trim();
+}
+
 // Daily shares the game's suggestion markup and styles without rebuilding React.
 export function attachSongSuggestions(input, list) {
   let songs = [], matches = [], active = 0, interacting = false, down = null, chosenValue = null;
@@ -136,39 +163,67 @@ export function attachSongSuggestions(input, list) {
   return {
     close,
     setSongs(entries) {
-      const looseNorm = s => normalizeGuess(String(s || "").replace(/\b(n|and)\b/gi, "and"));
       const unique = new Map();
       for (const song of songsForPool(entries)) {
-        const extraAliases = [];
-        const stripAliasParens = str => String(str || "").replace(/\s*\(([^()]*(?:,|\([^()]*\))[^()]*)\)/g, (_, inner) => {
-          inner.split(",").forEach(part => { const p = part.trim(); if (p) extraAliases.push(p); });
-          return "";
-        }).replace(/\s+/g, " ").trim();
         const rawLabel = song?.display || song?.title;
         if (typeof rawLabel !== "string" || !rawLabel.trim()) continue;
-        const cleanTitle = stripAliasParens(song.title);
-        const label = stripAliasParens(rawLabel);
+        const extraAliases = [];
+        const cleanTitle = stripAliasParens(song.title, extraAliases);
+        const sameRaw = rawLabel === song.title;
+        const label = sameRaw ? cleanTitle : stripAliasParens(rawLabel, extraAliases);
         if (!label || unique.has(label)) continue;
-        const baseTitle = cleanTitle.replace(/\s*\([^()]*\)/g, "").trim();
-        const baseLabel = label.replace(/\s*\([^()]*\)/g, "").trim();
-        const keptTags = [...cleanTitle.matchAll(/\(([^()]+)\)/g)].map(m => looseNorm(m[1]));
-        const normTitle = normalizeGuess(cleanTitle);
-        const normLabel = normalizeGuess(label);
-        const seen = new Set([normTitle, normLabel, looseNorm(cleanTitle), looseNorm(label), normalizeGuess(baseTitle), normalizeGuess(baseLabel), looseNorm(baseTitle), looseNorm(baseLabel), ...keptTags].filter(Boolean));
+        const baseTitle = cleanTitle.includes("(") ? cleanTitle.replace(PAREN_BLOCK_RE, "").trim() : cleanTitle;
+        const baseLabel = sameRaw ? baseTitle : (label.includes("(") ? label.replace(PAREN_BLOCK_RE, "").trim() : label);
+        const normTitle = fastNorm(cleanTitle);
+        const normLabel = label === cleanTitle ? normTitle : fastNorm(label);
+        const looseTitle = N_AND_TEST_RE.test(cleanTitle) ? looseNorm(cleanTitle) : normTitle;
+        const looseLabel = label === cleanTitle ? looseTitle : (N_AND_TEST_RE.test(label) ? looseNorm(label) : normLabel);
+        const seen = new Set([normTitle, normLabel, looseTitle, looseLabel]);
+        if (baseTitle !== cleanTitle) {
+          const nb = fastNorm(baseTitle);
+          seen.add(nb);
+          seen.add(N_AND_TEST_RE.test(baseTitle) ? looseNorm(baseTitle) : nb);
+        }
+        if (baseLabel !== label && baseLabel !== baseTitle) {
+          const nb = fastNorm(baseLabel);
+          seen.add(nb);
+          seen.add(N_AND_TEST_RE.test(baseLabel) ? looseNorm(baseLabel) : nb);
+        }
+        if (cleanTitle.includes("(")) {
+          for (const m of cleanTitle.matchAll(PAREN_CAPTURE_RE)) seen.add(looseNorm(m[1]));
+        }
+        seen.delete("");
         const distinct = [];
-        for (const raw of [...extraAliases, ...(song.aliases || [])]) {
+        const rawAliases = extraAliases.length
+          ? (song.aliases?.length ? [...extraAliases, ...song.aliases] : extraAliases)
+          : (song.aliases || []);
+        for (const raw of rawAliases) {
           const trimmed = String(raw || "").trim();
           if (!trimmed) continue;
-          const aliasBase = trimmed.replace(/\s*\([^()]*\)/g, "").trim();
-          const k = normalizeGuess(trimmed), kl = looseNorm(trimmed), kb = looseNorm(aliasBase);
-          if (!k || k.length <= 1 || seen.has(k) || seen.has(kl) || (kb && seen.has(kb))) continue;
-          if (/^(yeat\s+)?(remix|mix|version|edit|intro|outro|interlude|freestyle|skit|open|solo|bonus)$/i.test(trimmed)) continue;
+          const k = fastNorm(trimmed);
+          if (!k || k.length <= 1 || GENERIC_ALIAS_RE.test(trimmed)) continue;
+          const kl = N_AND_TEST_RE.test(trimmed) ? looseNorm(trimmed) : k;
+          const aliasBase = trimmed.includes("(") ? trimmed.replace(PAREN_BLOCK_RE, "").trim() : trimmed;
+          const kb = aliasBase === trimmed ? kl : looseNorm(aliasBase);
+          if (seen.has(k) || seen.has(kl) || (kb && seen.has(kb))) continue;
           seen.add(k);
           seen.add(kl);
           if (kb) seen.add(kb);
           distinct.push(trimmed);
         }
-        unique.set(label, { label, key: normLabel, title: normTitle, alts: [...song.keys || [], ...song.answerKeys || []].map(normalizeGuess).filter(Boolean), aka: distinct.join(", "), era: song.eraDisplay || song.era || "", year: song.eraYear || song.year || null, status: song.tab === "Unreleased" ? song.tab : "" });
+        const altSet = new Set();
+        if (song.keys) for (const item of song.keys) { const ak = fastNorm(item); if (ak) altSet.add(ak); }
+        if (song.answerKeys) for (const item of song.answerKeys) { const ak = fastNorm(item); if (ak) altSet.add(ak); }
+        unique.set(label, {
+          label,
+          key: normLabel,
+          title: normTitle,
+          alts: [...altSet],
+          aka: distinct.join(", "),
+          era: song.eraDisplay || song.era || "",
+          year: song.eraYear || song.year || null,
+          status: song.tab === "Unreleased" ? song.tab : ""
+        });
       }
       songs = [...unique.values()].sort((a, b) => a.label.localeCompare(b.label));
       show();
