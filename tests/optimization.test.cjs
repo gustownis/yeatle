@@ -8,6 +8,7 @@ const {pathToFileURL}=require('node:url');
 const {createCompressedCache}=require('../static-cache.cjs');
 const {createActiveSongFeed}=require('../live-control.cjs');
 const {EventEmitter}=require('node:events');
+const vm=require('node:vm');
 const performanceModule=import(pathToFileURL(path.join(__dirname,'../build/assets/performance.mjs')).href);
 const stemCacheModule=import(pathToFileURL(path.join(__dirname,'../build/assets/stem-cache.mjs')).href);
 
@@ -364,4 +365,86 @@ test('home page does not block first paint on yeatle.js or eager AudioContext st
  const bundle=fs.readFileSync(path.join(__dirname,'../build/assets/yeatle.js'),'utf8');
  assert.ok(bundle.includes('yeatlePaintedRef'), 'expected painted gate ref in yeatle.js');
  assert.ok(bundle.includes('YeatleEnsurePlayer'), 'expected interaction flush helper in yeatle.js');
+});
+
+test('xm.start reuses stereo AudioBuffer at target rate and only copies when channels or rate differ',async()=>{
+ const bundle=fs.readFileSync(path.join(__dirname,'../build/assets/yeatle.js'),'utf8');
+ const first=bundle.indexOf('class xm{'),last=bundle.indexOf('function Em(',first);
+ const slice=bundle.slice(first,last)+';xm';
+
+ for(const spec of [
+  {name:'stereo 44100 reuses mix directly',numberOfChannels:2,sampleRate:44100,expectAllocated:3,expectSameMix:true},
+  {name:'mono 44100 copies to stereo mix',numberOfChannels:1,sampleRate:44100,expectAllocated:4,expectSameMix:false},
+  {name:'stereo 48000 copies to target rate mix',numberOfChannels:2,sampleRate:48000,expectAllocated:4,expectSameMix:false}
+ ]){
+  const channels=[new Float32Array([0.1,-0.2,0.3,-0.4]),new Float32Array([0.5,-0.6,0.7,-0.8])];
+  const decoded={length:4,numberOfChannels:spec.numberOfChannels,sampleRate:spec.sampleRate,getChannelData:ch=>channels[ch]};
+  const allocated=[],messages=[];
+  const Class=vm.runInNewContext(slice,{
+   bt:44100,
+   fetch:async()=>({ok:true,arrayBuffer:async()=>new ArrayBuffer(8)}),
+   YeatleCacheInputs:async()=>{},
+   OfflineAudioContext:class{async decodeAudioData(){return decoded;}},
+   YeatleTrim(){},
+   yt:new Map(),
+   gd:()=>({postMessage:(msg)=>messages.push(msg)}),
+   zt:null,
+   YeatleScheduleWorkerIdle(){}
+  });
+  const job=Object.assign(Object.create(Class.prototype),{
+   song:{id:'song-1'},workerId:1,buffers:null,total:0,listeners:new Set(),abortController:new AbortController(),
+   ctx:{createBuffer(ch,len){const buf={numberOfChannels:ch,length:len,copyToChannel(){}};allocated.push(buf);return buf;}}
+  });
+  await job.start();
+  assert.equal(allocated.length,spec.expectAllocated,spec.name);
+  assert.equal(job.buffers.mix===decoded,spec.expectSameMix,spec.name);
+  assert.equal(messages.length,1);
+  assert.notEqual(messages[0].left.buffer,channels[0].buffer);
+  assert.deepEqual([...messages[0].left],[...channels[0]]);
+  assert.deepEqual([...messages[0].right],[...channels[spec.numberOfChannels>1?1:0]]);
+ }
+});
+
+test('AudioContext suspends when idle, reuses across rounds, and closes on non-persisted pagehide',async()=>{
+ const bundle=fs.readFileSync(path.join(__dirname,'../build/assets/yeatle.js'),'utf8');
+ const first=bundle.indexOf('let Ss=null'),last=bundle.indexOf('function Pl(',first);
+ const slice=bundle.slice(first,last)+';({yd,YeatleRetireContext,So})';
+
+ let created=0,suspends=0,closes=0;
+ const pageListeners={};
+ class FakeAudioContext{
+  constructor(){created++;this.state='running';}
+  suspend(){suspends++;this.state='suspended';return Promise.resolve();}
+  close(){closes++;this.state='closed';return Promise.resolve();}
+ }
+ const {yd,YeatleRetireContext,So}=vm.runInNewContext(slice,{
+  window:{AudioContext:FakeAudioContext},
+  navigator:{},
+  addEventListener:(type,fn)=>{pageListeners[type]=fn;}
+ });
+
+ const ctx1=yd();
+ assert.equal(created,1);
+ const player={};
+ So.add(player);
+ YeatleRetireContext();
+ assert.equal(suspends,0);
+ So.delete(player);
+ YeatleRetireContext();
+ assert.equal(suspends,1);
+ assert.equal(closes,0);
+ assert.equal(yd(),ctx1);
+ assert.equal(created,1);
+
+ ctx1.state='running';
+ pageListeners.pagehide({persisted:true});
+ assert.equal(suspends,2);
+ assert.equal(closes,0);
+
+ pageListeners.pagehide({persisted:false});
+ assert.equal(closes,1);
+ assert.equal(ctx1.state,'closed');
+ const ctx2=yd();
+ assert.notEqual(ctx2,ctx1);
+ assert.equal(created,2);
 });
