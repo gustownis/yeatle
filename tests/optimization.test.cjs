@@ -448,3 +448,58 @@ test('AudioContext suspends when idle, reuses across rounds, and closes on non-p
  assert.notEqual(ctx2,ctx1);
  assert.equal(created,2);
 });
+
+test('yeatle.js indexes song suggestions consistently with song-suggestions.mjs and keeps worker/cache ?v= current',async t=>{
+ const bundle=fs.readFileSync(path.join(__dirname,'../build/assets/yeatle.js'),'utf8');
+ assert.equal(bundle.includes('?v=1.10.0'),false,'expected no stale ?v=1.10.0 URLs in yeatle.js');
+ assert.ok(bundle.includes('separator.worker.js?v=1.13.10'));
+ assert.ok(bundle.includes('./stem-cache.mjs?v=1.13.10'));
+
+ const {songsForPool}=await import(pathToFileURL(path.join(__dirname,'../build/assets/song-pools.mjs')).href);
+ const {attachSongSuggestions}=await import(pathToFileURL(path.join(__dirname,'../build/assets/song-suggestions.mjs')).href);
+
+ const helpersStart=bundle.indexOf('const YeatleNormReadyRe=');
+ const helpersEnd=bundle.indexOf('function ws(',helpersStart);
+ const nuStart=bundle.indexOf('Nu=w.useMemo(');
+ const nuEnd=bundle.indexOf(',kn=w.useMemo(',nuStart);
+ const knEnd=bundle.indexOf(',Hi=w.useCallback',nuEnd);
+ const helpers=bundle.slice(helpersStart,helpersEnd);
+ const nuExpr=bundle.slice(nuStart+3,nuEnd);
+ const knExpr=bundle.slice(nuEnd+4,knEnd);
+
+ const fixtureSongs=[
+  {id:'s1',title:"Gët Busy (Here's a bell, bell, Remix)",display:"Gët Busy",era:'Up 2 Më',eraYear:2021,tab:'Released',aliases:['Get Busy Remix','Bell Track','Bell Track (OG)','x'],keys:['getbusy'],answerKeys:['getbusy','belltrack'],mode:'filter',source:{kind:'url',id:'1'}},
+  {id:'s2',title:'Up n Down (Mix)',display:'Up n Down',era:'2093',eraYear:2024,tab:'Unreleased',aliases:['Up and Down','Up & Down','High Low'],keys:['upndown'],answerKeys:['upanddown','highlow'],mode:'filter',source:{kind:'url',id:'2'}},
+  {id:'s3',title:'Flawless (feat. Lil Uzi Vert)',display:'Flawless',era:'Lyfë',eraYear:2022,tab:'Released',aliases:['Flawless (Intro)'],keys:['flawless','flawless2'],answerKeys:['flawless'],mode:'filter',source:{kind:'url',id:'3'}},
+  {id:'s4',title:'   ',display:'',era:'Alive',eraYear:2021,tab:'Released',aliases:[],keys:[],answerKeys:[],mode:'filter',source:{kind:'url',id:'4'}}
+ ];
+
+ const ctx=vm.createContext({
+  YeatlePoolSongs:songsForPool,
+  e:fixtureSongs,
+  O:'all',
+  gn:'',
+  w:{useMemo:fn=>fn()},
+  Set,String,Array,Object
+ });
+ vm.runInContext(`${helpers};const buildNu=()=>(${nuExpr});const queryKn=(Nu,gn)=>(${knExpr});`,ctx);
+ const indexed=vm.runInContext('buildNu()',ctx);
+
+ assert.deepEqual(Array.from(indexed,s=>s.label),['Flawless','Gët Busy','Up n Down']);
+ assert.deepEqual(Array.from(indexed,s=>s.aka),['','Here\'s a bell, bell, Get Busy Remix, Bell Track','High Low']);
+
+ const box={hidden:true,id:'s',children:[],replaceChildren(...items){this.children=items;},setAttribute(){},scrollTop:0,clientHeight:300};
+ const input={value:'bell',disabled:false,addEventListener(){},setAttribute(){},removeAttribute(){},focus(){}};
+ globalThis.document={activeElement:input,createElement:()=>({children:[],textContent:'',offsetTop:0,offsetHeight:20,append(...kids){this.children.push(...kids);},setAttribute(){},addEventListener(){},classList:{toggle(){}}})};
+ t.after(()=>{delete globalThis.document;});
+ const sug=attachSongSuggestions(input,box);
+ sug.setSongs(fixtureSongs);
+ for(const q of ['bell','flaw','up','2093']){
+  input.value=q;
+  input.focus();
+  sug.setSongs(fixtureSongs);
+  const dailyLabels=box.children.map(c=>c.children[0].children[0].textContent);
+  const homeLabels=Array.from(vm.runInContext(`queryKn(buildNu(), ${JSON.stringify(q)})`,ctx),x=>x.label);
+  assert.deepEqual(homeLabels,dailyLabels,`matches diverge on "${q}"`);
+ }
+});
