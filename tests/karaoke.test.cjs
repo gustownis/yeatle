@@ -123,3 +123,40 @@ test("karaoke slides early or late lyrics onto the vocals", async () => {
   const nudged = alignLyrics(oneOff, chart);
   assert.ok(Math.abs(nudged.lines[3].t - truth[3].t) < 0.1, `nudged to ${nudged.lines[3].t}`);
 });
+
+test("karaoke time-sliced analysis preserves synchronous downsample math and chart output", async () => {
+  const { downsample, analyzeVocals, buildChart, yin, freqToMidi } = await load();
+  const vocals = new Float32Array(8 * SR);
+  tone(vocals, 0.5, 2.0, 62);
+  tone(vocals, 3.0, 4.5, 67);
+
+  // Reference synchronous computation mirrors pre-yield downsample + YIN frame loop.
+  const factor = 4, rate = SR / factor, n = 384, hop = 256, tauMax = Math.floor(rate / 70);
+  const syncDs = downsample(vocals, factor);
+  const frames = Math.max(0, Math.floor((syncDs.length - n - tauMax - 1) / hop));
+  const refMidi = new Float32Array(frames), refConf = new Float32Array(frames), refRms = new Float32Array(frames);
+  const scratch = new Float32Array(tauMax + 2);
+  for (let i = 0; i < frames; i++) {
+    const start = i * hop;
+    let energy = 0;
+    for (let j = 0; j < n; j++) { const v = syncDs[start + j]; energy += v * v; }
+    refRms[i] = Math.sqrt(energy / n);
+    refMidi[i] = NaN;
+    if (refRms[i] > 1e-4) {
+      const r = yin(syncDs.subarray(start, start + n + tauMax + 1), n, rate, 70, 1000, scratch);
+      if (r) { refMidi[i] = freqToMidi(r.freq); refConf[i] = r.conf; }
+    }
+  }
+  const refChart = buildChart({ midi: refMidi, conf: refConf, rms: refRms, hop: hop / rate, offset: n / 2 / rate });
+
+  const progress = [];
+  const analysis = await analyzeVocals(vocals, SR, p => progress.push(p));
+  const chart = buildChart(analysis);
+  assert.equal(progress[0], 0);
+  assert.equal(progress[progress.length - 1], 1);
+  assert.deepEqual(analysis.midi, refMidi);
+  assert.deepEqual(analysis.conf, refConf);
+  assert.deepEqual(analysis.rms, refRms);
+  assert.deepEqual(chart.notes, refChart.notes);
+  assert.deepEqual(chart.phrases, refChart.phrases);
+});

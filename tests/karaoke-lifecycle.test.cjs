@@ -468,3 +468,114 @@ test("loadSplitSong passes job cancellation predicate to stem cache saveStems", 
   assert.equal(savedArgs.isCancelled(), true);
 });
 
+test("loadStemSong decodes sequentially on one OfflineAudioContext and honours cancellation", async () => {
+  const fetched = [], decoded = [];
+  let contexts = 0, inflightFetches = 0, maxInflightFetches = 0, jobRef;
+  class FakeOfflineAudioContext {
+    constructor(channels, length, sampleRate) {
+      contexts++;
+      assert.equal(channels, 2);
+      assert.equal(sampleRate, 44100);
+      this.length = length;
+    }
+    async decodeAudioData(bytes) {
+      decoded.push(bytes.stem);
+      if (bytes.stem === "bass") jobRef.cancel();
+      const samples = new Float32Array(12).fill(0.25);
+      return { length: samples.length, numberOfChannels: 2, getChannelData: () => samples };
+    }
+  }
+  const h = harness({
+    OfflineAudioContext: FakeOfflineAudioContext,
+    fetch: async url => {
+      inflightFetches++;
+      maxInflightFetches = Math.max(maxInflightFetches, inflightFetches);
+      const m = /\/([^/.]+)\.mp3$/.exec(url);
+      const stem = m ? m[1].toLowerCase() : "unknown";
+      fetched.push(stem);
+      inflightFetches--;
+      return { ok: true, arrayBuffer: async () => ({ stem }) };
+    }
+  });
+  h.context.ctx = {
+    createBuffer: (ch, len) => {
+      const channels = Array.from({ length: ch }, () => new Float32Array(len));
+      return { length: len, numberOfChannels: ch, getChannelData: i => channels[i], copyToChannel: (src, i) => channels[i].set(src) };
+    }
+  };
+  h.run("audioContext = ctx");
+
+  // Full 4-stem sequential decode reuses 1 OfflineAudioContext and never overlaps stem fetches.
+  let activeJob;
+  const fullPromise = h.run('(() => { const j = makeJob(); return loadStemSong({ folder: "Test Song" }, j); })()');
+  // Cancel only when running the cancellation check; first run with passive job:
+  jobRef = { cancel() {} };
+  const result = await fullPromise;
+  assert.equal(contexts, 1);
+  assert.equal(maxInflightFetches, 1);
+  assert.deepEqual(fetched, ["drums", "bass", "other", "vocals"]);
+  assert.deepEqual(decoded, ["drums", "bass", "other", "vocals"]);
+  assert.equal(result.vocals.length, 12);
+
+  // Cancellation between stems stops before fetching/decoding remaining stems.
+  fetched.length = 0; decoded.length = 0; contexts = 0;
+  activeJob = h.run("(() => { const j = makeJob(); return j; })()");
+  jobRef = activeJob;
+  h.context.cancelJob = activeJob;
+  await assert.rejects(h.run('loadStemSong({ folder: "Test Song" }, cancelJob)'), /cancelled/);
+  assert.deepEqual(fetched, ["drums", "bass"]);
+  assert.deepEqual(decoded, ["drums", "bass"]);
+});
+
+test("startSong yields cleanly across long PCM analysis and releases audio.vocals afterwards", async () => {
+  let fakeNow = 0, yields = 0;
+  const realSetTimeout = setTimeout;
+  const sr = 44100;
+  const h = harness({
+    performance: { now: () => (fakeNow += 20) },
+    setTimeout(fn, ms, ...args) {
+      if (ms === 0) yields++;
+      return realSetTimeout(fn, ms, ...args);
+    }
+  });
+  // Verify downsampleAsync yields cleanly and computes exact bit-for-bit downsample samples.
+  const samples = new Float32Array(16384 * 4 * 2 + 128);
+  for (let i = 0; i < samples.length; i++) samples[i] = Math.sin(i * 0.05);
+  h.context.testSamples = samples;
+  h.run("async function runDsCheck() { fakeDs = await downsampleAsync(testSamples, 4, () => false); syncDs = downsample(testSamples, 4); }");
+  await h.run("runDsCheck()");
+  assert.deepEqual(h.context.fakeDs, h.context.syncDs);
+  assert.ok(yields >= 2);
+
+  // Verify analyzeVocals reports multiple time-sliced progress steps when slices exceed 12ms.
+  const progress = [];
+  const beforeAnalysisYields = yields;
+  h.context.onAnalProgress = p => progress.push(p);
+  h.context.vocalSignal = new Float32Array(sr * 2);
+  await h.run("analyzeVocals(vocalSignal, SR, onAnalProgress)");
+  assert.ok(yields > beforeAnalysisYields + 1);
+  assert.equal(progress[0], 0);
+  assert.equal(progress[progress.length - 1], 1);
+  assert.ok(progress.length > 2);
+
+  // Verify startSong releases audio.vocals once chart analysis finishes.
+  const vocals = new Float32Array(sr * 2);
+  h.context.fakeAudio = { inst: { buf: "inst" }, guide: { buf: "guide" }, vocals, duration: 2 };
+  h.context.begun = null;
+  h.run(`
+    audioContext = { resume: async () => {} };
+    settings.players = [{ name: "Tester", deviceId: "none" }];
+    state.song = { id: "s-vocals", display: "Vocals Test", mode: "stems" };
+    state.lyricsCache.set("s-vocals", { lines: [], plain: "hello" });
+    loadStemSong = async () => fakeAudio;
+    analyzeVocals = async (_v, _sr, onProg) => { onProg(0); onProg(1); return { midi: new Float32Array(4), conf: new Float32Array(4), rms: new Float32Array(4), hop: 0.02, offset: 0.01 }; };
+    buildChart = () => ({ phrases: [{ start: 0, end: 1, dur: 1, notes: [] }], notes: [] });
+    beginGame = (_song, audio, chart) => { begun = { audio, chart }; };
+  `);
+  await h.run("startSong()");
+  assert.equal(h.context.fakeAudio.vocals, null);
+  assert.equal(h.context.begun.audio.vocals, null);
+  assert.deepEqual(h.context.begun.audio.inst, { buf: "inst" });
+  assert.ok(h.context.begun.chart.analysis);
+});
+

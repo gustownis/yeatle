@@ -49,6 +49,20 @@ export const freqToMidi = f => 69 + 12 * Math.log2(f / 440);
 export const chromaDistance = (a, b) => { const d = (((a - b) % 12) + 12) % 12; return Math.min(d, 12 - d); };
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const idle = () => new Promise(resolve => setTimeout(resolve, 0));
+const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+const YIELD_BUDGET_MS = 12;
+function createYielder(budgetMs = YIELD_BUDGET_MS) {
+  let lastYield = nowMs();
+  return {
+    due() { return nowMs() - lastYield >= budgetMs; },
+    async yield(isCancelled = () => false) {
+      if (isCancelled()) throw new Error("cancelled");
+      await idle();
+      if (isCancelled()) throw new Error("cancelled");
+      lastYield = nowMs();
+    }
+  };
+}
 const noteName = m => { const r = Math.round(m); return NOTE_NAMES[((r % 12) + 12) % 12] + (Math.floor(r / 12) - 1); };
 const norm = s => String(s || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 function median(values) {
@@ -102,16 +116,31 @@ export function yin(buf, n, sr, minF, maxF, scratch) {
   return { freq: sr / t, conf: clamp(1 - d[best], 0, 1) };
 }
 
-// Box-filter then decimate; plenty for finding a voice's pitch.
-export function downsample(input, factor, out) {
-  const len = Math.floor(input.length / factor);
-  const result = out && out.length >= len ? out : new Float32Array(len);
+function downsampleSlice(input, factor, result, start, end) {
   const taps = factor * 2, back = factor >> 1;
-  for (let i = 0; i < len; i++) {
+  for (let i = start; i < end; i++) {
     const from = i * factor - back;
     let sum = 0, count = 0;
     for (let j = from; j < from + taps; j++) if (j >= 0 && j < input.length) { sum += input[j]; count++; }
     result[i] = count ? sum / count : 0;
+  }
+}
+
+// Box-filter then decimate; plenty for finding a voice's pitch.
+export function downsample(input, factor, out) {
+  const len = Math.floor(input.length / factor);
+  const result = out && out.length >= len ? out : new Float32Array(len);
+  downsampleSlice(input, factor, result, 0, len);
+  return result;
+}
+
+async function downsampleAsync(input, factor, isCancelled = () => false, yielder = createYielder()) {
+  const len = Math.floor(input.length / factor);
+  const result = new Float32Array(len);
+  const block = 16384;
+  for (let start = 0; start < len; start += block) {
+    downsampleSlice(input, factor, result, start, Math.min(len, start + block));
+    if (start + block < len && yielder.due()) await yielder.yield(isCancelled);
   }
   return result;
 }
@@ -120,8 +149,9 @@ export function downsample(input, factor, out) {
 
 export async function analyzeVocals(vocals, sampleRate = SR, onProgress = () => {}, isCancelled = () => false) {
   if (isCancelled()) throw new Error("cancelled");
+  const yielder = createYielder();
   const factor = 4, rate = sampleRate / factor;
-  const ds = downsample(vocals, factor);
+  const ds = await downsampleAsync(vocals, factor, isCancelled, yielder);
   const n = 384, hop = 256, tauMax = Math.floor(rate / 70);
   const frames = Math.max(0, Math.floor((ds.length - n - tauMax - 1) / hop));
   const midi = new Float32Array(frames), conf = new Float32Array(frames), rms = new Float32Array(frames);
@@ -136,10 +166,10 @@ export async function analyzeVocals(vocals, sampleRate = SR, onProgress = () => 
       const r = yin(ds.subarray(start, start + n + tauMax + 1), n, rate, 70, 1000, scratch);
       if (r) { midi[i] = freqToMidi(r.freq); conf[i] = r.conf; }
     }
-    if (i % 64 === 0) {
+    if (i === 0 || ((i & 3) === 0 && yielder.due())) {
       if (isCancelled()) throw new Error("cancelled");
       onProgress(i / frames);
-      await idle();
+      await yielder.yield(isCancelled);
     }
   }
   if (isCancelled()) throw new Error("cancelled");
@@ -1580,38 +1610,57 @@ async function fetchBytes(url, job) {
   if (!res.ok) throw new Error(`couldn't load ${url.split("/").pop()} (${res.status})`);
   return res.arrayBuffer();
 }
-const decode = bytes => new OfflineAudioContext(2, 1, SR).decodeAudioData(bytes);
+const decode = (bytes, decoder = new OfflineAudioContext(2, 1, SR)) => decoder.decodeAudioData(bytes);
 
 async function loadStemSong(song, job) {
   job.check();
   job.status("Loading the HQ stems…", 0);
-  let done = 0;
   const names = ["drums", "bass", "other", "vocals"];
-  const decoded = await Promise.all(names.map(async name => {
+  const decoder = new OfflineAudioContext(2, 1, SR);
+  const decoded = [];
+  // Decode stems one at a time so raw MP3 buffers can be reclaimed between stems.
+  for (const name of names) {
+    job.check();
     let bytes;
     try { bytes = await fetchBytes(folderUrl(song, `${name}.mp3`), job); }
     catch (err) { if (job.cancelled) throw err; bytes = await fetchBytes(folderUrl(song, `${name[0].toUpperCase()}${name.slice(1)}.mp3`), job); }
-    const buffer = await decode(bytes);
     job.check();
-    job.status("Loading the HQ stems…", ++done / names.length);
-    return buffer;
-  }));
-  const [drums, bass, other, vox] = decoded;
+    const buffer = await decode(bytes, decoder);
+    bytes = null;
+    job.check();
+    decoded.push(buffer);
+    job.status("Loading the HQ stems…", decoded.length / names.length);
+  }
+  let [drums, bass, other, vox] = decoded;
+  decoded.length = 0;
   job.check();
-  const length = Math.max(...decoded.map(b => b.length));
+  const length = Math.max(drums.length, bass.length, other.length, vox.length);
   const ctx = audioCtx();
   const inst = ctx.createBuffer(2, length, SR), guide = ctx.createBuffer(2, length, SR);
+  const yielder = createYielder();
+  const isCancelled = () => job.cancelled;
+  const block = 65536;
   for (let ch = 0; ch < 2; ch++) {
     const out = inst.getChannelData(ch);
     for (const b of [drums, bass, other]) {
       const src = b.getChannelData(Math.min(ch, b.numberOfChannels - 1));
-      for (let i = 0; i < src.length; i++) out[i] += src[i];
+      for (let start = 0; start < src.length; start += block) {
+        const end = Math.min(src.length, start + block);
+        for (let i = start; i < end; i++) out[i] += src[i];
+        if (yielder.due()) await yielder.yield(isCancelled);
+      }
     }
     guide.copyToChannel(vox.getChannelData(Math.min(ch, vox.numberOfChannels - 1)), ch);
+    if (yielder.due()) await yielder.yield(isCancelled);
   }
+  drums = bass = other = null;
   const vocals = new Float32Array(length);
   const vl = vox.getChannelData(0), vr = vox.getChannelData(vox.numberOfChannels > 1 ? 1 : 0);
-  for (let i = 0; i < vl.length; i++) vocals[i] = (vl[i] + vr[i]) * 0.5;
+  for (let start = 0; start < vl.length; start += block) {
+    const end = Math.min(vl.length, start + block);
+    for (let i = start; i < end; i++) vocals[i] = (vl[i] + vr[i]) * 0.5;
+    if (start + block < vl.length && yielder.due()) await yielder.yield(isCancelled);
+  }
   return { inst, guide, vocals, duration: length / SR };
 }
 
@@ -1687,11 +1736,18 @@ async function loadSplitSong(song, job) {
   const vocals = new Float32Array(total);
   const inst = ctx.createBuffer(2, total, SR);
   const il = inst.getChannelData(0), ir = inst.getChannelData(1);
-  for (let i = 0; i < total; i++) {
-    const v = (left[i] + right[i]) * 0.5 - (d[i] + b[i] + o[i]);
-    vocals[i] = v;
-    il[i] = left[i] - v;
-    ir[i] = right[i] - v;
+  const yielder = createYielder();
+  const isCancelled = () => job.cancelled;
+  const block = 65536;
+  for (let start = 0; start < total; start += block) {
+    const end = Math.min(total, start + block);
+    for (let i = start; i < end; i++) {
+      const v = (left[i] + right[i]) * 0.5 - (d[i] + b[i] + o[i]);
+      vocals[i] = v;
+      il[i] = left[i] - v;
+      ir[i] = right[i] - v;
+    }
+    if (start + block < total && yielder.due()) await yielder.yield(isCancelled);
   }
   const guide = ctx.createBuffer(1, total, SR);
   guide.copyToChannel(vocals, 0);
@@ -1739,6 +1795,7 @@ async function startSong() {
     job.check();
     job.status("Mapping out the vocal notes…", 0);
     const analysis = await analyzeVocals(audio.vocals, SR, p => job.status("Mapping out the vocal notes…", p), () => job.cancelled);
+    audio.vocals = null;
     const chart = buildChart(analysis);
     if (!chart.phrases.length) throw new Error("Couldn't find any vocals to sing in this song.");
     chart.analysis = analysis; // the vocal's own pitch and loudness, for the ranked-run trace
