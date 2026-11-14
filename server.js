@@ -35,7 +35,7 @@ const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs")
 const { createLeaderboardStore } = require("./leaderboard.cjs");
 const { DEVICE_HEADER, cleanDeviceId, clientIp, normalIp, loadSecret, createSignalHasher, createRateLimiter } = require("./client-signals.cjs");
 const { pathToFileURL } = require("url");
-const { answerKey, guessKeys, answerGroupFor, groupAnswerKeys, resolveGroupKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
+const { answerKey, guessKeys, resolveGroupKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
 const APP_VERSION = require("./package.json").version;
@@ -447,7 +447,6 @@ function findEraColumn(headers, claimed) {
 }
 
 /* Dates (from tracker-player) */
-const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
 const TEXT_DATE = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/i;
 const ISO_DATE = /\b(\d{4})-(\d{1,2})-(\d{1,2})\b/;
 
@@ -1556,27 +1555,6 @@ function atCoverSize(url) {
   return String(url || "").replace(/=[swh]\d+(-[hw]\d+)?(-[a-z0-9]+)*$/i, "") + "=w600";
 }
 
-// an era header lists its name and then other names: "HiTunes [V1]\n(HyTunes)"
-function eraNamesInCell(cell) {
-  const lines = String(cell || "").split("\n").map(l => l.trim()).filter(Boolean);
-  if (!lines.length) return [];
-
-  const names = [lines[0]];
-  const trimmed = lines[0].replace(/\s*\(.*$/, "").trim();
-  if (trimmed && trimmed !== lines[0]) names.push(trimmed);
-
-  lines.forEach(line => {
-    const inside = line.match(/^\((.+)\)$/);
-    if (!inside) return;
-    inside[1].split(",").forEach(alias => {
-      const name = alias.trim();
-      if (name && name.length <= 60 && !/^(prod|feat|with|collaboration)\b/i.test(name)) names.push(name);
-    });
-  });
-
-  return [...new Set(names.map(n => n.replace(/\s+/g, " ")))];
-}
-
 /*
   The era list.
 
@@ -2024,6 +2002,7 @@ const MIME = {
 function serveStatic(req, res, pathname, { noStore = false } = {}) {
   let rel;
   try { rel = decodeURIComponent(pathname); } catch (err) { rel = pathname; }
+  if (rel.includes("\0")) { res.writeHead(400); res.end("Bad request"); return; }
   if (rel === "/") rel = "/index.html";
   if (rel === "/daily" || rel === "/karaoke") rel += ".html";
 
@@ -2677,6 +2656,24 @@ function readJsonBody(req, limit = 200000) {
     });
     req.on("error", reject);
   });
+}
+
+async function readJsonObject(req, res, limit = 200000, wrongTypeMessage = "Bad request") {
+  if (!/application\/json/i.test(req.headers["content-type"] || "")) {
+    sendJson(res, 400, { error: wrongTypeMessage });
+    return null;
+  }
+  try {
+    const body = await readJsonBody(req, limit);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      sendJson(res, 400, { error: "Bad request" });
+      return null;
+    }
+    return body;
+  } catch (err) {
+    sendJson(res, 400, { error: err.message || "Bad request" });
+    return null;
+  }
 }
 
 // every song, hidden or not, plus hidden entries the tracker no longer has
@@ -3459,8 +3456,8 @@ async function handleAdmin(req, res, pathname) {
       sendJson(res, 429, { error: `Too many tries. Wait ${Math.ceil((lockedUntil - Date.now()) / 1000)} seconds.` });
       return true;
     }
-    if (!/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
-    const body = await readJsonBody(req);
+    const body = await readJsonObject(req, res);
+    if (!body) return true;
     if (!passwordOk(body.password)) {
       const count = (failures?.count || 0) + 1;
       adminFailures.set(ipHash, count >= 5 ? { count: 0, lockedUntil: Date.now() + 60000 } : { count, lockedUntil: 0 });
@@ -3494,8 +3491,8 @@ async function handleAdmin(req, res, pathname) {
 
   if (pathname === "/api/admin/activate" && req.method === "POST") {
     if (!LIVE_CONTROL) { sendJson(res, 403, { error: "Play in game is off on this server (liveControl is false in config.json)." }); return true; }
-    if (!/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
-    const body = await readJsonBody(req);
+    const body = await readJsonObject(req, res);
+    if (!body) return true;
     const id = String(body.id || "");
     const song = catalogSongById(id);
     if (!song || isHidden(song) || !isGuessingEligible(song)) { sendJson(res, 404, { error: "Song not found, hidden or excluded. Refresh the tracker and try again." }); return true; }
@@ -3506,8 +3503,8 @@ async function handleAdmin(req, res, pathname) {
   }
 
   if (pathname === "/api/admin/hide" && req.method === "POST") {
-    if (!/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
-    const body = await readJsonBody(req);
+    const body = await readJsonObject(req, res);
+    if (!body) return true;
     const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
 
     if (body.hidden) {
@@ -3528,8 +3525,9 @@ async function handleAdmin(req, res, pathname) {
     // Accounts live on the dailyAuthority website, so its admin panel holds the list that counts.
     const authority = CONFIG.dailyAuthority || "";
     if (req.method === "GET") { sendJson(res, 200, { ...leaderboardStore.getUsernameFilters(), authority }); return true; }
-    if (req.method !== "POST" || !/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
-    const body = await readJsonBody(req);
+    if (req.method !== "POST") { sendJson(res, 400, { error: "Bad request" }); return true; }
+    const body = await readJsonObject(req, res);
+    if (!body) return true;
     try {
       sendJson(res, 200, { ...leaderboardStore.setUsernameFilter(body.word, body.blocked !== false), authority });
     } catch (err) {
@@ -3540,8 +3538,9 @@ async function handleAdmin(req, res, pathname) {
 
   if (pathname === "/api/admin/rename-player") {
     const authority = CONFIG.dailyAuthority || "";
-    if (req.method !== "POST" || !/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
-    const body = await readJsonBody(req);
+    if (req.method !== "POST") { sendJson(res, 400, { error: "Bad request" }); return true; }
+    const body = await readJsonObject(req, res);
+    if (!body) return true;
     if (authority) { sendJson(res, 409, { error: `This copy uses the accounts on ${authority}. Rename players in that website's admin panel.` }); return true; }
     try {
       sendJson(res, 200, { ...leaderboardStore.adminRename(body.username, body.newUsername), authority });
@@ -3562,8 +3561,9 @@ async function handleAdmin(req, res, pathname) {
         res.end(json);
         return true;
       }
-      if (pathname === "/api/admin/evidence-delete" && req.method === "POST" && /application\/json/.test(req.headers["content-type"] || "")) {
-        const body = await readJsonBody(req);
+      if (pathname === "/api/admin/evidence-delete" && req.method === "POST") {
+        const body = await readJsonObject(req, res);
+        if (!body) return true;
         sendJson(res, 200, { ...leaderboardStore.deleteEvidence(body.id), authority: CONFIG.dailyAuthority || "" });
         return true;
       }
@@ -3602,8 +3602,9 @@ async function handleAdmin(req, res, pathname) {
     // Bans, like accounts, only exist on the dailyAuthority website.
     const authority = CONFIG.dailyAuthority || "";
     if (pathname === "/api/admin/bans" && req.method === "GET") { sendJson(res, 200, { ...leaderboardStore.listBans(), authority }); return true; }
-    if (req.method !== "POST" || !/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
-    const body = await readJsonBody(req);
+    if (req.method !== "POST") { sendJson(res, 400, { error: "Bad request" }); return true; }
+    const body = await readJsonObject(req, res);
+    if (!body) return true;
     if (authority) { sendJson(res, 409, { error: `This copy uses the accounts on ${authority}. Ban players in that website's admin panel.` }); return true; }
     try {
       const result = pathname === "/api/admin/bans" ? leaderboardStore.banUser(body.username, body.reason)
@@ -3618,8 +3619,8 @@ async function handleAdmin(req, res, pathname) {
   }
 
   if (pathname === "/api/admin/rename" && req.method === "POST") {
-    if (!/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
-    const body = await readJsonBody(req);
+    const body = await readJsonObject(req, res);
+    if (!body) return true;
     const id = String(body.id || "");
     const song = catalogSongById(id);
     if (!song) { sendJson(res, 404, { error: "Song not found. Refresh the tracker and try again." }); return true; }
@@ -3637,8 +3638,8 @@ async function handleAdmin(req, res, pathname) {
   }
 
   if (pathname === "/api/admin/edit-row" && req.method === "POST") {
-    if (!/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
-    const body = await readJsonBody(req);
+    const body = await readJsonObject(req, res);
+    if (!body) return true;
     const trackerKey = String(body.trackerKey || "");
     const rawRow = LAST_INPUT && LAST_INPUT.rows.find(row => trackerRowKey(row) === trackerKey);
     if (!trackerKey || !rawRow) { sendJson(res, 404, { error: "Tracker row not found. Refresh the tracker and try again." }); return true; }
@@ -3657,8 +3658,8 @@ async function handleAdmin(req, res, pathname) {
   }
 
   if (pathname === "/api/admin/split" && req.method === "POST") {
-    if (!/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
-    const body = await readJsonBody(req);
+    const body = await readJsonObject(req, res);
+    if (!body) return true;
     const title = String(body.title || "");
     const era = String(body.era || "");
     const trackerKey = String(body.trackerKey || "");
@@ -3745,17 +3746,9 @@ async function handleLeaderboard(req, res, pathname) {
   if (!isPost && !isGet) { sendJson(res, 405, { error: "Use GET or POST." }); return true; }
   let body = null;
   if (isPost) {
-    if (!/application\/json/i.test(req.headers["content-type"] || "")) {
-      sendJson(res, 400, { error: "Expected JSON body." });
-      return true;
-    }
-    try {
-      // A full catalog solved in every mode is a few hundred kilobytes.
-      body = await readJsonBody(req, 2000000);
-    } catch (err) {
-      sendJson(res, 400, { error: err.message || "Bad request" });
-      return true;
-    }
+    // A full catalog solved in every mode is a few hundred kilobytes.
+    body = await readJsonObject(req, res, 2000000, "Expected JSON body.");
+    if (!body) return true;
   }
 
   const token = bearerToken(req, body);
@@ -3909,11 +3902,18 @@ function requestSignals(req) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const { pathname, searchParams, search } = new URL(req.url, "http://localhost");
-
   // lets the song splitter use every CPU core (shared memory needs these)
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
+
+  let pathname, searchParams, search;
+  try {
+    ({ pathname, searchParams, search } = new URL(req.url, "http://localhost"));
+  } catch {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Bad request");
+    return;
+  }
 
   try {
     // Canonical pages stay at the root so relative API, asset and audio URLs
@@ -4019,7 +4019,12 @@ const server = http.createServer(async (req, res) => {
     const roundAudio = /^\/api\/audio\/round-([a-f0-9]{32})(?:\/(drums|bass|other|vocals)\.mp3)?$/.exec(pathname);
     if (roundAudio) return serveRoundAudio(req, res, roundAudio[1], roundAudio[2] || "");
     const audio = /^\/api\/audio\/(.+)$/.exec(pathname);
-    if (audio) return serveSongAudio(req, res, decodeURIComponent(audio[1]));
+    if (audio) {
+      let songId;
+      try { songId = decodeURIComponent(audio[1]); }
+      catch { return sendJson(res, 400, { error: "Bad request" }); }
+      return serveSongAudio(req, res, songId);
+    }
 
     serveStatic(req, res, pathname);
   } catch (err) {

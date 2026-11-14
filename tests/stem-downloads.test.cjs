@@ -485,3 +485,52 @@ test("createStemCatalog resolves stemsDir realpath once per build, deduplicates 
   });
   await wait(30);
 });
+
+test("fetchFile cancels response streams when declared content-length mismatches", async () => {
+  const songsDir = path.join(tmp, "profile-mismatch", "Songs");
+  fs.mkdirSync(songsDir, { recursive: true });
+  const raw = four("mismatch");
+  const files = Object.entries(raw).map(([name, buf]) => ({
+    name,
+    size: buf.length,
+    sha256: crypto.createHash("sha256").update(buf).digest("hex")
+  }));
+  const catalog = {
+    songs: [{
+      id: "mismatch-song",
+      title: "Mismatch",
+      display: "Mismatch",
+      era: "2093",
+      folder: "Mismatch",
+      files,
+      size: files.reduce((sum, f) => sum + f.size, 0)
+    }],
+    pending: 0,
+    skipped: 0
+  };
+  let fileResponses = 0;
+  let cancelledStreams = 0;
+  const d = createStemDownloader({
+    songsDir,
+    host,
+    retryDelay: 0,
+    fetch: async url => {
+      if (url.endsWith("/api/stems/catalog")) {
+        return new Response(JSON.stringify(catalog), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      fileResponses++;
+      const bytes = raw["drums.mp3"];
+      const body = new ReadableStream({
+        pull(ctrl) { ctrl.enqueue(bytes); ctrl.close(); },
+        cancel() { cancelledStreams++; }
+      });
+      return new Response(body, { status: 200, headers: { "content-length": String(bytes.length + 10) } });
+    }
+  });
+  await d.loadCatalog();
+  d.download(["mismatch-song"]);
+  await settle(d);
+  assert.equal(d.snapshot().items["mismatch-song"].status, "failed");
+  assert.ok(fileResponses >= 1);
+  assert.equal(cancelledStreams, fileResponses);
+});

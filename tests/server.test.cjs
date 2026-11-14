@@ -968,3 +968,46 @@ test("admin activate, hide, and rename resolve canonical songs via SONG_INDEX wi
   assert.equal(act3.status, 200);
   assert.deepEqual(await act3.json(), { ok: true, seq: 3 });
 });
+
+test("malformed request URLs, null-byte paths, invalid audio IDs, and bad admin JSON return 400 instead of 500 or hanging", async t => {
+  const net = require("node:net");
+  const folder = dataFolder(t);
+  config(folder, { dailyAuthority: "", liveControl: true });
+  fs.writeFileSync(path.join(folder, "admin.json"), JSON.stringify({ password: "garlic" }));
+  const { url } = await launch(t, folder);
+  const { port } = new URL(url);
+
+  // NUL bytes in static/stems URLs must return 400 rather than throwing ERR_INVALID_ARG_VALUE (500).
+  for (const badPath of ["/%00", "/Songs/%00/drums.mp3"]) {
+    const res = await fetch(`${url}${badPath}`);
+    assert.equal(res.status, 400, badPath);
+  }
+
+  // Malformed percent encoding in /api/audio/:id must return 400 rather than throwing URIError (500).
+  const badAudio = await fetch(`${url}/api/audio/%E0%A4%A`);
+  assert.equal(badAudio.status, 400);
+
+  // Invalid JSON or non-object JSON in admin endpoints must return 400 instead of crashing with 500.
+  for (const body of ["{broken", "null", "[]"]) {
+    const res = await fetch(`${url}/api/admin/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body
+    });
+    assert.equal(res.status, 400, `admin login body ${body}`);
+  }
+
+  // Invalid WHATWG URL request-targets passed by http parser must get a 400 response instead of hanging.
+  const rawResponse = await new Promise((resolve, reject) => {
+    const sock = net.createConnection({ host: "127.0.0.1", port }, () => {
+      sock.write("GET http://bad:99999/ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    });
+    let data = "";
+    const timer = setTimeout(() => { sock.destroy(); reject(new Error(`Timed out waiting for 400 response; got: ${data}`)); }, 2000);
+    sock.setEncoding("utf8");
+    sock.on("data", chunk => { data += chunk; });
+    sock.on("end", () => { clearTimeout(timer); resolve(data); });
+    sock.on("error", err => { clearTimeout(timer); reject(err); });
+  });
+  assert.match(rawResponse, /^HTTP\/1\.1 400 /);
+});

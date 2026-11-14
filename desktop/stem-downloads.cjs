@@ -230,12 +230,16 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
         await wait(Number.isFinite(after) && after > 0 ? Math.min(after, 30) * 1000 : retryDelay * (attempt + 1), signal);
         continue;
       }
+      const discardBody = () => res.body?.cancel?.().catch(() => {});
       if (!res.ok) {
-        await res.body?.cancel?.().catch(() => {});
+        await discardBody();
         throw new Error(res.status === 409 ? "a file changed on the server; reload the list and retry" : `the server answered ${res.status} for ${file.name}`);
       }
       const declared = Number(res.headers.get("content-length"));
-      if (Number.isFinite(declared) && declared > 0 && declared !== file.size) throw new Error(`${file.name} has the wrong size on the server`);
+      if (Number.isFinite(declared) && declared > 0 && declared !== file.size) {
+        await discardBody();
+        throw new Error(`${file.name} has the wrong size on the server`);
+      }
       const part = path.join(dir, `${file.name}.part`);
       const out = fs.createWriteStream(part, { flags: "w" });
       let writeError = null;
