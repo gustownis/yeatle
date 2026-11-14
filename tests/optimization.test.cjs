@@ -354,3 +354,14 @@ test('stem-cache aborts cleanly on mid-load and mid-save cancellation without co
   assert.equal(fake.stores.get('chunks').has(`${endKey}:0`),false);
  });
 });
+
+test('home page does not block first paint on yeatle.js or eager AudioContext startup',()=>{
+ const html=fs.readFileSync(path.join(__dirname,'../build/index.html'),'utf8');
+ const yeatleTag=html.match(/<script\b[^>]*assets\/yeatle\.js[^>]*>/i)?.[0]||'';
+ assert.ok(yeatleTag,'expected yeatle.js script tag in build/index.html');
+ assert.equal(/blocking\s*=\s*["']?render/i.test(yeatleTag),false);
+
+ const bundle=fs.readFileSync(path.join(__dirname,'../build/assets/yeatle.js'),'utf8');
+ assert.ok(bundle.includes('yeatlePaintedRef'), 'expected painted gate ref in yeatle.js');
+ assert.ok(bundle.includes('YeatleEnsurePlayer'), 'expected interaction flush helper in yeatle.js');
+});
