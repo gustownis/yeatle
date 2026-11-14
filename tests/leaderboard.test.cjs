@@ -15,9 +15,37 @@ const day = offset => new Date(NOW + offset * DAY).toISOString().slice(0, 10);
 const won = date => ({ id: `v1:${date}:song`, attempts: [{ kind: "right", text: "song" }], status: "won" });
 const lost = date => ({ id: `v1:${date}:song`, attempts: Array(6).fill({ kind: "skip", text: "" }), status: "lost" });
 
-function tempDir(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-lb-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+const cleanups = new WeakMap();
+
+function testCleanup(t) {
+  let state = cleanups.get(t);
+  if (!state) {
+    state = { children: new Set(), dirs: new Set() };
+    cleanups.set(t, state);
+    // node:test runs t.after hooks FIFO, so stop forked servers before removing their temp dirs.
+    t.after(async () => {
+      await Promise.all([...state.children].map(child => {
+        if (child.exitCode !== null || child.signalCode) return;
+        const exit = new Promise(resolve => child.once("exit", resolve));
+        child.kill();
+        return exit;
+      }));
+      for (const dir of state.dirs) {
+        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      }
+    });
+  }
+  return state;
+}
+
+function trackChild(t, child) {
+  testCleanup(t).children.add(child);
+  return child;
+}
+
+function tempDir(t, prefix = "yeatle-lb-") {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  testCleanup(t).dirs.add(dir);
   return dir;
 }
 
@@ -27,20 +55,13 @@ function newStore(t, options) {
 
 async function startServer(t, dir, dailyAuthority = "") {
   fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority }));
-  const child = fork(path.join(root, "server.js"), [], {
+  const child = trackChild(t, fork(path.join(root, "server.js"), [], {
     silent: true,
     env: { ...process.env, YEATLE_DATA_DIR: dir, YEATLE_STEMS_DIR: "", YEATLE_DESKTOP: "1", YEATLE_PORT: "0" }
-  });
+  }));
   let logs = "";
   child.stdout.on("data", b => { logs += b; });
   child.stderr.on("data", b => { logs += b; });
-  t.after(async () => {
-    if (child.exitCode === null && !child.signalCode) {
-      const exit = new Promise(r => child.once("exit", r));
-      child.kill();
-      await exit;
-    }
-  });
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error(logs)), 5000);
     child.on("message", m => { if (m.type === "yeatle-ready") { clearTimeout(timeout); resolve(`http://127.0.0.1:${m.port}`); } });
@@ -251,8 +272,7 @@ for (const [name, stop] of [["SIGTERM", child => child.kill("SIGTERM")], ["the d
   test(`recent progress is written before stopping on ${name}`, { skip: name === "SIGTERM" && process.platform === "win32" }, async t => {
     const dir = tempDir(t);
     fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "" }));
-    const child = fork(path.join(root, "server.js"), [], { silent: true, env: { ...process.env, YEATLE_DATA_DIR: dir, YEATLE_STEMS_DIR: "", YEATLE_DESKTOP: "1", YEATLE_PORT: "0" } });
-    t.after(() => { if (child.exitCode === null && !child.signalCode) child.kill(); });
+    const child = trackChild(t, fork(path.join(root, "server.js"), [], { silent: true, env: { ...process.env, YEATLE_DATA_DIR: dir, YEATLE_STEMS_DIR: "", YEATLE_DESKTOP: "1", YEATLE_PORT: "0" } }));
     const port = await new Promise((resolve, reject) => {
       child.on("message", message => { if (message.type === "yeatle-ready") resolve(message.port); });
       child.once("exit", code => reject(new Error(`Server exited ${code}`)));
@@ -486,8 +506,7 @@ test("alive 4 a min, regular person and terrified are blocked in any spelling", 
   for (const name of ["alive", "regular", "person", "teriyaki", "territory", "terry", "fewmet", "IShat4aMin", "Lyfestealer"]) {
     assert.ok(!isBuiltInBlockedUsername(name), `${name} should be allowed`);
   }
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-builtin-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tempDir(t, "yeatle-builtin-");
   const store = createLeaderboardStore(path.join(dir, "leaderboard-users.json"));
   await assert.rejects(() => store.register({ username: "Alive-4-A-Min", password: "yeatfan1" }, NOW), err => err.status === 400 && err.message === BLOCKED_USERNAME_MESSAGE);
   const ok = await store.register({ username: "yeatfan", password: "yeatfan1" }, NOW);

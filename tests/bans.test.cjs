@@ -12,9 +12,32 @@ const DAY = 86400000;
 const NOW = Date.parse("2026-10-27T12:00:00Z");
 const progress = { completed: { stems: ["a", "b"] }, karaoke: { "yeatle-karaoke-best:a:easy": { score: 1000, name: "x" } } };
 
+const cleanups = new WeakMap();
+
+function testCleanup(t) {
+  let state = cleanups.get(t);
+  if (!state) {
+    state = { children: new Set(), dirs: new Set() };
+    cleanups.set(t, state);
+    // node:test runs t.after hooks FIFO, so stop forked servers before removing their temp dirs.
+    t.after(async () => {
+      await Promise.all([...state.children].map(child => {
+        if (child.exitCode !== null || child.signalCode) return;
+        const exit = new Promise(resolve => child.once("exit", resolve));
+        child.kill();
+        return exit;
+      }));
+      for (const dir of state.dirs) {
+        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      }
+    });
+  }
+  return state;
+}
+
 function tempDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-ban-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  testCleanup(t).dirs.add(dir);
   return dir;
 }
 
@@ -142,12 +165,10 @@ test("client addresses come from the socket unless a configured proxy forwarded 
 async function startServer(t, dir, config = {}) {
   fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "", ...config }));
   const child = fork(path.join(root, "server.js"), [], { silent: true, env: { ...process.env, YEATLE_DATA_DIR: dir, YEATLE_STEMS_DIR: "", YEATLE_DESKTOP: "1", YEATLE_PORT: "0" } });
+  testCleanup(t).children.add(child);
   let logs = "";
   child.stdout.on("data", b => { logs += b; });
   child.stderr.on("data", b => { logs += b; });
-  t.after(async () => {
-    if (child.exitCode === null && !child.signalCode) { const exit = new Promise(r => child.once("exit", r)); child.kill(); await exit; }
-  });
   const url = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error(logs)), 5000);
     child.on("message", m => { if (m.type === "yeatle-ready") { clearTimeout(timeout); resolve(`http://127.0.0.1:${m.port}`); } });
