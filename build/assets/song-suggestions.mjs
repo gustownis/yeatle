@@ -1,5 +1,5 @@
-import { normalizeGuess } from "./snippet-rules.mjs?v=1.13.9";
-import { songsForPool } from "./song-pools.mjs?v=1.13.9";
+import { normalizeGuess } from "./snippet-rules.mjs?v=1.13.10";
+import { songsForPool } from "./song-pools.mjs?v=1.13.10";
 
 const ALIAS_PARENS_RE = /\s*\(([^()]*(?:,|\([^()]*\))[^()]*)\)/g;
 const PAREN_BLOCK_RE = /\s*\([^()]*\)/g;

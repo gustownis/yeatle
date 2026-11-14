@@ -1,7 +1,7 @@
-import{inSongPool as YeatleInPool,songsForPool as YeatlePoolSongs,eraCounts as YeatleEraCounts,restorePracticeSong as YeatleRestorePractice}from"./song-pools.mjs?v=1.13.9";
-import{BASE_LENGTHS as YeatleBaseLengths,matchesSong as YeatleMatchesSong,matchesVersion as YeatleMatchesVersion}from"./snippet-rules.mjs?v=1.13.9";
+import{inSongPool as YeatleInPool,songsForPool as YeatlePoolSongs,eraCounts as YeatleEraCounts,restorePracticeSong as YeatleRestorePractice}from"./song-pools.mjs?v=1.13.10";
+import{BASE_LENGTHS as YeatleBaseLengths,matchesSong as YeatleMatchesSong,matchesVersion as YeatleMatchesVersion}from"./snippet-rules.mjs?v=1.13.10";
 // Snippets rounds are picked and checked by the server, so the answer never reaches this page early.
-import{snippetRounds as YeatleRounds}from"./leaderboard.mjs?v=1.13.9";
+import{snippetRounds as YeatleRounds}from"./leaderboard.mjs?v=1.13.10";
 // The last song list, kept for this window's session so returning from Daily or Karaoke
 // draws the full game in its first frame instead of an empty list that fills in later.
 // The game panel's last height for each mode, kept for this window's session. Snippets rounds
