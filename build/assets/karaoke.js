@@ -1678,7 +1678,7 @@ async function loadSplitSong(song, job) {
     revision = (await runSplitter(left, right, stems, job)) || revision;
     job.check();
     const key = cache && hash ? cache.stemCacheKey(hash, revision, SR) : null;
-    if (key) cache.saveStems(key, stems, total).catch(() => {});
+    if (key) cache.saveStems(key, stems, total, () => job.cancelled).catch(() => {});
   }
 
   job.check();

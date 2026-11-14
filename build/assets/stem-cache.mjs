@@ -64,25 +64,57 @@ async function discard(db, key) {
   return false;
 }
 
+function allFinite(samples) {
+  for (let i = 0; i < samples.length; i++) {
+    if (!Number.isFinite(samples[i])) return false;
+  }
+  return true;
+}
+
+function validChunk(chunk, length) {
+  if (!chunk?.stems) return false;
+  for (const stem of STEMS) {
+    const data = chunk.stems[stem];
+    if (!(data instanceof Float32Array) || data.length !== length || !allFinite(data)) return false;
+  }
+  return true;
+}
+
 export async function loadStems(key, buffers, total, isCancelled = () => false) {
-  if (!key) return false;
+  if (!key || isCancelled()) return false;
   try {
-    const db = await open(); if (!db) return false;
-    const meta = await transaction(db, ["entries"], "readonly", (tx, done) => {
-      const request = tx.objectStore("entries").get(key); request.onsuccess = () => done(request.result);
+    const db = await open();
+    if (!db || isCancelled()) return false;
+    const expectedChunks = Math.ceil(total / CHUNK_SAMPLES);
+    const status = await transaction(db, ["entries", "chunks"], "readonly", (tx, done) => {
+      const entries = tx.objectStore("entries"), chunks = tx.objectStore("chunks");
+      const metaReq = entries.get(key);
+      metaReq.onsuccess = () => {
+        if (isCancelled()) { done("cancelled"); return; }
+        const meta = metaReq.result;
+        if (!meta?.complete) { done("miss"); return; }
+        if (meta.total !== total || meta.bytes !== total * STEMS.length * 4 || meta.chunks !== expectedChunks) {
+          done("invalid"); return;
+        }
+        const readNext = index => {
+          if (isCancelled()) { done("cancelled"); return; }
+          if (index >= meta.chunks) { done("hit"); return; }
+          const from = index * CHUNK_SAMPLES, length = Math.min(CHUNK_SAMPLES, total - from);
+          const req = chunks.get(`${key}:${index}`);
+          req.onsuccess = () => {
+            if (isCancelled()) { done("cancelled"); return; }
+            const chunk = req.result;
+            if (!validChunk(chunk, length)) { done("invalid"); return; }
+            for (const stem of STEMS) buffers[stem].copyToChannel(chunk.stems[stem], 0, from);
+            readNext(index + 1);
+          };
+        };
+        readNext(0);
+      };
     });
-    if (!meta?.complete) return false;
-    if (meta.total !== total || meta.bytes !== total * STEMS.length * 4 || meta.chunks !== Math.ceil(total / CHUNK_SAMPLES)) return discard(db, key);
-    for (let index = 0; index < meta.chunks; index++) {
-      if (isCancelled()) return false;
-      const chunk = await transaction(db, ["chunks"], "readonly", (tx, done) => {
-        const request = tx.objectStore("chunks").get(`${key}:${index}`); request.onsuccess = () => done(request.result);
-      });
-      const from = index * CHUNK_SAMPLES, length = Math.min(CHUNK_SAMPLES, total - from);
-      if (isCancelled()) return false;
-      if (!chunk || STEMS.some(stem => !(chunk.stems[stem] instanceof Float32Array) || chunk.stems[stem].length !== length || !chunk.stems[stem].every(Number.isFinite))) return discard(db, key);
-      for (const stem of STEMS) buffers[stem].copyToChannel(chunk.stems[stem], 0, from);
-    }
+    if (status === "invalid") return discard(db, key);
+    if (status !== "hit" || isCancelled()) return false;
+    buffers = null;
     await transaction(db, ["entries"], "readwrite", tx => {
       const store = tx.objectStore("entries"), request = store.get(key);
       request.onsuccess = () => { if (request.result?.complete) store.put({ ...request.result, lastUsed: Date.now() }); };
@@ -93,10 +125,11 @@ export async function loadStems(key, buffers, total, isCancelled = () => false) 
 
 export async function saveStems(key, buffers, total, isCancelled = () => false) {
   const bytes = total * STEMS.length * 4;
-  if (!key || !total || bytes > MAX_ENTRY_BYTES) return false;
+  if (!key || !total || bytes > MAX_ENTRY_BYTES || isCancelled()) return false;
   let db;
   try {
-    db = await open(); if (!db) return false;
+    db = await open();
+    if (!db || isCancelled()) return false;
     const now = Date.now();
     const reservation = await transaction(db, ["entries", "chunks"], "readwrite", (tx, done) => {
       const request = tx.objectStore("entries").getAll();
@@ -119,15 +152,19 @@ export async function saveStems(key, buffers, total, isCancelled = () => false) 
     if (reservation === "exists") return true;
     if (!reservation) return false;
     // Each transaction copies at most 6 MiB, avoiding a second whole-song copy.
-    for (let index = 0; index < Math.ceil(total / CHUNK_SAMPLES); index++) {
+    const chunkCount = Math.ceil(total / CHUNK_SAMPLES);
+    for (let index = 0; index < chunkCount; index++) {
       if (isCancelled()) throw new Error("Stem cache save cancelled");
       const from = index * CHUNK_SAMPLES, to = Math.min(total, from + CHUNK_SAMPLES);
       const stems = Object.fromEntries(STEMS.map(stem => [stem, buffers[stem].getChannelData(0).slice(from, to)]));
       await transaction(db, ["chunks"], "readwrite", tx => { tx.objectStore("chunks").put({ id: `${key}:${index}`, owner: key, stems }); });
     }
-    await transaction(db, ["entries"], "readwrite", tx => { tx.objectStore("entries").put({ key, total, bytes, chunks: Math.ceil(total / CHUNK_SAMPLES), complete: true, lastUsed: now }); });
+    if (isCancelled()) throw new Error("Stem cache save cancelled");
+    buffers = null;
+    await transaction(db, ["entries"], "readwrite", tx => { tx.objectStore("entries").put({ key, total, bytes, chunks: chunkCount, complete: true, lastUsed: now }); });
     return true;
   } catch (_) {
+    buffers = null;
     if (db) try { await transaction(db, ["entries", "chunks"], "readwrite", tx => erase(tx, key)); } catch (_) {}
     return false;
   }

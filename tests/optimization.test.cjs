@@ -180,3 +180,177 @@ test('catalog metadata, karaoke migration, and round selection avoid quadratic s
  assert.match(round.roundId,/^[a-f0-9]{32}$/);
  assert.ok(roundMs<80,`startSnippetRound over 1500 candidates took ${roundMs.toFixed(1)}ms`);
 });
+
+function createFakeIndexedDB(){
+ const stores=new Map([['entries',new Map()],['chunks',new Map()]]);
+ const transactions=[];
+ const makeRequest=run=>{const req={result:undefined,error:null,onsuccess:null,onerror:null};run(req);return req;};
+ const db={
+  objectStoreNames:{contains:name=>stores.has(name)},
+  createObjectStore(name){if(!stores.has(name))stores.set(name,new Map());return{createIndex(){}};},
+  transaction(names,mode='readonly'){
+   const storeNames=Array.isArray(names)?names:[names];
+   const record={stores:storeNames,mode,gets:[],puts:[],deletes:[]};
+   transactions.push(record);
+   let pending=0,finished=false;
+   const tx={error:null,oncomplete:null,onerror:null,onabort:null,objectStore:null};
+   const maybeFinish=()=>{if(!finished&&pending===0){finished=true;queueMicrotask(()=>tx.oncomplete?.());}};
+   const track=(storeName,fn)=>{
+    const map=stores.get(storeName);
+    pending++;
+    return makeRequest(req=>queueMicrotask(()=>{
+     try{fn(map,req);req.onsuccess?.({target:req});}
+     catch(error){tx.error=req.error=error;req.onerror?.({target:req});if(!finished){finished=true;tx.onabort?.();}return;}
+     finally{pending--;}
+     maybeFinish();
+    }));
+   };
+   tx.objectStore=name=>({
+    get:key=>track(name,(map,req)=>{record.gets.push({store:name,key});req.result=map.get(key);}),
+    getAll:()=>track(name,(map,req)=>{req.result=[...map.values()];}),
+    put:value=>track(name,(map,req)=>{const key=name==='entries'?value.key:value.id;record.puts.push({store:name,key});map.set(key,value);req.result=key;}),
+    delete:key=>track(name,(map,req)=>{record.deletes.push({store:name,key});map.delete(key);req.result=undefined;}),
+    index:()=>({
+     openKeyCursor(range){
+      const keys=[...stores.get(name).entries()].filter(([,v])=>v.owner===range.only).map(([k])=>k);
+      let pos=0;const req={result:null,onsuccess:null};
+      const step=()=>{pending++;queueMicrotask(()=>{req.result=pos<keys.length?{primaryKey:keys[pos++],continue:step}:null;req.onsuccess?.({target:req});pending--;maybeFinish();});};
+      step();
+      return req;
+     }
+    })
+   });
+   queueMicrotask(maybeFinish);
+   return tx;
+  },
+  close(){}
+ };
+ return{
+  stores,
+  transactions,
+  indexedDB:{
+   open(){const req={result:db,error:null,onupgradeneeded:null,onsuccess:null,onerror:null,onblocked:null};queueMicrotask(()=>{req.onupgradeneeded?.();req.onsuccess?.();});return req;}
+  }
+ };
+}
+
+async function withStemCacheDB(run){
+ const fake=createFakeIndexedDB();
+ const prevIDB=globalThis.indexedDB,prevRange=globalThis.IDBKeyRange;
+ globalThis.indexedDB=fake.indexedDB;
+ globalThis.IDBKeyRange={only:value=>({only:value})};
+ try{
+  const mod=await import(`${pathToFileURL(path.join(__dirname,'../build/assets/stem-cache.mjs')).href}?t=${Date.now()}-${Math.random()}`);
+  await run(mod,fake);
+ }finally{
+  if(prevIDB===undefined)delete globalThis.indexedDB;else globalThis.indexedDB=prevIDB;
+  if(prevRange===undefined)delete globalThis.IDBKeyRange;else globalThis.IDBKeyRange=prevRange;
+ }
+}
+
+function makeStemBuffers(total,fill){
+ const make=(offset=0)=>{
+  const data=new Float32Array(total);
+  if(typeof fill==='function')for(let i=0;i<total;i++)data[i]=fill(offset+i);
+  else if(fill!==undefined)data.fill(fill);
+  return{
+   data,
+   getChannelData(){return data;},
+   copyToChannel(chunk,_channel,start=0){data.set(chunk,start);}
+  };
+ };
+ return{drums:make(0),bass:make(0.1),other:make(0.2)};
+}
+
+test('stem-cache batches multi-chunk reads into one readonly transaction and preserves IDB schema',async()=>{
+ await withStemCacheDB(async(cache,fake)=>{
+  const chunk=512*1024,total=chunk*2+123;
+  const src=makeStemBuffers(total,v=>(Math.floor(v)%97)/100);
+  const key=cache.stemCacheKey('abc123','rev1',44100);
+  assert.equal(await cache.saveStems(key,src,total),true);
+
+  const meta=fake.stores.get('entries').get(key);
+  assert.deepEqual({key:meta.key,total:meta.total,bytes:meta.bytes,chunks:meta.chunks,complete:meta.complete},{key,total,bytes:total*12,chunks:3,complete:true});
+  assert.equal(typeof meta.lastUsed,'number');
+  assert.equal(fake.stores.get('chunks').size,3);
+
+  fake.transactions.length=0;
+  const dst=makeStemBuffers(total,0);
+  assert.equal(await cache.loadStems(key,dst,total),true);
+
+  const readonlyTxs=fake.transactions.filter(tx=>tx.mode==='readonly');
+  assert.equal(readonlyTxs.length,1);
+  assert.deepEqual(readonlyTxs[0].gets.map(g=>`${g.store}:${g.key}`),[`entries:${key}`,`chunks:${key}:0`,`chunks:${key}:1`,`chunks:${key}:2`]);
+  assert.equal(fake.transactions.filter(tx=>tx.mode==='readwrite').length,1);
+  for(const stem of['drums','bass','other']){
+   assert.equal(dst[stem].data[0],src[stem].data[0]);
+   assert.equal(dst[stem].data[chunk],src[stem].data[chunk]);
+   assert.equal(dst[stem].data[total-1],src[stem].data[total-1]);
+  }
+ });
+});
+
+test('stem-cache rejects missing, mismatched-length, non-Float32Array, and non-finite chunks and discards the entry',async()=>{
+ await withStemCacheDB(async(cache,fake)=>{
+  const chunk=512*1024,total=chunk+64;
+  const key=cache.stemCacheKey('hash','rev',44100);
+  const src=makeStemBuffers(total,0.25);
+
+  for(const corrupt of[
+   ()=>fake.stores.get('chunks').delete(`${key}:1`),
+   ()=>{fake.stores.get('chunks').get(`${key}:1`).stems.drums=new Float32Array(10);},
+   ()=>{fake.stores.get('chunks').get(`${key}:1`).stems.bass[17]=Number.NaN;},
+   ()=>{fake.stores.get('chunks').get(`${key}:1`).stems.other[17]=Number.POSITIVE_INFINITY;},
+   ()=>{fake.stores.get('chunks').get(`${key}:1`).stems.other[17]=Number.NEGATIVE_INFINITY;},
+   ()=>{fake.stores.get('chunks').get(`${key}:1`).stems.drums=Array.from({length:64},()=>0);},
+   ()=>{fake.stores.get('chunks').get(`${key}:1`).stems=null;}
+  ]){
+   assert.equal(await cache.saveStems(key,src,total),true);
+   corrupt();
+   const dst=makeStemBuffers(total,0);
+   assert.equal(await cache.loadStems(key,dst,total),false);
+   assert.equal(fake.stores.get('entries').has(key),false);
+   assert.equal(fake.stores.get('chunks').size,0);
+  }
+ });
+});
+
+test('stem-cache aborts cleanly on mid-load and mid-save cancellation without corrupting cache state',async()=>{
+ await withStemCacheDB(async(cache,fake)=>{
+  const chunk=512*1024,total=chunk*2+50;
+  const src=makeStemBuffers(total,0.5);
+  const loadKey=cache.stemCacheKey('load-key','rev',44100);
+  assert.equal(await cache.saveStems(loadKey,src,total),true);
+
+  fake.transactions.length=0;
+  let loadCancelled=false;
+  const dst=makeStemBuffers(total,0);
+  const origCopy=dst.other.copyToChannel.bind(dst.other);
+  dst.other.copyToChannel=(samples,ch,from)=>{origCopy(samples,ch,from);loadCancelled=true;};
+  assert.equal(await cache.loadStems(loadKey,dst,total,()=>loadCancelled),false);
+  assert.equal(fake.stores.get('entries').get(loadKey)?.complete,true);
+  assert.equal(fake.stores.get('chunks').size,3);
+  assert.deepEqual(fake.transactions.filter(tx=>tx.mode==='readonly')[0].gets.map(g=>g.key),[loadKey,`${loadKey}:0`]);
+
+  const saveKey=cache.stemCacheKey('save-key','rev',44100);
+  let saveCancelled=false;
+  const cancelSrc=makeStemBuffers(total,0.5);
+  const origGet=cancelSrc.drums.getChannelData.bind(cancelSrc.drums);
+  let reads=0;
+  cancelSrc.drums.getChannelData=()=>{if(++reads===1)saveCancelled=true;return origGet();};
+  assert.equal(await cache.saveStems(saveKey,cancelSrc,total,()=>saveCancelled),false);
+  assert.equal(fake.stores.get('entries').has(saveKey),false);
+  assert.equal(fake.stores.get('chunks').has(`${saveKey}:0`),false);
+
+  // Cancelling after the last chunk write still aborts before marking complete.
+  const endKey=cache.stemCacheKey('end-key','rev',44100);
+  let endCancelled=false;
+  const endSrc=makeStemBuffers(total,0.5);
+  const origEndGet=endSrc.other.getChannelData.bind(endSrc.other);
+  let endReads=0;
+  endSrc.other.getChannelData=()=>{if(++endReads===3)endCancelled=true;return origEndGet();};
+  assert.equal(await cache.saveStems(endKey,endSrc,total,()=>endCancelled),false);
+  assert.equal(fake.stores.get('entries').has(endKey),false);
+  assert.equal(fake.stores.get('chunks').has(`${endKey}:0`),false);
+ });
+});

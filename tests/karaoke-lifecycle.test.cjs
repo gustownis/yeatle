@@ -27,7 +27,10 @@ function harness(extra = {}) {
     navigator: {}, document: { createElement: () => ({ style: {}, setAttribute() {}, addEventListener() {}, append() {} }), getElementById: () => null, querySelector: node, querySelectorAll: () => [node("#setup"), node("#loading")] },
     ...extra
   });
-  vm.runInContext(source, context);
+  const code = extra.mockStemCache
+    ? source.replace("import(`./stem-cache.mjs?v=${VERSION}`)", "mockStemCache()")
+    : source;
+  vm.runInContext(code, context);
   return { run: code => vm.runInContext(code, context), node, context };
 }
 
@@ -413,5 +416,55 @@ test("closing delay calibration early stops and disconnects every scheduled beep
   assert.equal(disconnects.length, 24);
   assert.equal(listeners.get("keydown")?.size ?? 0, 0);
   assert.equal(bodyChildren.length, 0);
+});
+
+test("loadSplitSong passes job cancellation predicate to stem cache saveStems", async () => {
+  let savedArgs = null;
+  const makeBuffer = (_ch, len) => {
+    const data = new Float32Array(len);
+    return { numberOfChannels: 1, length: len, getChannelData: () => data, copyToChannel: (src, _c, start = 0) => data.set(src, start) };
+  };
+  class FakeWorker {
+    postMessage({ id }) {
+      const f = new Float32Array(8).fill(0.1);
+      queueMicrotask(() => {
+        this.onmessage?.({ data: { type: "segment", id, from: 0, done: 1, splits: 1, stems: { drums: f, bass: f, other: f } } });
+        this.onmessage?.({ data: { type: "done", id } });
+      });
+    }
+    terminate() {}
+  }
+  class FakeOfflineAudioContext {
+    async decodeAudioData() {
+      const ch = new Float32Array(8).fill(0.25);
+      return { length: 8, numberOfChannels: 2, getChannelData: () => ch };
+    }
+  }
+  const h = harness({
+    Worker: FakeWorker,
+    OfflineAudioContext: FakeOfflineAudioContext,
+    fetch: async url => {
+      if (String(url).includes("separator-revision")) return { ok: true, json: async () => ({ revision: "rev-1" }) };
+      return { ok: true, arrayBuffer: async () => new ArrayBuffer(16) };
+    },
+    mockStemCache: () => ({
+      canCacheStems: () => true,
+      hashAudio: async () => "hash-1",
+      stemCacheKey: (hash, rev, sr) => `${hash}:${rev}:${sr}`,
+      loadStems: async () => false,
+      saveStems: async (key, stems, total, isCancelled) => {
+        savedArgs = { key, stems, total, isCancelled };
+        return true;
+      }
+    })
+  });
+  h.context.ctx = { createBuffer: makeBuffer };
+  h.run("audioContext = ctx; state.job = makeJob();");
+  await h.run('loadSplitSong({ id: "s1", audioId: "a1" }, state.job)');
+  assert.ok(savedArgs, "saveStems should have been called after separation");
+  assert.equal(typeof savedArgs.isCancelled, "function");
+  assert.equal(savedArgs.isCancelled(), false);
+  h.run("state.job.cancel()");
+  assert.equal(savedArgs.isCancelled(), true);
 });
 
