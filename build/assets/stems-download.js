@@ -34,8 +34,7 @@ function canSelect(song) {
   return status !== "installed" && status !== "conflict" && !busyStates.has(status);
 }
 
-function shownSongs() {
-  const query = norm($("#search").value);
+function shownSongs(query = norm($("#search").value)) {
   const hide = $("#hide-installed").checked;
   return state.catalog.songs.filter(song => (!hide || statusOf(song.id).status !== "installed") &&
     (!query || (song._searchHay ??= norm(`${song.display} ${song.title} ${song.era} ${song.year || ""} ${song.features.join(" ")}`)).includes(query)));
@@ -95,12 +94,13 @@ function render() {
   $("#dest").textContent = state.songsDir;
   const status = $("#status");
   const list = $("#list");
+  let shown;
   if (catalog.loading && !catalog.loaded) { status.textContent = "Loading the list of songs…"; list.replaceChildren(); }
   else if (catalog.error) {
     status.replaceChildren(catalog.error + " ", el("button", { class: "linkish", text: "Try again", onclick: () => api.refresh() }));
   } else {
     const query = norm($("#search").value);
-    const shown = shownSongs();
+    shown = shownSongs(query);
     const installed = catalog.songs.filter(song => statusOf(song.id).status === "installed").length;
     const extra = [catalog.pending ? `${catalog.pending} more are still being prepared on the server` : "", catalog.skipped ? `${catalog.skipped} couldn't be offered` : ""].filter(Boolean).join(" · ");
     status.textContent = `${catalog.songs.length} song${catalog.songs.length === 1 ? "" : "s"} available · ${installed} installed${extra ? ` · ${extra}` : ""}. Pick the ones you want; nothing downloads until you do.`;
@@ -125,7 +125,7 @@ function render() {
     if (rows.length !== list.children.length || rows.some((row, i) => list.children[i] !== row)) list.replaceChildren(...rows);
     if (!shown.length) list.replaceChildren(el("p", { class: "muted", text: query ? "No songs match that search." : "Nothing to show." }));
   }
-  const selectable = shownSongs().filter(canSelect);
+  const selectable = (shown ?? shownSongs()).filter(canSelect);
   const checked = selectable.filter(song => picked.has(song.id)).length;
   const all = $("#check-all");
   all.disabled = Boolean(catalog.loading || catalog.error) || !selectable.length;

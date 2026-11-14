@@ -384,7 +384,8 @@ function premasterFor(song, variants) {
   return null;
 }
 
-const compiledCorrections = corrections.map(rule => ({
+const compiledCorrections = corrections.map((rule, order) => ({
+  order,
   matchEntries: Object.entries(rule.match).map(([key, value]) => [
     key,
     value,
@@ -427,13 +428,37 @@ function matchesCorrection(song, rule) {
   return true;
 }
 
+function candidateCorrections(song) {
+  const byId = correctionsById.get(song.id);
+  const byTitle = correctionsByTitleKey.size ? correctionsByTitleKey.get(titleKey(song.title)) : undefined;
+  const byGeneral = correctionsGeneral.length ? correctionsGeneral : undefined;
+  const count = (byId ? 1 : 0) + (byTitle ? 1 : 0) + (byGeneral ? 1 : 0);
+  if (count === 0) return null;
+  if (count === 1) return byId || byTitle || byGeneral;
+  const merged = [];
+  if (byId) merged.push(...byId);
+  if (byTitle) merged.push(...byTitle);
+  if (byGeneral) merged.push(...byGeneral);
+  return merged.sort((a, b) => a.order - b.order);
+}
+
 function applyCorrections(song) {
   let result = song;
-  const hasIdCandidate = correctionsById.has(result.id);
-  const hasTitleCandidate = correctionsByTitleKey.size && correctionsByTitleKey.has(titleKey(result.title));
-  if (!hasIdCandidate && !hasTitleCandidate && !correctionsGeneral.length) return result;
-  for (const rule of compiledCorrections) {
-    if (matchesCorrection(result, rule)) result = { ...result, ...rule.set };
+  let candidates = candidateCorrections(result);
+  if (!candidates) return result;
+  for (let i = 0; i < candidates.length; i++) {
+    const rule = candidates[i];
+    if (matchesCorrection(result, rule)) {
+      const prevId = result.id, prevTitle = result.title;
+      result = { ...result, ...rule.set };
+      if (result.id !== prevId || result.title !== prevTitle) {
+        const next = candidateCorrections(result);
+        if (next && next !== candidates) {
+          candidates = [...new Set([...candidates, ...next])].sort((a, b) => a.order - b.order);
+          i = candidates.indexOf(rule);
+        }
+      }
+    }
   }
   return result;
 }

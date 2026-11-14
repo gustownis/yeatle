@@ -289,3 +289,129 @@ test("an overconstrained mic request falls back to default audio instead of erro
   assert.ok(attempts.length >= 2);
 });
 
+test("closing delay calibration early stops and disconnects every scheduled beep", async () => {
+  const scheduled = [], manualStops = [], disconnects = [], rafs = [];
+  const listeners = new Map();
+  const bodyChildren = [];
+  const makeNode = tagName => {
+    const node = {
+      tagName,
+      className: "",
+      textContent: "",
+      hidden: false,
+      style: {},
+      children: [],
+      attributes: {},
+      classList: { toggle() {}, remove() {}, add() {} },
+      setAttribute(name, value) { this.attributes[name] = value; },
+      addEventListener(type, fn) { (this._events ||= {})[type] = fn; },
+      append(...kids) {
+        for (const kid of kids) {
+          kid.parent = this;
+          this.children.push(kid);
+        }
+      },
+      remove() {
+        this.removed = true;
+        const idx = bodyChildren.indexOf(this);
+        if (idx >= 0) bodyChildren.splice(idx, 1);
+      },
+      querySelectorAll(sel) {
+        const out = [];
+        const walk = list => {
+          for (const child of list) {
+            if (child.tagName === sel) out.push(child);
+            if (child.children.length) walk(child.children);
+          }
+        };
+        walk(this.children);
+        return out;
+      }
+    };
+    return node;
+  };
+  const findText = (node, text) => {
+    if (node.textContent === text) return node;
+    for (const child of node.children) {
+      const hit = findText(child, text);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const doc = {
+    body: {
+      children: bodyChildren,
+      append(...kids) { for (const kid of kids) bodyChildren.push(kid); }
+    },
+    createElement: makeNode,
+    getElementById: () => null,
+    querySelector: () => makeNode("div"),
+    querySelectorAll: () => [],
+    addEventListener(type, fn) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(fn);
+    },
+    removeEventListener(type, fn) {
+      listeners.get(type)?.delete(fn);
+    }
+  };
+  const ctx = {
+    currentTime: 10,
+    destination: {},
+    outputLatency: 0,
+    resume: async () => {},
+    createGain: () => ({ gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {} }),
+    createOscillator() {
+      const osc = {
+        frequency: { value: 0 },
+        connect() {},
+        start(when) { scheduled.push({ osc, when }); },
+        stop(when) { if (when === undefined) manualStops.push(osc); },
+        disconnect() { disconnects.push(osc); }
+      };
+      return osc;
+    }
+  };
+  const h = harness({
+    document: doc,
+    requestAnimationFrame(fn) { rafs.push(fn); return rafs.length; }
+  });
+  h.context.ctx = ctx;
+  h.run('audioContext = ctx; openCalibration("tap")');
+  assert.equal(bodyChildren.length, 1);
+
+  const modal = bodyChildren[0];
+  const startBtn = findText(modal, "Start");
+  const closeBtn = findText(modal, "Close");
+  await startBtn.onclick();
+  assert.equal(scheduled.length, 12);
+  assert.equal(manualStops.length, 0);
+  assert.equal(disconnects.length, 0);
+  assert.equal(rafs.length, 1);
+
+  closeBtn.onclick();
+  closeBtn.onclick();
+  assert.equal(manualStops.length, 12);
+  assert.equal(disconnects.length, 12);
+  assert.equal(new Set(manualStops).size, 12);
+  assert.equal(new Set(disconnects).size, 12);
+  assert.equal(modal.removed, true);
+  assert.equal(bodyChildren.length, 0);
+  assert.equal(listeners.get("keydown")?.size ?? 0, 0);
+
+  // An already-queued animation frame sees run.stop and does not reschedule.
+  rafs[0]();
+  assert.equal(rafs.length, 1);
+
+  // Closing via Escape also stops and disconnects every scheduled beep.
+  h.run('openCalibration("tap")');
+  await findText(bodyChildren[0], "Start").onclick();
+  assert.equal(scheduled.length, 24);
+  const [onKey] = [...listeners.get("keydown")];
+  onKey({ key: "Escape" });
+  assert.equal(manualStops.length, 24);
+  assert.equal(disconnects.length, 24);
+  assert.equal(listeners.get("keydown")?.size ?? 0, 0);
+  assert.equal(bodyChildren.length, 0);
+});
+

@@ -575,3 +575,396 @@ test("admin song rename keeps formerIds and variant audioIds resolvable", async 
   await checkAudioVariant("after rename");
   await checkFormerIdRound("after rename");
 });
+
+test("coverForEra resolves exact, loose/diacritic, and bracketed era names with first-entry precedence", () => {
+  const script = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const looseDef = script.slice(script.indexOf("function looseEraKey("), script.indexOf("// RFC 4180 CSV"));
+  const coverDef = script.slice(script.indexOf('// "LYFESTYLE [V1]"'), script.indexOf("const SPLITS_FILE"));
+  const covers = JSON.parse(fs.readFileSync(path.join(root, "era-covers.json"), "utf8")).covers;
+
+  const makeLookup = map => {
+    const context = vm.createContext({ ERA_COVERS: map });
+    vm.runInContext(`${looseDef}\n${coverDef}`, context);
+    return context.coverForEra;
+  };
+
+  const coverForEra = makeLookup({ ...covers, "Blank Era": "" });
+  assert.equal(coverForEra("2093"), covers["2093"]);
+  assert.equal(coverForEra("Alivë"), covers["Alivë"]);
+  assert.equal(coverForEra("Up 2 Më [V3]"), covers["Up 2 Më [V3]"]);
+
+  assert.equal(coverForEra("LYFESTYLE [V1]"), covers["Lyfëstyle [V1]"]);
+  assert.equal(coverForEra("Up 2 Me [V3]"), covers["Up 2 Më [V3]"]);
+  assert.equal(coverForEra("trëndi"), covers["Trendi"]);
+  assert.equal(coverForEra("Hold On"), covers["Hold Ön"]);
+
+  assert.equal(coverForEra("Up 2 Me"), covers["Up 2 Më [V1]"]);
+  assert.equal(coverForEra("Up 2 Më"), covers["Up 2 Më [V1]"]);
+  assert.equal(coverForEra("Up 2 Më [V2]"), covers["Up 2 Më [V1]"]);
+  assert.equal(coverForEra("ADL (Deluxe)"), covers["ADL [V2]"]);
+  assert.equal(coverForEra("ADL"), covers["ADL [V2]"]);
+  assert.equal(coverForEra("LYFESTYLE"), covers["Lyfëstyle [V1]"]);
+
+  for (const missing of ["", null, undefined, "Blank Era", "Unknown Era", "toString"]) {
+    assert.equal(coverForEra(missing), "", String(missing));
+  }
+
+  const orderedLookup = makeLookup({
+    "Blank [V1]": "",
+    "Blank": "https://example.test/blank.jpg",
+    "Test [V1]": "https://example.test/v1.jpg",
+    "Test [V2]": "https://example.test/v2.jpg",
+    "Test [v2]": "https://example.test/v2-dup.jpg"
+  });
+  assert.equal(orderedLookup("Test"), "https://example.test/v1.jpg");
+  assert.equal(orderedLookup("test (deluxe)"), "https://example.test/v1.jpg");
+  assert.equal(orderedLookup("Test [v2]"), "https://example.test/v2-dup.jpg");
+  assert.equal(orderedLookup("test [v2]"), "https://example.test/v2.jpg");
+  assert.equal(orderedLookup("Blank [V1]"), "https://example.test/blank.jpg");
+});
+
+test("attachJokes memoizes joke-photos.json by stat stamp and invalidates on edit, malformed JSON, or deletion", t => {
+  const folder = dataFolder(t);
+  fs.writeFileSync(path.join(folder, "config.json"), JSON.stringify({ port: 0, openBrowser: false, refreshMinutes: 0, tabs: [], dailyAuthority: "" }));
+  const file = path.join(root, "server.js");
+  const source = fs.readFileSync(file, "utf8");
+  const end = source.indexOf("// a dropped connection to a song host");
+  const jokesFile = path.join(folder, "joke-photos.json");
+  let jokeReads = 0;
+  let jokeStats = 0;
+  const wrappedFs = {
+    ...fs,
+    readFileSync(target, ...rest) {
+      if (path.resolve(String(target)) === path.resolve(jokesFile)) jokeReads += 1;
+      return fs.readFileSync(target, ...rest);
+    },
+    statSync(target, ...rest) {
+      if (path.resolve(String(target)) === path.resolve(jokesFile)) jokeStats += 1;
+      return fs.statSync(target, ...rest);
+    }
+  };
+  const { createRequire } = require("node:module");
+  const baseRequire = createRequire(file);
+  const requireForTest = name => (name === "fs" || name === "node:fs")
+    ? wrappedFs
+    : (name === "http" || name === "node:http")
+      ? { ...baseRequire(name), createServer() { return {}; } }
+      : baseRequire(name);
+  const context = vm.createContext({
+    require: requireForTest,
+    __dirname: root,
+    module: { exports: {} },
+    Buffer,
+    URL,
+    console: { log() {}, warn() {}, error() {} },
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    process: {
+      env: { ...process.env, YEATLE_DATA_DIR: folder, YEATLE_TRACKER_FIXTURES: path.join(__dirname, "fixtures", "tracker"), YEATLE_PORT: "0" },
+      platform: process.platform,
+      execPath: process.execPath,
+      exit(code) { throw new Error(`Server exited ${code}`); }
+    }
+  });
+  vm.runInContext(source.slice(0, end) + "\nmodule.exports = { attachJokes, songListJson, setSongs };", context, { filename: file });
+  const { attachJokes, songListJson, setSongs } = context.module.exports;
+
+  const sampleSongs = [
+    { id: "id-bell", display: "Bell", title: "Bell" },
+    { id: "id-bettr", display: "Bëttr 0ff", title: "Bettr 0ff (Original)" },
+    { id: "id-title-only", display: "Shown Alias", title: "Strips" },
+    { id: "id-precedence-title-first", display: "Overlap Display", title: "Overlap Display" },
+    { id: "id-precedence-id-first", display: "Reverse Overlap", title: "Reverse Overlap" },
+    { id: "id-plain", display: "Plain Song", title: "Plain Song" }
+  ];
+
+  // Missing joke-photos.json skips readFileSync and returns songs unchanged.
+  assert.deepEqual(attachJokes(sampleSongs), sampleSongs);
+  assert.equal(jokeReads, 0);
+
+  // Valid joke-photos.json: verify matching, URL encoding, defaults, and array-order precedence.
+  const initialJokes = {
+    photos: [
+      null,
+      { song: "", image: "ignored.webp" },
+      { song: "missing-image" },
+      { song: "id-bell", image: "bell folder/yeat bell.webp", caption: "Dong!", showOnLoss: true },
+      { song: "Bettr 0ff", image: "https://example.test/bettr.webp", caption: "Green", showOnLoss: false },
+      { song: "$trips", image: "strips.jpg" },
+      { song: "Overlap Display", image: "first-by-title.webp", caption: "Title Won First" },
+      { song: "id-precedence-title-first", image: "second-by-id.webp", caption: "Should Lose" },
+      { song: "id-precedence-id-first", image: "first-by-id.webp", caption: "Id Won First" },
+      { song: "Reverse Overlap", image: "second-by-title.webp", caption: "Should Lose" }
+    ]
+  };
+  fs.writeFileSync(jokesFile, JSON.stringify(initialJokes));
+
+  const attached1 = attachJokes(sampleSongs);
+  const attached2 = attachJokes(sampleSongs);
+  assert.equal(jokeReads, 1, "unchanged joke-photos.json is read once across repeated attachJokes calls");
+  assert.deepEqual(attached2, attached1);
+  assert.notEqual(
+    attached1.find(s => s.id === "id-bell").joke,
+    attached2.find(s => s.id === "id-bell").joke,
+    "returned joke objects are cloned per song so callers cannot mutate cached entries"
+  );
+
+  assert.deepEqual({ ...attached1.find(s => s.id === "id-bell").joke }, {
+    image: "Images/jokes/bell%20folder/yeat%20bell.webp",
+    caption: "Dong!",
+    showOnLoss: true
+  });
+  assert.deepEqual({ ...attached1.find(s => s.id === "id-bettr").joke }, {
+    image: "https://example.test/bettr.webp",
+    caption: "Green",
+    showOnLoss: false
+  });
+  assert.deepEqual({ ...attached1.find(s => s.id === "id-title-only").joke }, {
+    image: "Images/jokes/strips.jpg",
+    caption: "",
+    showOnLoss: false
+  });
+  assert.equal(attached1.find(s => s.id === "id-precedence-title-first").joke.caption, "Title Won First");
+  assert.equal(attached1.find(s => s.id === "id-precedence-id-first").joke.caption, "Id Won First");
+  assert.equal("joke" in attached1.find(s => s.id === "id-plain"), false);
+
+  // songListJson() stats joke-photos.json once per call and reuses the memoized jokes index.
+  const statsBeforeSongList = jokeStats;
+  setSongs([{ id: "id-bell", title: "Bell", display: "Bell", era: "2093", tab: "Released", mode: "filter", source: { kind: "url", url: "https://example.test/1.mp3" } }], "test");
+  const list1 = JSON.parse(songListJson());
+  assert.equal(list1.songs.length, 1);
+  assert.equal(list1.songs[0].joke.caption, "Dong!");
+  assert.equal(jokeStats - statsBeforeSongList, 1, "songListJson stats joke-photos.json only once per call");
+  assert.equal(jokeReads, 1, "songListJson rebuild reuses already-memoized jokes index");
+
+  // Rebuilding the catalog still reuses jokesCache without re-reading joke-photos.json.
+  setSongs([
+    { id: "id-bell", title: "Bell", display: "Bell", era: "2093", tab: "Released", mode: "filter", source: { kind: "url", url: "https://example.test/1.mp3" } },
+    { id: "id-plain", title: "Plain Song", display: "Plain Song", era: "2093", tab: "Released", mode: "filter", source: { kind: "url", url: "https://example.test/2.mp3" } }
+  ], "test");
+  const statsBeforeRebuild = jokeStats;
+  const list2 = JSON.parse(songListJson());
+  assert.equal(list2.songs.length, 2);
+  assert.equal(jokeStats - statsBeforeRebuild, 1);
+  assert.equal(jokeReads, 1);
+
+  // Editing joke-photos.json invalidates immediately on the next call.
+  fs.writeFileSync(jokesFile, JSON.stringify({
+    photos: [{ song: "id-plain", image: "updated.png", caption: "Updated Now!", showOnLoss: true }]
+  }));
+  const updated = attachJokes(sampleSongs);
+  assert.equal(jokeReads, 2);
+  assert.equal("joke" in updated.find(s => s.id === "id-bell"), false);
+  assert.deepEqual({ ...updated.find(s => s.id === "id-plain").joke }, {
+    image: "Images/jokes/updated.png",
+    caption: "Updated Now!",
+    showOnLoss: true
+  });
+
+  // Malformed JSON falls back cleanly without throwing and caches for the same stat stamp.
+  fs.writeFileSync(jokesFile, "{not valid json!!!");
+  const malformed1 = attachJokes(sampleSongs);
+  const malformed2 = attachJokes(sampleSongs);
+  assert.equal(jokeReads, 3);
+  assert.deepEqual(malformed1, sampleSongs);
+  assert.deepEqual(malformed2, sampleSongs);
+
+  // Deleting joke-photos.json immediately drops joke attachments without calling readFileSync.
+  fs.unlinkSync(jokesFile);
+  const afterDelete = attachJokes(sampleSongs);
+  assert.equal(jokeReads, 3, "deleted joke-photos.json does not call readFileSync");
+  assert.deepEqual(afterDelete, sampleSongs);
+});
+
+test("serveModel and separatorRevision reuse pre-fetched stat while preserving headers and digest behavior", async t => {
+  const folder = dataFolder(t);
+  config(folder, { dailyAuthority: "" });
+  const crypto = require("node:crypto");
+  const { Writable } = require("node:stream");
+  const { createRequire } = require("node:module");
+  const drumsFile = path.join(folder, "models", "drums.fp16.onnx");
+  const drumsBytes = Buffer.alloc(1000003, 7);
+  fs.writeFileSync(drumsFile, drumsBytes);
+  const expectedDrumsHash = crypto.createHash("sha256").update(drumsBytes).digest("hex");
+
+  const file = path.join(root, "server.js");
+  const source = fs.readFileSync(file, "utf8");
+  const end = source.indexOf("// a dropped connection to a song host");
+  const statCalls = new Map();
+  let handler;
+  const wrappedFs = {
+    ...fs,
+    statSync(target, ...rest) {
+      const resolved = path.resolve(String(target));
+      if (resolved.endsWith(".fp16.onnx")) statCalls.set(resolved, (statCalls.get(resolved) || 0) + 1);
+      return fs.statSync(target, ...rest);
+    }
+  };
+  const baseRequire = createRequire(file);
+  const requireForTest = name => (name === "fs" || name === "node:fs")
+    ? wrappedFs
+    : (name === "http" || name === "node:http")
+      ? { ...baseRequire(name), createServer(cb) { handler = cb; return { listen() {}, close() {} }; } }
+      : baseRequire(name);
+
+  const context = vm.createContext({
+    require: requireForTest,
+    __dirname: root,
+    module: { exports: {} },
+    Buffer,
+    URL,
+    console: { log() {}, warn() {}, error() {} },
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    process: {
+      env: { ...process.env, YEATLE_DATA_DIR: folder, YEATLE_TRACKER_FIXTURES: path.join(__dirname, "fixtures", "tracker"), YEATLE_PORT: "0" },
+      platform: process.platform,
+      execPath: process.execPath,
+      exit(code) { throw new Error(`Server exited ${code}`); }
+    }
+  });
+  vm.runInContext(source.slice(0, end) + "\nmodule.exports = { modelDigest, separatorRevision };", context, { filename: file });
+  const { modelDigest, separatorRevision } = context.module.exports;
+
+  const request = async (url, method = "GET", headers = {}) => {
+    const chunks = [];
+    const result = { headers: {}, status: 200 };
+    const res = new Writable({ write(chunk, _enc, cb) { chunks.push(Buffer.from(chunk)); cb(); } });
+    res.setHeader = (key, value) => { result.headers[key.toLowerCase()] = value; };
+    res.writeHead = (status, values = {}) => {
+      result.status = status;
+      res.headersSent = true;
+      for (const [k, v] of Object.entries(values)) res.setHeader(k, v);
+      return res;
+    };
+    const done = new Promise((resolve, reject) => { res.once("finish", resolve); res.once("error", reject); });
+    await handler({ url, method, headers }, res);
+    await done;
+    return { ...result, body: Buffer.concat(chunks) };
+  };
+
+  statCalls.clear();
+  const head = await request("/models/drums.fp16.onnx", "HEAD");
+  assert.equal(head.status, 200);
+  assert.equal(head.headers["cross-origin-opener-policy"], "same-origin");
+  assert.equal(head.headers["cross-origin-embedder-policy"], "credentialless");
+  assert.equal(head.headers["cache-control"], "no-cache");
+  assert.equal(head.headers["content-type"], "application/octet-stream");
+  assert.equal(head.headers["content-length"], drumsBytes.length);
+  assert.equal(head.headers["x-yeatle-model-hash"], expectedDrumsHash);
+  assert.ok(head.headers.etag);
+  assert.equal(head.body.length, 0);
+  assert.equal(statCalls.get(path.resolve(drumsFile)), 2, "serveModel should not add a duplicate statSync inside modelDigest");
+
+  const get = await request("/models/drums.fp16.onnx", "GET");
+  assert.equal(get.status, 200);
+  assert.equal(get.headers["x-yeatle-model-hash"], expectedDrumsHash);
+  assert.equal(get.headers.etag, head.headers.etag);
+  assert.equal(get.headers["content-length"], drumsBytes.length);
+  assert.equal(Buffer.compare(get.body, drumsBytes), 0);
+
+  const notModified = await request("/models/drums.fp16.onnx", "GET", { "if-none-match": head.headers.etag });
+  assert.equal(notModified.status, 304);
+  assert.equal(notModified.headers["x-yeatle-model-hash"], expectedDrumsHash);
+  assert.equal(notModified.body.length, 0);
+
+  const missingStem = await request("/models/unknown.fp16.onnx", "GET");
+  assert.equal(missingStem.status, 404);
+
+  statCalls.clear();
+  const rev = await separatorRevision();
+  assert.match(rev, new RegExp(`^drums:${expectedDrumsHash}\\|bass:[a-f0-9]{64}\\|other:[a-f0-9]{64}\\|vocals:[a-f0-9]{64}$`));
+  for (const stem of ["drums", "bass", "other", "vocals"]) {
+    assert.equal(statCalls.get(path.resolve(folder, "models", `${stem}.fp16.onnx`)), 1, `separatorRevision should stat ${stem} once`);
+  }
+
+  // Standalone modelDigest(stem) without a pre-fetched stat still stats once and returns the digest.
+  statCalls.clear();
+  assert.equal(await modelDigest("drums"), expectedDrumsHash);
+  assert.equal(statCalls.get(path.resolve(drumsFile)), 1);
+});
+
+test("admin activate, hide, and rename resolve canonical songs via SONG_INDEX without matching formerIds or variant audioIds", async t => {
+  const folder = dataFolder(t);
+  config(folder, { dailyAuthority: "", liveControl: true });
+  fs.writeFileSync(path.join(folder, "admin.json"), JSON.stringify({ password: "garlic" }));
+  fs.writeFileSync(path.join(folder, "songs-cache.json"), JSON.stringify({
+    updated: 123,
+    eras: [],
+    songs: [{
+      id: "song-one",
+      title: "Song One",
+      display: "Song One",
+      era: "Alivë",
+      tab: "Released",
+      mode: "filter",
+      formerIds: ["legacy-one"],
+      source: { kind: "url", id: "https://audio.test/one" },
+      sourceVariants: [{
+        label: "Alt",
+        mode: "stems",
+        audioId: "variant-one",
+        stems: { vocals: { kind: "url", id: "https://audio.test/one-vocals" } }
+      }]
+    }]
+  }));
+  const { url } = await launch(t, folder);
+
+  const login = await fetch(`${url}/api/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "garlic" })
+  });
+  assert.equal(login.status, 200);
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  const postJson = (endpoint, payload) => fetch(`${url}${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify(payload)
+  });
+
+  // formerIds, variant audioIds, and unknown IDs must not match in SONG_INDEX for admin mutations.
+  for (const badId of ["legacy-one", "variant-one", "missing-id"]) {
+    const actBad = await postJson("/api/admin/activate", { id: badId });
+    assert.equal(actBad.status, 404, `activate should reject ${badId}`);
+    const renameBad = await postJson("/api/admin/rename", { id: badId, name: "Nope" });
+    assert.equal(renameBad.status, 404, `rename should reject ${badId}`);
+  }
+  const hideBad = await postJson("/api/admin/hide", { ids: ["legacy-one", "variant-one", "missing-id"], hidden: true });
+  assert.equal(hideBad.status, 200);
+  const hideBadBody = await hideBad.json();
+  assert.equal(hideBadBody.songs[0].hidden, false);
+  assert.equal(hideBadBody.stale.length, 0);
+
+  // Canonical ID activates cleanly.
+  const act1 = await postJson("/api/admin/activate", { id: "song-one" });
+  assert.equal(act1.status, 200);
+  assert.deepEqual(await act1.json(), { ok: true, seq: 1 });
+
+  // Rename rebuilds SONG_INDEX; activate and hide still resolve the updated song.
+  const renameRes = await postJson("/api/admin/rename", { id: "song-one", name: "Renamed Song One" });
+  assert.equal(renameRes.status, 200);
+  const renameBody = await renameRes.json();
+  assert.equal(renameBody.songs[0].display, "Renamed Song One");
+
+  const act2 = await postJson("/api/admin/activate", { id: "song-one" });
+  assert.equal(act2.status, 200);
+  assert.deepEqual(await act2.json(), { ok: true, seq: 2 });
+
+  // Hide prevents activate (404), and unhide restores it (200).
+  const hideRes = await postJson("/api/admin/hide", { ids: ["song-one"], hidden: true });
+  assert.equal(hideRes.status, 200);
+  assert.equal((await hideRes.json()).songs[0].hidden, true);
+  assert.equal((await postJson("/api/admin/activate", { id: "song-one" })).status, 404);
+
+  const unhideRes = await postJson("/api/admin/hide", { ids: ["song-one"], hidden: false });
+  assert.equal(unhideRes.status, 200);
+  assert.equal((await unhideRes.json()).songs[0].hidden, false);
+  const act3 = await postJson("/api/admin/activate", { id: "song-one" });
+  assert.equal(act3.status, 200);
+  assert.deepEqual(await act3.json(), { ok: true, seq: 3 });
+});

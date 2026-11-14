@@ -7,8 +7,8 @@ const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
-const { createStemDownloader, validateCatalog, safeFolderName, stemsHostUrl } = require("../desktop/stem-downloads.cjs");
-const { createStemCatalog } = require("../stem-catalog.cjs");
+const { createStemDownloader, validateCatalog, safeFolderName, stemsHostUrl, findLocalFolder } = require("../desktop/stem-downloads.cjs");
+const { createStemCatalog, scanFolder } = require("../stem-catalog.cjs");
 
 const root = path.join(__dirname, "..");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-stems-"));
@@ -280,4 +280,208 @@ test("Help > Optional HQ Stems offers MEGA and the server", () => {
   assert.deepEqual(hq.submenu.map(m => m.label), ["Download from MEGA", "Download from server…"]);
   hq.submenu.forEach(m => m.click());
   assert.deepEqual(calls, ["mega", "server"]);
+});
+
+test("refreshInstalled reads songsDir once per pass while matching NFC/NFD folders and preserving conflict handling", async t => {
+  const songsDir = path.join(tmp, "profile-refresh", "Songs");
+  const nfdFolder = "Ünïcödé sóng ë".normalize("NFD").toUpperCase();
+  const unicodeDir = path.join(songsDir, nfdFolder);
+  fs.mkdirSync(unicodeDir, { recursive: true });
+  for (const f of ["drums.mp3", "bass.mp3", "other.mp3", "vocals.mp3"]) {
+    fs.copyFileSync(path.join(hostStems, "Ünïcödé sóng ë", f), path.join(unicodeDir, f));
+  }
+  const conflictDir = path.join(songsDir, "Third One");
+  fs.mkdirSync(conflictDir, { recursive: true });
+  fs.writeFileSync(path.join(conflictDir, "drums.mp3"), "my custom drums");
+
+  const direct = findLocalFolder(songsDir, "Ünïcödé sóng ë");
+  assert.ok(direct);
+  assert.equal(direct.complete, true);
+  assert.equal(direct.name, nfdFolder);
+  assert.notEqual(direct.name, direct.name.normalize("NFC"));
+  assert.equal(direct.name.normalize("NFC").toLowerCase(), "ünïcödé sóng ë");
+
+  const origReaddirSync = fs.readdirSync;
+  let songsDirReads = 0;
+  t.mock.method(fs, "readdirSync", (target, ...rest) => {
+    if (path.resolve(String(target)) === path.resolve(songsDir)) songsDirReads++;
+    return origReaddirSync.call(fs, target, ...rest);
+  });
+
+  const d = downloader(songsDir);
+  const snap = await d.loadCatalog();
+  assert.equal(snap.catalog.error, "");
+  assert.equal(snap.catalog.songs.length, 3);
+  assert.equal(songsDirReads, 1, "loadCatalog refreshInstalled reads songsDir once instead of once per catalog song");
+
+  const byFolder = name => snap.catalog.songs.find(s => s.folder === name).id;
+  const unicodeId = byFolder("Ünïcödé sóng ë");
+  const thirdOneId = byFolder("Third One");
+  assert.equal(snap.items[unicodeId].status, "installed");
+  assert.equal(snap.items[unicodeId].note, `In your Songs folder as "${direct.name}"`);
+  assert.equal(snap.items[thirdOneId], undefined);
+
+  await d.refreshInstalled();
+  assert.equal(songsDirReads, 2, "subsequent refreshInstalled also reads songsDir once");
+
+  d.download([thirdOneId]);
+  await settle(d);
+  assert.equal(d.snapshot().items[thirdOneId].status, "conflict");
+  assert.equal(fs.readFileSync(path.join(conflictDir, "drums.mp3"), "utf8"), "my custom drums");
+
+  await d.refreshInstalled();
+  assert.equal(d.snapshot().items[thirdOneId].status, "conflict");
+});
+
+test("createStemCatalog resolves stemsDir realpath once per build, deduplicates queue entries, rejects symlinks, and serializes async cache writes", async t => {
+  const localRoot = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-catalog-unit-"));
+  t.after(() => fs.rmSync(localRoot, { recursive: true, force: true }));
+  const stemsDir = path.join(localRoot, "Songs");
+  const outsideDir = path.join(localRoot, "Outside");
+  const cacheFile = path.join(localRoot, "stems-hashes.json");
+
+  const makePack = (parent, name, seed) => {
+    const dir = path.join(parent, name);
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [file, body] of Object.entries(four(seed))) fs.writeFileSync(path.join(dir, file), body);
+    return dir;
+  };
+  makePack(stemsDir, "Alpha", "alpha");
+  makePack(stemsDir, "Beta", "beta");
+  makePack(stemsDir, "Gamma", "gamma");
+  makePack(outsideDir, "Escaped", "outside");
+
+  // Junction/symlink folders pointing outside or inside must never be accepted.
+  let hasJunction = false;
+  try {
+    fs.symlinkSync(path.join(outsideDir, "Escaped"), path.join(stemsDir, "Junction Escape"), "junction");
+    hasJunction = true;
+  } catch { /* platform cannot create junction */ }
+  assert.equal(scanFolder(stemsDir, "../Outside/Escaped"), null);
+  assert.equal(scanFolder(stemsDir, ".hidden"), null);
+  if (hasJunction) assert.equal(scanFolder(stemsDir, "Junction Escape"), null);
+  assert.ok(scanFolder(stemsDir, "Alpha"));
+
+  const songs = [
+    { id: "id-a", title: "Alpha", display: "Alpha", mode: "stems", folder: "Alpha" },
+    { id: "id-b", title: "Beta", display: "Beta", mode: "stems", folder: "Beta" },
+    { id: "id-c", title: "Gamma", display: "Gamma", mode: "stems", folder: "Gamma" },
+    ...(hasJunction ? [{ id: "id-j", title: "Junction Escape", display: "Junction Escape", mode: "stems", folder: "Junction Escape" }] : []),
+    { id: "id-traversal", title: "Escape", display: "Escape", mode: "stems", folder: "../Outside/Escaped" }
+  ];
+
+  // Count realpathSync calls on stemsDir during a single build(), stream reads per file, and async cache writes.
+  let stemsRealpathCalls = 0;
+  const origRealpathSync = fs.realpathSync;
+  t.mock.method(fs, "realpathSync", (target, ...rest) => {
+    if (path.resolve(String(target)) === path.resolve(stemsDir)) stemsRealpathCalls++;
+    return origRealpathSync.call(fs, target, ...rest);
+  });
+
+  const { Transform } = require("node:stream");
+  const streamReads = new Map();
+  const origCreateReadStream = fs.createReadStream;
+  const betaDrums = path.resolve(stemsDir, "Beta", "drums.mp3");
+  t.mock.method(fs, "createReadStream", (target, ...rest) => {
+    const resolved = path.resolve(String(target));
+    const stream = origCreateReadStream.call(fs, target, ...rest);
+    if (resolved.startsWith(path.resolve(stemsDir))) {
+      streamReads.set(resolved, (streamReads.get(resolved) || 0) + 1);
+      // Delay Beta/drums via Transform so Alpha finishes and starts a cache write before Beta+Gamma complete.
+      if (resolved === betaDrums) {
+        const delayStream = new Transform({
+          transform(chunk, _enc, cb) { setTimeout(() => cb(null, chunk), 35); }
+        });
+        stream.on("error", err => delayStream.destroy(err));
+        return stream.pipe(delayStream);
+      }
+    }
+    return stream;
+  });
+
+  const origWriteFileSync = fs.writeFileSync;
+  let syncCacheWrites = 0;
+  t.mock.method(fs, "writeFileSync", (target, ...rest) => {
+    if (path.resolve(String(target)) === path.resolve(cacheFile)) syncCacheWrites++;
+    return origWriteFileSync.call(fs, target, ...rest);
+  });
+
+  const origAsyncWriteFile = fs.promises.writeFile;
+  let activeWrites = 0, maxConcurrentWrites = 0, asyncWriteCount = 0;
+  t.mock.method(fs.promises, "writeFile", async (target, body, ...rest) => {
+    if (path.resolve(String(target)) !== path.resolve(cacheFile)) {
+      return origAsyncWriteFile.call(fs.promises, target, body, ...rest);
+    }
+    asyncWriteCount++;
+    activeWrites++;
+    maxConcurrentWrites = Math.max(maxConcurrentWrites, activeWrites);
+    // Keep the first write in-flight across subsequent hash completions so coalescing + serialization are exercised.
+    if (asyncWriteCount === 1) await wait(80);
+    try {
+      return await origAsyncWriteFile.call(fs.promises, target, body, ...rest);
+    } finally {
+      activeWrites--;
+    }
+  });
+
+  const cat = createStemCatalog({ stemsDir, cacheFile, getSongs: () => songs, saveDelay: 10 });
+  const first = cat.catalog();
+  assert.equal(first.pending, 3);
+  assert.equal(first.songs.length, 0);
+  assert.equal(stemsRealpathCalls, 1, "realpathSync(stemsDir) is called once per build() across all folders");
+
+  // Repeated invalidate() + catalog() calls while draining must deduplicate queue entries and reuse cached rootReal once per build.
+  cat.invalidate();
+  cat.catalog();
+  cat.invalidate();
+  cat.catalog();
+  assert.equal(stemsRealpathCalls, 3);
+
+  const built = await until(() => {
+    const c = cat.catalog();
+    return c.pending === 0 && c.songs.length === 3 ? c : null;
+  });
+  assert.deepEqual(built.songs.map(s => s.folder), ["Alpha", "Beta", "Gamma"]);
+
+  // Each stem file was read/hashed once thanks to Set queue deduplication.
+  assert.equal(streamReads.size, 12);
+  for (const [filePath, count] of streamReads) {
+    assert.equal(count, 1, `expected ${path.basename(filePath)} to be hashed once`);
+  }
+
+  // Wait for serialized async writes to finish persisting all 12 hashes without sync writes or overlapping async writes.
+  const persisted = await until(() => {
+    if (activeWrites !== 0 || !fs.existsSync(cacheFile)) return null;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+      return Object.keys(parsed).length === 12 ? parsed : null;
+    } catch { return null; }
+  });
+  assert.equal(syncCacheWrites, 0, "save() must not block with fs.writeFileSync");
+  assert.equal(maxConcurrentWrites, 1, "overlapping saves must serialize cleanly");
+  assert.ok(asyncWriteCount >= 2, `expected coalesced sequential writes across slow hash completion, got ${asyncWriteCount}`);
+  assert.equal(Object.keys(persisted).length, 12);
+  const betaDrumsSong = built.songs.find(s => s.folder === "Beta").files.find(f => f.name === "drums.mp3");
+  assert.equal(betaDrumsSong.sha256, crypto.createHash("sha256").update(fs.readFileSync(betaDrums)).digest("hex"));
+
+  // Reloading from persisted cacheFile produces the full catalog immediately with zero stream reads.
+  streamReads.clear();
+  const reloaded = createStemCatalog({ stemsDir, cacheFile, getSongs: () => songs });
+  const loadedCatalog = reloaded.catalog();
+  assert.equal(loadedCatalog.pending, 0);
+  assert.deepEqual(loadedCatalog.songs.map(s => s.folder), ["Alpha", "Beta", "Gamma"]);
+  assert.equal(streamReads.size, 0);
+
+  // Failing async write (e.g. unwritable cacheFile directory) must not throw or leak unhandled rejections.
+  const badCacheCat = createStemCatalog({
+    stemsDir,
+    cacheFile: path.join(localRoot, "missing-dir", "nested", "cache.json"),
+    getSongs: () => [songs[0]],
+    saveDelay: 5
+  });
+  await until(() => {
+    const c = badCacheCat.catalog();
+    return c.pending === 0 && c.songs.length === 1 ? c : null;
+  });
+  await wait(30);
 });

@@ -1456,6 +1456,13 @@ function openCalibration(kind) {
   document.body.append(modal);
 
   let run = null, found = null;
+  function stopRun() {
+    if (!run) return;
+    run.stop = true;
+    run.sources.forEach(src => { try { src.stop(); } catch { /* not started */ } src.disconnect(); });
+    run.sources = [];
+    run = null;
+  }
   const onKey = e => {
     if (e.key === "Escape") { close(); return; }
     if (tap && run && (e.key === " " || e.key === "Enter")) { e.preventDefault(); if (!e.repeat) run.events.push(audioCtx().currentTime); }
@@ -1463,7 +1470,7 @@ function openCalibration(kind) {
   if (tap) pad.addEventListener("pointerdown", e => { e.preventDefault(); if (run) run.events.push(audioCtx().currentTime); });
   document.addEventListener("keydown", onKey, true);
   function close() {
-    if (run) run.stop = true;
+    stopRun();
     document.removeEventListener("keydown", onKey, true);
     modal.remove();
   }
@@ -1486,6 +1493,7 @@ function openCalibration(kind) {
       det = mics.detectors.find(Boolean);
       if (!det) { status.textContent = "Turn on a mic first (Singers → Turn on mics)."; return; }
     }
+    stopRun();
     found = null;
     useBtn.hidden = true;
     startBtn.hidden = true;
@@ -1493,10 +1501,10 @@ function openCalibration(kind) {
     dots.querySelectorAll("i").forEach(d => d.className = "");
     const beat = tap ? 0.6 : 0.8, lead = 4, count = 8;
     const t0 = ctx.currentTime + (tap ? 0.5 : 1.2);
-    const clicks = [];
-    for (let i = 0; i < lead + count; i++) { const t = t0 + i * beat; beep(ctx, t, i >= lead); if (i >= lead) clicks.push(t); }
+    const clicks = [], sources = [];
+    for (let i = 0; i < lead + count; i++) { const t = t0 + i * beat; sources.push(beep(ctx, t, i >= lead)); if (i >= lead) clicks.push(t); }
     const before = tap ? 0.3 : 0.1, after = tap ? 0.3 : 0.6;
-    run = { events: [], stop: false };
+    run = { events: [], stop: false, sources };
     const r = run;
     let lastScan = ctx.currentTime, quietPeak = 0, lastOnset = -1;
     const heardDelay = audioDelaySeconds();
@@ -1536,7 +1544,7 @@ function openCalibration(kind) {
       Array.from(dots.children).forEach((d, k) => d.classList.toggle("next", k === Math.max(lead, coming) - lead && !d.classList.contains("hit") && !d.classList.contains("miss")));
       if (now < clicks[clicks.length - 1] + after + 0.1) { requestAnimationFrame(frame); return; }
 
-      run = null;
+      stopRun();
       ring.hidden = true;
       pad.classList.remove("beat");
       startBtn.hidden = false;

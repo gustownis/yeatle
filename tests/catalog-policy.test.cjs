@@ -476,3 +476,51 @@ test("unauthorized open-verse Vyne - Ball Wit Us is excluded while solo demo bal
   assert.equal(isGuessingEligible(applyCatalogMetadata(ballwus)), true);
   assert.equal(isGuessingEligible(applyCatalogMetadata(vyne)), false);
 });
+
+test("applyCorrections uses indexed buckets while preserving rule application order", () => {
+  const metadata = JSON.parse(fs.readFileSync(path.join(root, "catalog-metadata.json"), "utf8"));
+
+  // A song matching one bucket should not evaluate matchers from unrelated id/titleKey buckets.
+  let vyneFolderReads = 0;
+  const vyne = { id: "vyneballwitus", title: "Vyne - Ball Wit Us", tab: "Released", source: { kind: "pillows", id: "other" } };
+  Object.defineProperty(vyne, "folder", { enumerable: false, get() { vyneFolderReads++; return "Addicited"; } });
+  const appliedVyne = applyCatalogMetadata(vyne);
+  assert.equal(appliedVyne.guessingEligible, false);
+  assert.equal(vyneFolderReads, 0, "unrelated id rules (addicited/nowls) must not be scanned");
+
+  let cantSeeFolderReads = 0;
+  const cantSeeAlive = { id: "cantsee@other", title: "Cant See", era: "Alivë", tab: "Unreleased", source: { kind: "pillows", id: "other" } };
+  Object.defineProperty(cantSeeAlive, "folder", { enumerable: false, get() { cantSeeFolderReads++; return "Now LS"; } });
+  const appliedCantSee = applyCatalogMetadata(cantSeeAlive);
+  assert.equal(appliedCantSee.display, "Cant See (Alivë)");
+  assert.equal(appliedCantSee.answerId, "cant-see-alive");
+  assert.equal(cantSeeFolderReads, 0, "titleKey bucket skips id-indexed folder rules");
+
+  // Matching an id bucket still reads fields required by that rule.
+  let addicitedFolderReads = 0;
+  const addicited = { id: "addicited", title: "Addicited", tab: "Unreleased", source: { kind: "stems", folder: "Addicited" } };
+  Object.defineProperty(addicited, "folder", { enumerable: false, get() { addicitedFolderReads++; return "Addicited"; } });
+  const appliedAddicited = applyCatalogMetadata(addicited);
+  assert.equal(appliedAddicited.display, "Addicted");
+  assert.equal(appliedAddicited.answerId, "addicted-v2");
+  assert.equal(addicitedFolderReads, 1);
+
+  // When rules in both titleKey and id buckets match, original rule order wins.
+  // In catalog-metadata.json, titleKey="cantsee"/era="Alivë" precedes id="krank"/tab="Released".
+  const cantSeeIdx = metadata.corrections.findIndex(r => r.match.titleKey === "cantsee" && r.match.era === "Alivë");
+  const krankIdx = metadata.corrections.findIndex(r => r.match.id === "krank" && r.match.tab === "Released");
+  assert.ok(cantSeeIdx >= 0 && krankIdx > cantSeeIdx);
+  const multiBucket = applyCatalogMetadata({ id: "krank", title: "Cant See", era: "Alivë", tab: "Released", source: { kind: "apple", id: "rel" } });
+  assert.equal(multiBucket.answerId, "cant-see-alive");
+  assert.equal(multiBucket.display, "Krank");
+
+  // Every single rule in catalog-metadata.json applies cleanly through the indexed lookup.
+  for (const rule of metadata.corrections) {
+    const sample = structuredClone(rule.match);
+    if (sample.titleKey && !sample.title) sample.title = rule.match.titleKey === "cantsee" ? "Cant See" : sample.titleKey;
+    const out = applyCatalogMetadata({ source: { kind: "pillows", id: "x" }, ...sample });
+    for (const [key, val] of Object.entries(rule.set)) {
+      assert.deepEqual(out[key], val, `rule ${JSON.stringify(rule.match)} should set ${key}`);
+    }
+  }
+});

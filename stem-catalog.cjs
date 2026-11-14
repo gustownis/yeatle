@@ -29,14 +29,15 @@ function looksLikeMp3(file) {
 }
 
 // The files of one stem folder, or null when it isn't a complete, safe set.
-function scanFolder(root, folder) {
+function scanFolder(root, folder, rootReal = null) {
   if (!folder || folder.startsWith(".") || folder.includes("/") || folder.includes("\\")) return null;
   const dir = path.join(root, folder);
   try {
     const st = fs.lstatSync(dir);
     if (!st.isDirectory() || st.isSymbolicLink()) return null;
     const real = fs.realpathSync(dir);
-    if (!inside(fs.realpathSync(root), real)) return null;
+    const baseReal = rootReal || fs.realpathSync(root);
+    if (!inside(baseReal, real)) return null;
     const entries = new Map(fs.readdirSync(dir).map(name => [name.toLowerCase(), name]));
     const files = [];
     for (const name of [...STEMS.map(s => `${s}.mp3`), ...EXTRAS]) {
@@ -60,18 +61,37 @@ function hashFile(file) {
   });
 }
 
-function createStemCatalog({ stemsDir, cacheFile, getSongs, maxActive = 4, log = console }) {
+function createStemCatalog({ stemsDir, cacheFile, getSongs, maxActive = 4, saveDelay = 2000, log = console }) {
   let hashes = new Map();
   try { hashes = new Map(Object.entries(JSON.parse(fs.readFileSync(cacheFile, "utf8")))); } catch { /* first run */ }
   const key = f => `${path.relative(stemsDir, f.file)}|${f.size}|${Math.round(f.mtimeMs)}`;
   const queue = [];
-  let hashing = false, saveTimer = null, cached = null, active = 0;
+  const queuedFiles = new Set();
+  let hashing = false, saveTimer = null, saving = false, saveDirty = false, cached = null, active = 0;
+
+  async function writeCache() {
+    if (saving || !cacheFile) return;
+    saving = true;
+    try {
+      while (saveDirty && !saveTimer) {
+        saveDirty = false;
+        const body = JSON.stringify(Object.fromEntries(hashes));
+        try {
+          await fs.promises.writeFile(cacheFile, body);
+        } catch { /* read-only is fine */ }
+      }
+    } finally {
+      saving = false;
+    }
+  }
 
   const save = () => {
+    saveDirty = true;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      try { fs.writeFileSync(cacheFile, JSON.stringify(Object.fromEntries(hashes))); } catch { /* read-only is fine */ }
-    }, 2000);
+      saveTimer = null;
+      writeCache();
+    }, saveDelay);
     saveTimer.unref?.();
   };
 
@@ -82,6 +102,7 @@ function createStemCatalog({ stemsDir, cacheFile, getSongs, maxActive = 4, log =
     try {
       while (queue.length) {
         const f = queue.shift();
+        queuedFiles.delete(f.file);
         const k = key(f);
         if (hashes.has(k)) continue;
         try { hashes.set(k, await hashFile(f.file)); save(); } catch (err) { log.warn?.(`Couldn't hash ${f.file}: ${err.message}`); }
@@ -94,15 +115,25 @@ function createStemCatalog({ stemsDir, cacheFile, getSongs, maxActive = 4, log =
     const songs = [];
     let pending = 0;
     const seen = new Set();
+    let rootReal;
     for (const song of getSongs()) {
       if (song.mode !== "stems" || !song.folder || seen.has(song.folder)) continue;
       seen.add(song.folder);
-      const set = scanFolder(stemsDir, song.folder);
+      if (rootReal === undefined) {
+        try { rootReal = fs.realpathSync(stemsDir); } catch { rootReal = null; }
+      }
+      if (!rootReal) continue;
+      const set = scanFolder(stemsDir, song.folder, rootReal);
       if (!set) continue;
       const missing = set.files.filter(f => !hashes.has(key(f)));
       if (missing.length) {
         pending++;
-        for (const f of missing) if (!queue.some(q => q.file === f.file)) queue.push(f);
+        for (const f of missing) {
+          if (!queuedFiles.has(f.file)) {
+            queuedFiles.add(f.file);
+            queue.push(f);
+          }
+        }
         continue;
       }
       const files = set.files.map(f => ({ name: f.name, size: f.size, sha256: hashes.get(key(f)) }));

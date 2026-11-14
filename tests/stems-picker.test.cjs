@@ -97,3 +97,96 @@ test("a refreshed catalog updates metadata on reused song rows", async () => {
   assert.equal(label.children[0].textContent, "Corrected title");
   assert.match(label.children[1].textContent, /Corrected era.*Unreleased/);
 });
+
+test("render reuses shownSongs within a single render pass without redundant search filtering", async () => {
+  const elements = new Map(["host", "dest", "status", "list", "search", "hide-installed", "picked", "check-all", "clear", "get-picked", "open-folder"].map(id => [`#${id}`, new Element()]));
+  let searchValue = "";
+  let searchReads = 0;
+  let hideChecked = false;
+  let hideReads = 0;
+  Object.defineProperty(elements.get("#search"), "value", {
+    get() { searchReads++; return searchValue; },
+    set(v) { searchValue = v; }
+  });
+  Object.defineProperty(elements.get("#hide-installed"), "checked", {
+    get() { hideReads++; return hideChecked; },
+    set(v) { hideChecked = Boolean(v); }
+  });
+
+  const frames = [];
+  let notify;
+  const initial = snapshot();
+  const api = {
+    onChange(callback) { notify = callback; },
+    state: async () => initial,
+    refresh: async () => initial,
+    download: async () => initial,
+    cancel() {},
+    replace() {},
+    openFolder() {}
+  };
+  const context = vm.createContext({
+    window: { yeatleStems: api },
+    document: { querySelector: selector => elements.get(selector), createElement: tag => new Element(tag) },
+    requestAnimationFrame: callback => { frames.push(callback); return frames.length; }
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../build/assets/stems-download.js"), "utf8"), context);
+  let shownCalls = 0;
+  const origShownSongs = context.shownSongs;
+  context.shownSongs = (...args) => { shownCalls++; return origShownSongs(...args); };
+
+  const flush = async () => { await new Promise(setImmediate); while (frames.length) frames.shift()(); };
+  await flush();
+
+  assert.equal(shownCalls, 1, "initial render invokes shownSongs once");
+  assert.equal(searchReads, 1, "initial render reads #search.value once");
+  assert.equal(hideReads, 1, "initial render reads #hide-installed.checked once");
+  assert.equal(elements.get("#list").children.length, 6);
+  assert.equal(elements.get("#check-all").disabled, false);
+
+  // Searching invokes a single render pass with one shownSongs call and one #search.value read.
+  shownCalls = 0; searchReads = 0; hideReads = 0;
+  searchValue = "First";
+  elements.get("#search").events.input();
+  assert.equal(shownCalls, 1);
+  assert.equal(searchReads, 1);
+  assert.equal(hideReads, 1);
+  assert.deepEqual(elements.get("#list").children.map(r => r.attributes?.["data-id"] ?? r["data-id"]), ["0"]);
+  assert.equal(elements.get("#check-all").disabled, false);
+  assert.equal(elements.get("#check-all").checked, false);
+
+  // Toggling hide-installed also filters once per render and omits installed rows identically.
+  shownCalls = 0; searchReads = 0; hideReads = 0;
+  searchValue = "";
+  hideChecked = true;
+  elements.get("#hide-installed").events.change();
+  assert.equal(shownCalls, 1);
+  assert.equal(searchReads, 1);
+  assert.equal(hideReads, 1);
+  assert.deepEqual(elements.get("#list").children.map(r => r["data-id"]), ["0", "1", "3", "4", "5"]);
+
+  // Empty search result shows the empty-search message and disables Check all after one shownSongs pass.
+  shownCalls = 0; searchReads = 0; hideReads = 0;
+  searchValue = "no-match-song";
+  elements.get("#search").events.input();
+  assert.equal(shownCalls, 1);
+  assert.equal(searchReads, 1);
+  assert.equal(hideReads, 1);
+  assert.equal(elements.get("#list").children[0].textContent, "No songs match that search.");
+  assert.equal(elements.get("#check-all").disabled, true);
+
+  // Progress update preserves single pass and updates picked/check-all state accurately.
+  searchValue = "";
+  hideChecked = false;
+  elements.get("#search").events.input();
+  elements.get("#list").children[0].children[0].click(); // check First
+  shownCalls = 0; searchReads = 0; hideReads = 0;
+  notify({ ...initial, items: { ...initial.items, "1": { status: "downloading", received: 500000, total: 1000000 } } });
+  await flush();
+  assert.equal(shownCalls, 1);
+  assert.equal(searchReads, 1);
+  assert.equal(hideReads, 1);
+  assert.match(elements.get("#picked").textContent, /^1 selected/);
+  assert.equal(elements.get("#check-all").indeterminate, true);
+  assert.equal(elements.get("#check-all").checked, false);
+});

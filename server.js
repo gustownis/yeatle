@@ -877,25 +877,25 @@ function readStemFolders() {
  *  Building the song list
  * ------------------------------------------------------------------ */
 
-function coverForEra(era) {
-  if (!era) return "";
-  if (ERA_COVERS[era]) return ERA_COVERS[era];
-
-  // "Up 2 Më" finds "Up 2 Më [V1]", "ADL (Deluxe)" finds "ADL"
-  const strip = name => looseEraKey(String(name).replace(/\s*[[(].*$/, ""));
-  const key = looseEraKey(era);
-  const base = strip(era);
-  for (const [name, url] of Object.entries(ERA_COVERS)) {
-    if (url && looseEraKey(name) === key) return url;
-  }
-  for (const [name, url] of Object.entries(ERA_COVERS)) {
-    if (url && strip(name) === base) return url;
-  }
-  return "";
-}
-
 // "LYFESTYLE [V1]" and "LYFESTYLE [V2]" are the same era with two versions
 const eraBaseKey = era => looseEraKey(String(era || "").replace(/\s*[[(].*$/, ""));
+
+const ERA_COVER_BY_KEY = new Map();
+const ERA_COVER_BY_BASE = new Map();
+for (const [name, url] of Object.entries(ERA_COVERS)) {
+  if (!url) continue;
+  const key = looseEraKey(name);
+  if (!ERA_COVER_BY_KEY.has(key)) ERA_COVER_BY_KEY.set(key, url);
+  const base = eraBaseKey(name);
+  if (!ERA_COVER_BY_BASE.has(base)) ERA_COVER_BY_BASE.set(base, url);
+}
+
+function coverForEra(era) {
+  if (!era) return "";
+  if (Object.hasOwn(ERA_COVERS, era) && ERA_COVERS[era]) return ERA_COVERS[era];
+  // "Up 2 Më" finds "Up 2 Më [V1]", "ADL (Deluxe)" finds "ADL"
+  return ERA_COVER_BY_KEY.get(looseEraKey(era)) || ERA_COVER_BY_BASE.get(eraBaseKey(era)) || "";
+}
 
 /*
   Rows that share a title are merged into one song only when they look like the
@@ -1255,6 +1255,11 @@ function rebuildSongIndex() {
     for (const variant of song.sourceVariants || Object.values(song.poolVariants || {})) if (variant.audioId) SONG_INDEX.set(variant.audioId, variant);
     for (const id of song.formerIds || []) if (!SONG_INDEX.has(id)) SONG_INDEX.set(id, song);
   }
+}
+
+function catalogSongById(id) {
+  const song = SONG_INDEX.get(id);
+  return song?.id === id ? song : undefined;
 }
 
 function setSongs(songs, source) {
@@ -2116,10 +2121,10 @@ const MODEL_STEMS = ["vocals", "drums", "bass", "other"];
 const modelDownloads = new Map();
 const modelDigests = new Map();
 
-async function modelDigest(stem) {
+async function modelDigest(stem, stat = null) {
   const file = path.join(MODELS_DIR, `${stem}.fp16.onnx`);
-  const stat = fs.statSync(file);
-  const key = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  const resolvedStat = stat || fs.statSync(file);
+  const key = `${resolvedStat.size}:${resolvedStat.mtimeMs}:${resolvedStat.ctimeMs}`;
   const held = modelDigests.get(stem);
   if (held?.key === key) return held.pending;
   const pending = (async () => {
@@ -2135,8 +2140,9 @@ async function modelDigest(stem) {
 async function separatorRevision() {
   try {
     const stems = ["drums", "bass", "other", "vocals"];
-    if (stems.some(stem => fs.statSync(path.join(MODELS_DIR, `${stem}.fp16.onnx`)).size <= 1000000)) return null;
-    return (await Promise.all(stems.map(async stem => `${stem}:${await modelDigest(stem)}`))).join("|");
+    const stats = stems.map(stem => fs.statSync(path.join(MODELS_DIR, `${stem}.fp16.onnx`)));
+    if (stats.some(stat => stat.size <= 1000000)) return null;
+    return (await Promise.all(stems.map(async (stem, i) => `${stem}:${await modelDigest(stem, stats[i])}`))).join("|");
   } catch (_) { return null; }
 }
 
@@ -2179,7 +2185,7 @@ async function serveModel(req, res, stem) {
     const file = await ensureModel(stem);
     const stat = fs.statSync(file), headers = staticCacheHeaders(file, stat, APP_VERSION);
     headers["Cache-Control"] = "no-cache";
-    headers["X-Yeatle-Model-Hash"] = await modelDigest(stem);
+    headers["X-Yeatle-Model-Hash"] = await modelDigest(stem, stat);
     if (isNotModified(req.headers, headers.ETag, stat.mtimeMs)) { res.writeHead(304, headers); res.end(); return; }
     res.writeHead(200, { ...headers, "Content-Type": "application/octet-stream", "Content-Length": stat.size });
     if (req.method === "HEAD") { res.end(); return; }
@@ -2461,16 +2467,21 @@ function snippetEntry(id, pool = "all") {
   return entry;
 }
 
-function songListJson() {
-  let jokesStamp = "missing";
+function jokesFileStamp() {
   try {
     const stat = fs.statSync(JOKES_FILE);
-    jokesStamp = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
-  } catch (_) { /* no optional photos */ }
+    return `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  } catch (_) {
+    return "missing";
+  }
+}
+
+function songListJson() {
+  const jokesStamp = jokesFileStamp();
   const key = [SONGS, ERAS, HIDDEN_IDS, LAST_UPDATE, LAST_SOURCE, LAST_ERROR, CONFIG.artist, jokesStamp];
   if (preparedSongList && key.every((value, index) => value === preparedSongList.key[index])) return preparedSongList.json;
   // Rebuild immediately after tracker/admin changes or an edited photo file.
-  const songs = attachJokes(SONGS.filter(s => !isHidden(s) && isGuessingEligible(s)).map(publicSong));
+  const songs = attachJokes(SONGS.filter(s => !isHidden(s) && isGuessingEligible(s)).map(publicSong), jokesStamp);
   // Retained only to restore an already-started round. Normal pools and song
   // suggestions consume songs; an eligibility correction must not reroll an
   // existing round or make its answer/audio unreachable.
@@ -2505,18 +2516,47 @@ function mayRefreshSongs(req) {
   return true;
 }
 
-function attachJokes(songs) {
-  const entries = (loadJson(JOKES_FILE, {}).photos || []).filter(p => p && p.song && p.image);
-  if (!entries.length) return songs;
+let jokesCache = { stamp: null, empty: true, byId: new Map(), byNorm: new Map() };
+function getJokesIndex(stamp = jokesFileStamp()) {
+  if (jokesCache.stamp === stamp) return jokesCache;
+  const byId = new Map();
+  const byNorm = new Map();
+  if (stamp !== "missing") {
+    const raw = loadJson(JOKES_FILE, {});
+    const photos = Array.isArray(raw?.photos) ? raw.photos : [];
+    let order = 0;
+    for (const entry of photos) {
+      if (!entry || !entry.song || !entry.image) continue;
+      const image = /^https?:\/\//i.test(entry.image)
+        ? entry.image
+        : "Images/jokes/" + String(entry.image).split("/").map(encodeURIComponent).join("/");
+      const item = {
+        order: order++,
+        joke: { image, caption: String(entry.caption || ""), showOnLoss: Boolean(entry.showOnLoss) }
+      };
+      if (!byId.has(entry.song)) byId.set(entry.song, item);
+      const normKey = norm(entry.song);
+      if (!byNorm.has(normKey)) byNorm.set(normKey, item);
+    }
+  }
+  jokesCache = { stamp, empty: byId.size === 0 && byNorm.size === 0, byId, byNorm };
+  return jokesCache;
+}
+
+function attachJokes(songs, stamp) {
+  const index = getJokesIndex(stamp);
+  if (index.empty) return songs;
 
   return songs.map(song => {
     // the song's title as shown in the game, its tracker title, or its id
-    const entry = entries.find(e => e.song === song.id || norm(e.song) === norm(song.display) || norm(e.song) === norm(song.title));
-    if (!entry) return song;
-    const image = /^https?:\/\//i.test(entry.image)
-      ? entry.image
-      : "Images/jokes/" + String(entry.image).split("/").map(encodeURIComponent).join("/");
-    return { ...song, joke: { image, caption: String(entry.caption || ""), showOnLoss: Boolean(entry.showOnLoss) } };
+    const idHit = index.byId.get(song.id);
+    const displayHit = index.byNorm.get(norm(song.display));
+    const titleHit = index.byNorm.get(norm(song.title));
+    let best = idHit;
+    if (displayHit && (!best || displayHit.order < best.order)) best = displayHit;
+    if (titleHit && (!best || titleHit.order < best.order)) best = titleHit;
+    if (!best) return song;
+    return { ...song, joke: { ...best.joke } };
   });
 }
 
@@ -3457,7 +3497,7 @@ async function handleAdmin(req, res, pathname) {
     if (!/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
     const body = await readJsonBody(req);
     const id = String(body.id || "");
-    const song = SONGS.find(s => s.id === id);
+    const song = catalogSongById(id);
     if (!song || isHidden(song) || !isGuessingEligible(song)) { sendJson(res, 404, { error: "Song not found, hidden or excluded. Refresh the tracker and try again." }); return true; }
     ACTIVE_SONG = { id, seq: ACTIVE_SONG.seq + 1, epoch: ACTIVE_SONG_EPOCH };
     activeSongFeed.publish(ACTIVE_SONG);
@@ -3469,15 +3509,14 @@ async function handleAdmin(req, res, pathname) {
     if (!/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
     const body = await readJsonBody(req);
     const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
-    const byId = new Map(SONGS.map(s => [s.id, s]));
 
     if (body.hidden) {
       ids.forEach(id => {
-        const song = byId.get(id);
+        const song = catalogSongById(id);
         if (song && isGuessingEligible(song) && !HIDDEN.some(h => h.id === id)) HIDDEN.push({ id, name: song.display, era: song.era || "", key: hiddenKey(song) });
       });
     } else {
-      const wantedKeys = new Set(ids.map(id => byId.get(id)).filter(Boolean).map(hiddenKey));
+      const wantedKeys = new Set(ids.map(catalogSongById).filter(Boolean).map(hiddenKey));
       HIDDEN = HIDDEN.filter(h => !ids.includes(h.id) && !wantedKeys.has(h.key));
     }
     saveHidden();
@@ -3582,7 +3621,7 @@ async function handleAdmin(req, res, pathname) {
     if (!/application\/json/.test(req.headers["content-type"] || "")) { sendJson(res, 400, { error: "Bad request" }); return true; }
     const body = await readJsonBody(req);
     const id = String(body.id || "");
-    const song = SONGS.find(s => s.id === id);
+    const song = catalogSongById(id);
     if (!song) { sendJson(res, 404, { error: "Song not found. Refresh the tracker and try again." }); return true; }
     const name = String(body.name || "").trim();
     if (name.length > 200) { sendJson(res, 400, { error: "Song names must be 200 characters or fewer." }); return true; }

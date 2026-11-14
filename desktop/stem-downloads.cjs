@@ -73,12 +73,28 @@ function isMp3Head(buf) {
   return buf.length >= 3 && (buf.toString("latin1", 0, 3) === "ID3" || (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0));
 }
 
+function indexLocalFolders(songsDir) {
+  const byKey = new Map();
+  try {
+    for (const n of fs.readdirSync(songsDir)) {
+      const key = n.normalize("NFC").toLowerCase();
+      if (!byKey.has(key)) byKey.set(key, n);
+    }
+  } catch { /* missing or unreadable */ }
+  return byKey;
+}
+
 // Whether a folder already holds a playable set; returns the actual folder name.
-function findLocalFolder(songsDir, folder) {
-  let names = [];
-  try { names = fs.readdirSync(songsDir); } catch { return null; }
+function findLocalFolder(songsDir, folder, folderIndex = null) {
   const want = folder.normalize("NFC").toLowerCase();
-  const name = names.find(n => n.normalize("NFC").toLowerCase() === want);
+  let name = null;
+  if (folderIndex instanceof Map) {
+    name = folderIndex.get(want) || null;
+  } else {
+    let names = [];
+    try { names = fs.readdirSync(songsDir); } catch { return null; }
+    name = names.find(n => n.normalize("NFC").toLowerCase() === want) || null;
+  }
   if (!name) return null;
   const dir = path.join(songsDir, name);
   let complete = false;
@@ -152,10 +168,11 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
   async function refreshInstalled() {
     let local = new Map();
     try { local = await localSongs(); } catch { /* local list unavailable */ }
+    const folderIndex = catalog.songs.length ? indexLocalFolders(songsDir) : new Map();
     for (const song of catalog.songs) {
       const item = items.get(song.id);
       if (item && ["queued", "downloading", "verifying", "installing", "conflict"].includes(item.status)) continue;
-      const folder = findLocalFolder(songsDir, song.folder);
+      const folder = findLocalFolder(songsDir, song.folder, folderIndex);
       const mine = local.get(song.id);
       if (folder && folder.complete) set(song.id, { status: "installed", note: folder.name !== song.folder ? `In your Songs folder as "${folder.name}"` : "", error: "" });
       else if (mine && mine.mode === "stems") set(song.id, { status: "installed", note: mine.folder ? `Already in your Songs folder as "${mine.folder}"` : "Already installed", error: "" });
