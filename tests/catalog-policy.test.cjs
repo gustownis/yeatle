@@ -435,6 +435,11 @@ test("verified premasters and matching unreleased OG files replace 30s Apple pre
   const appliedPowerTrip = applyCatalogMetadata(powerTrip);
   assert.equal(appliedPowerTrip.premaster.id, "5d87c60977a56cc385f7622eb9e55f61", "Power Trip uses verified master file");
   assert.equal(appliedPowerTrip.preview, false);
+
+  const breathe = catalog.index().get("breathe") || { id: "breathe", tab: "Released", source: { kind: "apple", id: "1731057466" } };
+  const appliedBreathe = applyCatalogMetadata(breathe);
+  assert.equal(appliedBreathe.premaster.id, "a79ffe87940c8e6846407d8ccf1699a2", "Breathe uses verified master file");
+  assert.equal(appliedBreathe.preview, false);
 });
 
 test("redundant unreleased Morë V1 is excluded while released Morë remains eligible", () => {
