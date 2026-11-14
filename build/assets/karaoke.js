@@ -1664,35 +1664,125 @@ async function loadStemSong(song, job) {
   return { inst, guide, vocals, duration: length / SR };
 }
 
+const SPLITTER_IDLE_MS = 60000;
+const SPLITTER_DISPOSE_TIMEOUT_MS = 15000;
+let splitterWorker = null;
+let splitterRevision = null;
+let splitterIdleTimer = null;
+let splitterJobId = 0;
+
+function terminateSplitterWorker(worker = splitterWorker) {
+  clearTimeout(splitterIdleTimer);
+  splitterIdleTimer = null;
+  if (!worker) return;
+  if (splitterWorker === worker) {
+    splitterWorker = null;
+    splitterRevision = null;
+  }
+  worker.onmessage = null;
+  worker.onerror = null;
+  worker.terminate();
+}
+
+function disposeSplitterWorker(worker = splitterWorker) {
+  clearTimeout(splitterIdleTimer);
+  splitterIdleTimer = null;
+  if (!worker) return;
+  if (splitterWorker === worker) {
+    splitterWorker = null;
+    splitterRevision = null;
+  }
+  worker.onmessage = null;
+  worker.onerror = null;
+  let finished = false, timeout = null;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timeout);
+    if (typeof worker.removeEventListener === "function") {
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", finish);
+    }
+    worker.onmessage = null;
+    worker.onerror = null;
+    worker.terminate();
+  };
+  const onMessage = event => { if (event.data?.type === "disposed") finish(); };
+  if (typeof worker.addEventListener === "function") {
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", finish);
+  } else {
+    worker.onmessage = onMessage;
+    worker.onerror = finish;
+  }
+  timeout = setTimeout(finish, SPLITTER_DISPOSE_TIMEOUT_MS);
+  timeout.unref?.();
+  try { worker.postMessage({ type: "dispose" }); } catch { finish(); }
+}
+
+function scheduleSplitterIdle() {
+  clearTimeout(splitterIdleTimer);
+  splitterIdleTimer = null;
+  if (!splitterWorker) return;
+  const worker = splitterWorker;
+  splitterIdleTimer = setTimeout(() => {
+    if (splitterWorker === worker) disposeSplitterWorker(worker);
+  }, SPLITTER_IDLE_MS);
+  splitterIdleTimer.unref?.();
+}
+
 function runSplitter(left, right, stems, job) {
   return new Promise((resolve, reject) => {
     job.check();
-    const worker = new Worker(new URL(`./separator.worker.js?v=${VERSION}`, import.meta.url), { type: "module" });
-    let revision = null, settled = false;
-    const finish = (fn, value) => {
+    clearTimeout(splitterIdleTimer);
+    splitterIdleTimer = null;
+    const reused = Boolean(splitterWorker);
+    const worker = splitterWorker || new Worker(new URL(`./separator.worker.js?v=${VERSION}`, import.meta.url), { type: "module" });
+    splitterWorker = worker;
+    const id = ++splitterJobId;
+    let revision = splitterRevision, settled = false;
+    const finish = (fn, value, { keepWorker = false } = {}) => {
       if (settled) return;
       settled = true;
       job.onCancel = null;
-      worker.terminate();
+      if (keepWorker && !job.cancelled && splitterWorker === worker) {
+        splitterRevision = revision;
+        worker.onmessage = null;
+        worker.onerror = () => {
+          if (splitterWorker === worker) terminateSplitterWorker(worker);
+          else worker.terminate();
+        };
+        scheduleSplitterIdle();
+      } else {
+        terminateSplitterWorker(worker);
+      }
       fn(value);
     };
     job.onCancel = () => finish(reject, new Error("cancelled"));
     worker.onmessage = ({ data }) => {
       if (data.type === "status") {
-        if (data.revision) revision = data.revision;
+        if (data.revision) {
+          revision = data.revision;
+          splitterRevision = data.revision;
+        }
         job.status(data.text || "Splitting the vocals off the beat…", data.text ? null : 0);
         return;
       }
-      if (data.id !== 1) return;
+      if (data.id !== id) return;
       if (data.type === "segment") {
         for (const name of ["drums", "bass", "other"]) stems[name].copyToChannel(data.stems[name], 0, data.from);
         job.status("Splitting the vocals off the beat…", data.done / data.splits);
-      } else if (data.type === "done") finish(resolve, revision);
+      } else if (data.type === "done") finish(resolve, revision, { keepWorker: true });
       else if (data.type === "error") finish(reject, new Error(data.message));
     };
-    worker.onerror = event => finish(reject, new Error(event.message || "The song splitter couldn't start in this browser."));
+    worker.onerror = event => finish(reject, new Error(event?.message || "The song splitter couldn't start in this browser."));
+    if (reused) job.status("Splitting the vocals off the beat…", 0);
     const l = new Float32Array(left), r = new Float32Array(right);
-    worker.postMessage({ type: "split", id: 1, left: l, right: r, urgent: true }, [l.buffer, r.buffer]);
+    try {
+      worker.postMessage({ type: "split", id, left: l, right: r, urgent: true }, [l.buffer, r.buffer]);
+    } catch (err) {
+      finish(reject, err);
+    }
   });
 }
 

@@ -579,3 +579,127 @@ test("startSong yields cleanly across long PCM analysis and releases audio.vocal
   assert.ok(h.context.begun.chart.analysis);
 });
 
+test("runSplitter reuses clean workers with an idle dispose timer and terminates on cancel without stale races", async () => {
+  const workers = [], timers = [], cleared = new Set();
+  let nextTimerId = 1;
+  class FakeWorker {
+    constructor(url) {
+      this.url = String(url);
+      this.posted = [];
+      this.terminated = false;
+      this.listeners = { message: new Set(), error: new Set() };
+      this.onmessage = null;
+      this.onerror = null;
+      workers.push(this);
+    }
+    addEventListener(type, fn) { this.listeners[type]?.add(fn); }
+    removeEventListener(type, fn) { this.listeners[type]?.delete(fn); }
+    emit(type, payload) {
+      if (this.terminated) return;
+      if (type === "message") {
+        this.onmessage?.(payload);
+        this.listeners.message.forEach(fn => fn(payload));
+      } else if (type === "error") {
+        this.onerror?.(payload);
+        this.listeners.error.forEach(fn => fn(payload));
+      }
+    }
+    postMessage(msg, transfer) { this.posted.push({ msg, transfer }); }
+    terminate() { this.terminated = true; }
+  }
+  const h = harness({
+    Worker: FakeWorker,
+    setTimeout: (fn, ms) => { const entry = { id: nextTimerId++, fn, ms }; timers.push(entry); return entry.id; },
+    clearTimeout: id => { if (id != null) cleared.add(id); }
+  });
+  const makeStems = () => {
+    const copies = [];
+    const stem = name => ({ copyToChannel: (data, ch, from) => copies.push({ name, data, ch, from }) });
+    return { stems: { drums: stem("drums"), bass: stem("bass"), other: stem("other") }, copies };
+  };
+  const makeTestJob = () => {
+    const statuses = [];
+    const job = h.run("makeJob()");
+    job.status = (text, p) => statuses.push({ text, p });
+    return { job, statuses };
+  };
+
+  // 1. Clean run keeps worker warm, drops job message handler closures, and schedules 60s idle dispose.
+  const first = makeStems();
+  const job1 = makeTestJob();
+  h.context.runArgs = [new Float32Array([0.1, 0.2]), new Float32Array([0.3, 0.4]), first.stems, job1.job];
+  const p1 = h.run("runSplitter(...runArgs)");
+  assert.equal(workers.length, 1);
+  const w1 = workers[0];
+  assert.equal(w1.posted[0].msg.type, "split");
+  assert.equal(w1.posted[0].msg.id, 1);
+  w1.emit("message", { data: { type: "status", text: "", revision: "rev-one" } });
+  w1.emit("message", { data: { type: "segment", id: 1, from: 0, done: 1, splits: 2, stems: { drums: new Float32Array(2), bass: new Float32Array(2), other: new Float32Array(2) } } });
+  w1.emit("message", { data: { type: "done", id: 1 } });
+  assert.equal(await p1, "rev-one");
+  assert.equal(w1.terminated, false);
+  assert.equal(w1.onmessage, null);
+  assert.equal(timers.at(-1).ms, 60000);
+  const idleTimerId = timers.at(-1).id;
+
+  // 2. Second clean run reuses w1, cancels the pending idle timer, preserves revision, and ignores wrong ids.
+  const second = makeStems();
+  const job2 = makeTestJob();
+  h.context.runArgs = [new Float32Array([0.5, 0.6]), new Float32Array([0.7, 0.8]), second.stems, job2.job];
+  const p2 = h.run("runSplitter(...runArgs)");
+  assert.equal(workers.length, 1);
+  assert.ok(cleared.has(idleTimerId));
+  assert.equal(w1.posted[1].msg.id, 2);
+  assert.deepEqual(job2.statuses[0], { text: "Splitting the vocals off the beat…", p: 0 });
+  w1.emit("message", { data: { type: "done", id: 1 } });
+  w1.emit("message", { data: { type: "segment", id: 2, from: 0, done: 1, splits: 1, stems: { drums: new Float32Array(2), bass: new Float32Array(2), other: new Float32Array(2) } } });
+  w1.emit("message", { data: { type: "done", id: 2 } });
+  assert.equal(await p2, "rev-one");
+  assert.equal(second.copies.length, 3);
+
+  // 3. Idle timeout sends { type: "dispose" } and waits cleanly for "disposed" before terminating.
+  const secondIdleTimer = timers.at(-1);
+  assert.equal(secondIdleTimer.ms, 60000);
+  secondIdleTimer.fn();
+  assert.equal(w1.posted.at(-1).msg.type, "dispose");
+  assert.equal(timers.at(-1).ms, 15000);
+  assert.equal(w1.terminated, false);
+  w1.emit("message", { data: { type: "disposed" } });
+  assert.equal(w1.terminated, true);
+  assert.ok(cleared.has(timers.at(-1).id));
+
+  // 4. Mid-flight cancellation immediately terminates the worker so stale messages cannot race the next song.
+  const third = makeStems();
+  const job3 = makeTestJob();
+  h.context.runArgs = [new Float32Array([1]), new Float32Array([1]), third.stems, job3.job];
+  const p3 = h.run("runSplitter(...runArgs)");
+  assert.equal(workers.length, 2);
+  const w2 = workers[1];
+  job3.job.cancel();
+  await assert.rejects(p3, /cancelled/);
+  assert.equal(w2.terminated, true);
+  w2.emit("message", { data: { type: "done", id: w2.posted[0].msg.id } });
+
+  const fourth = makeStems();
+  const job4 = makeTestJob();
+  h.context.runArgs = [new Float32Array([1]), new Float32Array([1]), fourth.stems, job4.job];
+  const p4 = h.run("runSplitter(...runArgs)");
+  assert.equal(workers.length, 3);
+  const w3 = workers[2];
+  w3.emit("message", { data: { type: "status", text: "", revision: "rev-two" } });
+  w3.emit("message", { data: { type: "done", id: w3.posted[0].msg.id } });
+  assert.equal(await p4, "rev-two");
+
+  // 5. Idle worker error clears cached worker so next run spawns a fresh one.
+  w3.emit("error", { message: "gpu lost" });
+  assert.equal(w3.terminated, true);
+  const fifth = makeStems();
+  const job5 = makeTestJob();
+  h.context.runArgs = [new Float32Array([1]), new Float32Array([1]), fifth.stems, job5.job];
+  const p5 = h.run("runSplitter(...runArgs)");
+  assert.equal(workers.length, 4);
+  const w4 = workers[3];
+  w4.emit("message", { data: { type: "done", id: w4.posted[0].msg.id } });
+  assert.equal(await p5, null);
+});
+

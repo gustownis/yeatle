@@ -131,3 +131,119 @@ test('final-level cancellation keeps the original, ignores late segments, and re
  job.addSegment({});job.finish();job.fail(new Error('late cancellation error'));
  assert.equal(job.error,undefined);assert.equal(messages[0].type,'cancel');assert.equal(messages.length,1);
 });
+
+test('worker Ld releases raw model buffers only after kt.create and preserves WebGPU-to-WASM fallback', async () => {
+  const start = worker.indexOf('let Nd=null,tt=null,Lt="wasm";');
+  const end = worker.indexOf('async function fh(', start);
+  const block = worker.slice(start, end);
+  assert.match(block, /for\(const a of st\)\{i\[a\]=await kt\.create\(r\[a\],\{executionProviders:\[Lt\]\}\);r\[a\]=null\}/);
+  assert.match(block, /catch\(error\)\{for\(const a of st\)r\[a\]=null;await YeatleReleaseSessions/);
+
+  const makeHarness = ({ requestAdapter, createImpl, setTimeoutImpl = setTimeout, clearTimeoutImpl = clearTimeout }) => {
+    const messages = [], releases = [], fetched = [];
+    const stems = ['drums', 'bass', 'other', 'vocals'];
+    const rawPayloads = Object.fromEntries(stems.map((name, idx) => [name, new Uint8Array([idx + 1, 99, 42])]));
+    const context = vm.createContext({
+      st: stems, URL, Uint8Array, Float32Array,
+      setTimeout: setTimeoutImpl, clearTimeout: clearTimeoutImpl,
+      pe: class { constructor(type, data, dims) { this.type = type; this.data = data; this.dims = dims; } },
+      kt: { create: createImpl(releases) },
+      fetch: async url => {
+        const stem = /\/([^/.]+)\.fp16\.onnx/.exec(String(url))[1];
+        fetched.push(stem);
+        const bytes = rawPayloads[stem];
+        let sent = false;
+        return {
+          ok: true,
+          headers: { get: key => (key === 'content-length' ? String(bytes.length) : key === 'x-yeatle-model-hash' ? `hash-${stem}` : null) },
+          body: { getReader: () => ({ async read() { if (sent) return { done: true }; sent = true; return { done: false, value: bytes }; } }) }
+        };
+      },
+      self: {
+        location: { href: 'http://worker.test/assets/separator.worker.js' },
+        navigator: requestAdapter ? { gpu: { requestAdapter } } : {},
+        postMessage: msg => messages.push(msg)
+      }
+    });
+    vm.runInContext(block, context);
+    return { context, messages, releases, fetched, rawPayloads };
+  };
+
+  // 1. WebGPU probe runs against vocals first, mismatches accuracy, and falls back to WASM with all 4 intact model buffers.
+  {
+    const creates = [];
+    let cleared = 0;
+    const h = makeHarness({
+      requestAdapter: async () => ({}),
+      clearTimeoutImpl: id => { cleared++; clearTimeout(id); },
+      createImpl: releases => async (bytes, opts) => {
+        assert.ok(bytes instanceof Uint8Array);
+        creates.push({ provider: opts.executionProviders[0], tag: bytes[0], length: bytes.length });
+        const ep = opts.executionProviders[0];
+        return {
+          async run() {
+            const data = new Float32Array(1048576).fill(ep === 'webgpu' ? 1 : 0.25);
+            return { y: { data } };
+          },
+          async release() { releases.push(`release:${ep}`); }
+        };
+      }
+    });
+    await vm.runInContext('Ld()', h.context);
+    assert.equal(vm.runInContext('Lt', h.context), 'wasm');
+    assert.equal(cleared, 1);
+    assert.deepEqual(h.releases, ['release:webgpu', 'release:wasm']);
+    assert.deepEqual(creates, [
+      { provider: 'webgpu', tag: 4, length: 3 },
+      { provider: 'wasm', tag: 4, length: 3 },
+      { provider: 'wasm', tag: 1, length: 3 },
+      { provider: 'wasm', tag: 2, length: 3 },
+      { provider: 'wasm', tag: 3, length: 3 },
+      { provider: 'wasm', tag: 4, length: 3 }
+    ]);
+    assert.equal(h.messages.at(-1).provider, 'wasm');
+    assert.equal(h.messages.at(-1).revision, 'drums:hash-drums|bass:hash-bass|other:hash-other|vocals:hash-vocals');
+  }
+
+  // 2. WebGPU probe timeout falls back cleanly to WASM, late probe rejection causes no unhandledRejection, and intact buffers load.
+  {
+    const creates = [], pendingRejects = [];
+    const h = makeHarness({
+      requestAdapter: async () => ({}),
+      setTimeoutImpl: (fn, _ms) => { fn(); return 123; },
+      clearTimeoutImpl: () => {},
+      createImpl: releases => async (bytes, opts) => {
+        assert.ok(bytes instanceof Uint8Array);
+        creates.push({ provider: opts.executionProviders[0], tag: bytes[0] });
+        if (opts.executionProviders[0] === 'webgpu') {
+          return new Promise((_res, rej) => pendingRejects.push(rej));
+        }
+        return { async run() { return { y: { data: new Float32Array(1048576).fill(1) } }; }, async release() { releases.push(opts.executionProviders[0]); } };
+      }
+    });
+    await vm.runInContext('Ld()', h.context);
+    assert.equal(vm.runInContext('Lt', h.context), 'wasm');
+    assert.deepEqual(creates.slice(1).map(c => c.tag), [1, 2, 3, 4]);
+    pendingRejects.forEach(rej => rej(new Error('late webgpu failure')));
+    await tick();
+  }
+
+  // 3. Mid-loop kt.create failure releases already-created sessions, resets tt, and retry re-fetches and succeeds.
+  {
+    let failBass = true;
+    const h = makeHarness({
+      createImpl: releases => async (bytes, opts) => {
+        if (failBass && bytes[0] === 2) throw new Error('bass init failed');
+        return { async release() { releases.push(`stem-${bytes[0]}-${opts.executionProviders[0]}`); } };
+      }
+    });
+    await assert.rejects(vm.runInContext('Ld()', h.context), /bass init failed/);
+    assert.deepEqual(h.releases, ['stem-1-wasm']);
+    assert.equal(vm.runInContext('tt', h.context), null);
+    assert.equal(vm.runInContext('Nd', h.context), null);
+    failBass = false;
+    await vm.runInContext('Ld()', h.context);
+    assert.equal(h.fetched.length, 8);
+    assert.ok(vm.runInContext('Nd && Nd.vocals', h.context));
+  }
+});
