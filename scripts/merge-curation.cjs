@@ -1,7 +1,7 @@
 // Three-way merge of the admin curation files for a hosted copy that also updates from Git.
 //   node scripts/merge-curation.cjs BASE_DIR LOCAL_DIR TARGET_DIR
-// BASE_DIR holds the files as the previous commit had them, LOCAL_DIR the copies the
-// running admin panel saved, and TARGET_DIR the files from the newly merged commit.
+// BASE_DIR holds the files (or data/ files) as the previous commit had them, LOCAL_DIR
+// the copies the running admin panel saved, and TARGET_DIR the newly merged commit.
 // The website's own admin changes win; everything else follows the repository.
 const fs = require("node:fs");
 const path = require("node:path");
@@ -15,6 +15,16 @@ const FILES = {
 
 const read = file => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const resolveRead = (dir, name) => {
+  const inData = path.join(dir, "data", name);
+  return fs.existsSync(inData) ? inData : path.join(dir, name);
+};
+const resolveTarget = (dir, name) => {
+  const dataDir = path.join(dir, "data");
+  return fs.existsSync(dataDir) && !fs.existsSync(path.join(dir, name))
+    ? path.join(dataDir, name)
+    : path.join(dir, name);
+};
 
 function mergeMaps(base, local, upstream) {
   const result = { ...upstream };
@@ -32,10 +42,10 @@ function mergeLists(base, local, upstream, key) {
 function mergeCuration(baseDir, localDir, targetDir) {
   const changed = [];
   for (const [name, { field, key }] of Object.entries(FILES)) {
-    const local = read(path.join(localDir, name));
+    const local = read(resolveRead(localDir, name));
     if (!local) continue; // nothing saved locally for this file
-    const base = read(path.join(baseDir, name)) || {};
-    const upstream = read(path.join(targetDir, name)) || {};
+    const base = read(resolveRead(baseDir, name)) || {};
+    const upstream = read(resolveRead(targetDir, name)) || {};
     const pick = (data, empty) => (data && data[field]) || empty;
     const value = key
       ? mergeLists(pick(base, []), pick(local, []), pick(upstream, []), key)
@@ -44,7 +54,7 @@ function mergeCuration(baseDir, localDir, targetDir) {
     // leave files without local changes exactly as the repository has them
     if (same(next, upstream)) continue;
     changed.push(name);
-    const target = path.join(targetDir, name);
+    const target = resolveTarget(targetDir, name);
     fs.writeFileSync(`${target}.tmp`, JSON.stringify(next, null, 2) + "\n");
     fs.renameSync(`${target}.tmp`, target);
   }

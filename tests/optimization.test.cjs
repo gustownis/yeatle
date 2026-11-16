@@ -5,8 +5,8 @@ const os=require('node:os');
 const path=require('node:path');
 const {gunzipSync}=require('node:zlib');
 const {pathToFileURL}=require('node:url');
-const {createCompressedCache}=require('../static-cache.cjs');
-const {createActiveSongFeed}=require('../live-control.cjs');
+const {createCompressedCache}=require('../server/static-cache.cjs');
+const {createActiveSongFeed}=require('../server/live-control.cjs');
 const {EventEmitter}=require('node:events');
 const vm=require('node:vm');
 const performanceModule=import(pathToFileURL(path.join(__dirname,'../build/assets/performance.mjs')).href);
@@ -25,7 +25,7 @@ test('compressed variants coalesce, invalidate on edits, and remain within their
 });
 
 test('Brotli is chosen when offered, gzip otherwise, and both variants are cached separately',async t=>{
- const {acceptedEncoding}=require('../static-cache.cjs');const {brotliDecompressSync}=require('node:zlib');
+ const {acceptedEncoding}=require('../server/static-cache.cjs');const {brotliDecompressSync}=require('node:zlib');
  assert.equal(acceptedEncoding('gzip, deflate, br, zstd'),'br');assert.equal(acceptedEncoding('gzip, deflate'),'gzip');
  assert.equal(acceptedEncoding('br;q=0, gzip'),'gzip');assert.equal(acceptedEncoding('*'),'gzip');
  assert.equal(acceptedEncoding('gzip;q=0, *;q=1'),null);assert.equal(acceptedEncoding('identity'),null);assert.equal(acceptedEncoding(undefined),null);
@@ -119,8 +119,8 @@ test('catalog metadata, karaoke migration, and round selection avoid quadratic s
  const {performance}=require('node:perf_hooks');
  const {pathToFileURL}=require('node:url');
  const nodeOs=require('node:os');
- const catalogPolicy=require('../catalog-policy.cjs');
- const {createLeaderboardStore}=require('../leaderboard.cjs');
+ const catalogPolicy=require('../server/catalog-policy.cjs');
+ const {createLeaderboardStore}=require('../server/leaderboard.cjs');
 
  const makeSongs=()=>Array.from({length:1500},(_,i)=>({
   id:`song-${i}`,

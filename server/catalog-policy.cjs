@@ -1,4 +1,4 @@
-const { corrections, stemBindings = [], excludedRecordings = [], answerGroups = [], sameRecordings = [], premasters = [] } = require("./catalog-metadata.json");
+const { corrections, stemBindings = [], excludedRecordings = [], answerGroups = [], sameRecordings = [], premasters = [] } = require("../data/catalog-metadata.json");
 const crypto = require("node:crypto");
 
 const MAX_KEY_CACHE = 10000;
@@ -366,7 +366,7 @@ function findOgPremaster(releasedSong, variants) {
 }
 
 // A released song that only has Apple's 30 s preview, but whose pre-master the maintainer has
-// verified (see premasters in catalog-metadata.json), plays that full file instead. The
+// verified (see premasters in data/catalog-metadata.json), plays that full file instead. The
 // preview stays the recorded source, so exclusions and saved references are unaffected, and
 // already pinned Daily snapshots, which lack this field, keep the audio they were pinned with.
 const premasterById = new Map(premasters.map(entry => [entry.id, entry]));

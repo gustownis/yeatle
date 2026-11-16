@@ -120,12 +120,27 @@ test("installers are built with the names installed apps' updaters look for", ()
   }
   assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
   const root = path.join(__dirname, "..");
-  const rootSources = ["server.js", ...b.files.filter(entry => entry.endsWith(".cjs") && !entry.includes("/"))];
-  for (const source of rootSources) {
+  const listDir = dir => fs.readdirSync(path.join(root, dir)).filter(name => name.endsWith(".cjs")).map(name => `${dir}/${name}`);
+  const packagedSources = ["server.js", ...listDir("server"), ...listDir("desktop")];
+  const isPackaged = rel => {
+    const posix = rel.split(path.sep).join("/");
+    return b.files.includes(posix) || b.files.some(entry => entry.endsWith("/**/*") && posix.startsWith(entry.slice(0, -4)));
+  };
+  const { wrap } = require("node:module");
+  const vm = require("node:vm");
+  for (const source of [...packagedSources, ...listDir("scripts")]) {
     const code = fs.readFileSync(path.join(root, source), "utf8");
-    for (const [, target] of code.matchAll(/require\(\s*["']\.\/([^"']+)["']\s*\)/g)) {
-      assert.ok(fs.existsSync(path.join(root, target)), `${source} requires missing ${target}`);
-      assert.ok(b.files.includes(target), `${source} requires ${target}, which is missing from package.json build.files`);
+    new vm.Script(wrap(code.replace(/^#![^\n]*\n/, "")), { filename: source });
+    if (!packagedSources.includes(source)) continue;
+    assert.ok(isPackaged(source), `${source} is missing from package.json build.files`);
+    for (const [, target] of code.matchAll(/require\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g)) {
+      const resolved = path.relative(root, path.resolve(root, path.dirname(source), target)).split(path.sep).join("/");
+      assert.ok(fs.existsSync(path.join(root, resolved)), `${source} requires missing ${resolved}`);
+      assert.ok(isPackaged(resolved), `${source} requires ${resolved}, which is missing from package.json build.files`);
     }
+  }
+  for (const file of ["era-covers.json", "hidden-songs.json", "song-edits.json", "song-renames.json", "song-splits.json"]) {
+    assert.ok(fs.existsSync(path.join(root, "data", file)), `missing data/${file}`);
+    assert.ok(isPackaged(`data/${file}`), `data/${file} is missing from package.json build.files`);
   }
 });

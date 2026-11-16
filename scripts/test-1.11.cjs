@@ -17,8 +17,13 @@ const settings = JSON.parse(fs.readFileSync(config));
 if (!Object.hasOwn(settings, "dailyAuthority")) {
   fs.writeFileSync(config, JSON.stringify({ ...settings, dailyAuthority: "" }, null, 2));
 }
-for (const name of ["era-covers.json", "hidden-songs.json", "song-edits.json", "song-renames.json", "song-splits.json", "songs-cache.json", "preview-cache.json"]) {
-  if (!fs.existsSync(path.join(data, name)) && fs.existsSync(path.join(root, name))) fs.copyFileSync(path.join(root, name), path.join(data, name));
+for (const name of ["era-covers.json", "hidden-songs.json", "song-edits.json", "song-renames.json", "song-splits.json"]) {
+  const src = path.join(root, "data", name);
+  if (!fs.existsSync(path.join(data, name)) && fs.existsSync(src)) fs.copyFileSync(src, path.join(data, name));
+}
+for (const name of ["songs-cache.json", "preview-cache.json"]) {
+  const src = path.join(root, name);
+  if (!fs.existsSync(path.join(data, name)) && fs.existsSync(src)) fs.copyFileSync(src, path.join(data, name));
 }
 console.log(`Yeatle ${require("../package.json").version} · ${process.platform}/${process.arch} · Node ${process.versions.node}`);
 console.log(`Test settings and reports: ${data}`);

@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createLeaderboardStore, SNIPPET_TRIES, STAND_IN_JUDGE, BANNED_MESSAGE } = require("../leaderboard.cjs");
+const { createLeaderboardStore, SNIPPET_TRIES, STAND_IN_JUDGE, BANNED_MESSAGE } = require("../server/leaderboard.cjs");
 
 const NOW = Date.parse("2026-10-27T12:00:00Z");
 const SONGS = ["flawless", "talk", "gettinold", "monë", "sorry", "wat", "ruby", "outside", "nun", "go2work"];

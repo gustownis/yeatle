@@ -187,7 +187,7 @@ app.whenReady().then(async () => {
   app.getVersion = () => metadata.version;
   result.version = metadata.version;
   const hash = bytes => require("node:crypto").createHash("sha256").update(bytes.toString().replaceAll("\r\n", "\n")).digest("hex");
-  for (const file of ["server.js", "stem-catalog.cjs", "desktop/main.cjs", "desktop/menu.cjs", "desktop/stem-downloads.cjs", "desktop/stems-preload.cjs", "build/stems-download.html", "build/assets/stems-download.js", "build/assets/stems-download.css"]) {
+  for (const file of ["server.js", "server/stem-catalog.cjs", "desktop/main.cjs", "desktop/menu.cjs", "desktop/stem-downloads.cjs", "desktop/stems-preload.cjs", "build/stems-download.html", "build/assets/stems-download.js", "build/assets/stems-download.css"]) {
     assert.equal(hash(fs.readFileSync(path.join(target, file))), hash(fs.readFileSync(path.join(root, file))), file);
   }
   result.checks.packagedFilesMatch = true;

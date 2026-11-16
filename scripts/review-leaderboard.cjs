@@ -7,7 +7,7 @@
 // leaderboard-users.json and songs-cache.json).
 const fs = require("node:fs");
 const path = require("node:path");
-const { computeMetrics } = require("../leaderboard.cjs");
+const { computeMetrics } = require("../server/leaderboard.cjs");
 
 const dir = path.resolve(process.argv[2] || process.env.YEATLE_DATA_DIR || path.join(__dirname, ".."));
 const users = Object.values(JSON.parse(fs.readFileSync(path.join(dir, "leaderboard-users.json"), "utf8")).users || {});

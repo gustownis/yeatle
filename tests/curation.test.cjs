@@ -26,3 +26,19 @@ test("a hosted copy keeps its admin changes when the repository's curation files
   // Files the website never edited are left exactly as the repository has them.
   assert.equal(fs.existsSync(path.join(dirs.target, "song-edits.json")), false);
 });
+
+test("mergeCuration also resolves curation files under repo data/ directories", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-curation-data-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const dirs = Object.fromEntries(["base", "local", "target"].map(name => [name, path.join(root, name)]));
+  Object.values(dirs).forEach(dir => fs.mkdirSync(path.join(dir, "data"), { recursive: true }));
+  const write = (dir, name, data) => fs.writeFileSync(path.join(dirs[dir], "data", name), JSON.stringify(data));
+  const hidden = (...ids) => ({ hidden: ids.map(id => ({ id, name: id, key: `${id}|era` })) });
+  write("base", "hidden-songs.json", hidden("a"));
+  write("local", "hidden-songs.json", hidden("a", "web"));
+  write("target", "hidden-songs.json", hidden("a", "repo"));
+  const changed = mergeCuration(dirs.base, dirs.local, dirs.target);
+  assert.deepEqual(changed, ["hidden-songs.json"]);
+  const merged = JSON.parse(fs.readFileSync(path.join(dirs.target, "data", "hidden-songs.json"), "utf8"));
+  assert.deepEqual(merged.hidden.map(entry => entry.id).sort(), ["a", "repo", "web"]);
+});

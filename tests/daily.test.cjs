@@ -4,8 +4,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { fork } = require("node:child_process");
-const { createDailyChallenges, dailyDate, dailyResetAt, previousDailyDate } = require("../daily-challenge.cjs");
-const { createDailyAuthority } = require("../daily-authority.cjs");
+const { createDailyChallenges, dailyDate, dailyResetAt, previousDailyDate } = require("../server/daily-challenge.cjs");
+const { createDailyAuthority } = require("../server/daily-authority.cjs");
 const rules = import("../build/assets/snippet-rules.mjs");
 const root = path.resolve(__dirname, "..");
 function folder(t) {

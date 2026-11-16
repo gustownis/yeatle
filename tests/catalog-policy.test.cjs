@@ -5,8 +5,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const runtime = require("./fixtures/catalog-runtime.cjs");
-const { creditFor, isGuessingEligible, applyCatalogMetadata, reconcileCatalogEligibility } = require("../catalog-policy.cjs");
-const { dailyDate } = require("../daily-challenge.cjs");
+const { creditFor, isGuessingEligible, applyCatalogMetadata, reconcileCatalogEligibility } = require("../server/catalog-policy.cjs");
+const { dailyDate } = require("../server/daily-challenge.cjs");
 const { validateCatalog } = require("../desktop/stem-downloads.cjs");
 const root = path.join(__dirname, "..");
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -484,7 +484,7 @@ test("unauthorized open-verse Vyne - Ball Wit Us is excluded while solo demo bal
 });
 
 test("applyCorrections uses indexed buckets while preserving rule application order", () => {
-  const metadata = JSON.parse(fs.readFileSync(path.join(root, "catalog-metadata.json"), "utf8"));
+  const metadata = JSON.parse(fs.readFileSync(path.join(root, "data", "catalog-metadata.json"), "utf8"));
 
   // A song matching one bucket should not evaluate matchers from unrelated id/titleKey buckets.
   let vyneFolderReads = 0;

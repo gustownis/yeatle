@@ -8,7 +8,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { createStemDownloader, validateCatalog, safeFolderName, stemsHostUrl, findLocalFolder } = require("../desktop/stem-downloads.cjs");
-const { createStemCatalog, scanFolder } = require("../stem-catalog.cjs");
+const { createStemCatalog, scanFolder } = require("../server/stem-catalog.cjs");
 
 const root = path.join(__dirname, "..");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-stems-"));

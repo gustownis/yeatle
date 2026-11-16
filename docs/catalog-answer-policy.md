@@ -14,7 +14,7 @@ source rather than playing a leaked file under a released label. Stems only
 selects the installed pack. All songs retains the existing source quality
 ranking; it does not globally prioritize releases.
 
-`catalog-policy.cjs` handles eligibility. Explicit Production/producer-only
+`server/catalog-policy.cjs` handles eligibility. Explicit Production/producer-only
 credits and confirmed recordings without Yeat vocals are excluded from future normal rounds, suggestions and the stem
 download catalog. Yeat features remain eligible even when another artist is
 the primary artist. Missing credits remain unknown and eligible for further
@@ -22,7 +22,7 @@ investigation. Unmatched stem folders are not automatically classified as
 released. Optional `Status: Released` or `Status: Unreleased` in verified pack
 metadata can supply that fact.
 
-`catalog-metadata.json` holds narrowly scoped, evidence-described corrections.
+`data/catalog-metadata.json` holds narrowly scoped, evidence-described corrections.
 It preserves audio files and tracker fingerprints. Administrator display-name
 overrides are applied afterward. Now LS remains separate from the released Now
 on AftërLyfe; its LYFESTYLE [V2] era and 2024 era year follow the supplied
@@ -53,7 +53,7 @@ snapshots are excluded from this source repair.
 
 The solo Kankan Zaza V1 and solo Yung Kayo Fleek V1 lack Yeat vocals and are excluded; GOONIE's Zaza V2 with Yeat remains eligible. At the maintainer's request, the separate Fleek V2 tracker entry is also excluded, retaining only Yung Kayo's YEET featuring Yeat. Similarly, the unreleased Morë V1 recording is excluded as redundant with the released Morë (the same vocal performance with only a shorter outro), retaining the released album track for gameplay. Likewise, the released Vyne - Ball Wit Us (feat. Yeat) entry is excluded as an unauthorized open-verse SoundCloud hop, retaining Yeat's unreleased solo demo ball w us for gameplay. This explicit eligibility decision does not change tracker credits or declare two recordings interchangeable.
 
-The maintainer's 2026-10-22 exclusion list covers 60 tracker rows, including early solo demos, reference tracks, the released Have You Ever without Yeat's verse, Eaters V2 without Yeat, fuëgo's instrumental, and producer-only AMG C63, ATM and Louder. `excludedRecordings` in `catalog-metadata.json` scopes the rules to the supplied titles, tabs and tracker versions; the two untitled rows additionally require their Firemane or Houston, Texas alias. Known audio source ids also cover older caches and installed packs with those sources as fallbacks. These are selection exclusions and do not rewrite credits: for example, the tracker describes background vocals on No Clout, which is still excluded at the maintainer's request. Unavailable rows are covered if they acquire playable links later.
+The maintainer's 2026-10-22 exclusion list covers 60 tracker rows, including early solo demos, reference tracks, the released Have You Ever without Yeat's verse, Eaters V2 without Yeat, fuëgo's instrumental, and producer-only AMG C63, ATM and Louder. `excludedRecordings` in `data/catalog-metadata.json` scopes the rules to the supplied titles, tabs and tracker versions; the two untitled rows additionally require their Firemane or Houston, Texas alias. Known audio source ids also cover older caches and installed packs with those sources as fallbacks. These are selection exclusions and do not rewrite credits: for example, the tracker describes background vocals on No Clout, which is still excluded at the maintainer's request. Unavailable rows are covered if they acquire playable links later.
 
 The parser retains `trackerVersion` separately from answer titles. Excluding a demo never excludes a later Yeat feature just because their titles match. Merged entries and old caches reselect an eligible source for each pool while retaining every original source, audio id and tracker fingerprint. Full recordings keep their existing preference over streaming previews. Birthday V2, Pull Up V2, Dope Sickk V2, Not Da Same V2, Cop My Style V1 and the original Eaters release with Yeat remain eligible. Existing pinned Daily snapshots and practice audio selections retain their original recordings.
 
@@ -78,13 +78,13 @@ no such label.
 
 ## Linked answers
 
-At the maintainer's request (2026-11-01), open-verse demos and the features they became answer for each other, and so do songs listed under both Yeat's and a collaborator's name or as an earlier and later version. These are listed in `answerGroups` in `catalog-metadata.json`. A guess naming any member of a group, including its exact dropdown name such as "Yung Bans - Yea Yea (feat. Yeat)" for the Yea! demo, is right for every member. Each member stays its own recording with its own credits, status, audio, eligibility and progress; the link adds answer names only, so excluded recordings such as Fleek V2 stay out of rounds. The Popout open verse and KillBunk's Pop Out are linked this way; the unrelated Popout snippets are not.
+At the maintainer's request (2026-11-01), open-verse demos and the features they became answer for each other, and so do songs listed under both Yeat's and a collaborator's name or as an earlier and later version. These are listed in `answerGroups` in `data/catalog-metadata.json`. A guess naming any member of a group, including its exact dropdown name such as "Yung Bans - Yea Yea (feat. Yeat)" for the Yea! demo, is right for every member. Each member stays its own recording with its own credits, status, audio, eligibility and progress; the link adds answer names only, so excluded recordings such as Fleek V2 stay out of rounds. The Popout open verse and KillBunk's Pop Out are linked this way; the unrelated Popout snippets are not.
 
 `sameRecordings` lists one recording that appears in more than one entry, such as two tracker rows that link the same pillows.su file. These share an `answerId` (one entry in pools and suggestions) and `equivalentIds` (shared progress) as well as their names. The released Krank and its Lyfë OG file row are listed this way; the separate 2 Alivë Chains demo is hidden.
 
 ## Pre-masters and OG files for released tracks
 
-Released tracks that stream Apple's 30-second preview play a full audio file instead when a verified pre-master exists on pillows.su. Entries in `premasters` in `catalog-metadata.json` define verified standalone pre-masters, such as the Yung Kayo - fleek [V2] pre-master file replacing the 30-second preview for Yung Kayo - YEET (feat. Yeat). In addition, merged catalog entries whose unreleased variants include an OG File or Master recording with matching length (same length or less than 2 seconds of difference) and matching guest credits automatically use that pre-master file in place of the streaming preview (such as Rackz got më [V3], while songs with different arrangements or outros like Morë and More V1 remain separate). The preview stays the recorded source, so exclusions and saved references are unaffected, while `preview: false` removes the 30s preview badge and gameplay plays the full audio file.
+Released tracks that stream Apple's 30-second preview play a full audio file instead when a verified pre-master exists on pillows.su. Entries in `premasters` in `data/catalog-metadata.json` define verified standalone pre-masters, such as the Yung Kayo - fleek [V2] pre-master file replacing the 30-second preview for Yung Kayo - YEET (feat. Yeat). In addition, merged catalog entries whose unreleased variants include an OG File or Master recording with matching length (same length or less than 2 seconds of difference) and matching guest credits automatically use that pre-master file in place of the streaming preview (such as Rackz got më [V3], while songs with different arrangements or outros like Morë and More V1 remain separate). The preview stays the recorded source, so exclusions and saved references are unaffected, while `preview: false` removes the 30s preview badge and gameplay plays the full audio file.
 
 Links apply when the server sends a song, including pinned Daily challenges, without changing a stored challenge. Feature titles also accept their aliases with the lead artist in front. `scripts/answer-groups-check.cjs` checks every group against a running server with the real tracker, and `tests/answer-groups.test.cjs` checks them against saved tracker records.
 

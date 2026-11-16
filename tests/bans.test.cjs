@@ -4,8 +4,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { fork } = require("node:child_process");
-const { createLeaderboardStore, emptyProgress, BANNED_MESSAGE, NETWORK_BLOCKED_MESSAGE } = require("../leaderboard.cjs");
-const { clientIp } = require("../client-signals.cjs");
+const { createLeaderboardStore, emptyProgress, BANNED_MESSAGE, NETWORK_BLOCKED_MESSAGE } = require("../server/leaderboard.cjs");
+const { clientIp } = require("../server/client-signals.cjs");
 
 const root = path.resolve(__dirname, "..");
 const DAY = 86400000;

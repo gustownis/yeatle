@@ -26,16 +26,16 @@ const { URL } = require("url");
 const { exec } = require("child_process");
 const { pipeline } = require("stream/promises");
 const { createGzip, constants: zlibConstants } = require("node:zlib");
-const { staticCacheHeaders, isNotModified, rangeAllowed, createCompressedCache, encodeBuffer, acceptedEncoding } = require("./static-cache.cjs");
-const { createAudioCache } = require("./audio-cache.cjs");
-const { createActiveSongFeed } = require("./live-control.cjs");
-const { createStemCatalog } = require("./stem-catalog.cjs");
-const { createDailyChallenges, dailyDate, dailyResetAt, previousDailyDate } = require("./daily-challenge.cjs");
-const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs");
-const { createLeaderboardStore } = require("./leaderboard.cjs");
-const { DEVICE_HEADER, cleanDeviceId, clientIp, normalIp, loadSecret, createSignalHasher, createRateLimiter } = require("./client-signals.cjs");
+const { staticCacheHeaders, isNotModified, rangeAllowed, createCompressedCache, encodeBuffer, acceptedEncoding } = require("./server/static-cache.cjs");
+const { createAudioCache } = require("./server/audio-cache.cjs");
+const { createActiveSongFeed } = require("./server/live-control.cjs");
+const { createStemCatalog } = require("./server/stem-catalog.cjs");
+const { createDailyChallenges, dailyDate, dailyResetAt, previousDailyDate } = require("./server/daily-challenge.cjs");
+const { createDailyAuthority, cleanDailyUrl } = require("./server/daily-authority.cjs");
+const { createLeaderboardStore } = require("./server/leaderboard.cjs");
+const { DEVICE_HEADER, cleanDeviceId, clientIp, normalIp, loadSecret, createSignalHasher, createRateLimiter } = require("./server/client-signals.cjs");
 const { pathToFileURL } = require("url");
-const { answerKey, guessKeys, resolveGroupKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./catalog-policy.cjs");
+const { answerKey, guessKeys, resolveGroupKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./server/catalog-policy.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
 const APP_VERSION = require("./package.json").version;
@@ -45,6 +45,7 @@ const ROOT = process.pkg ? path.dirname(process.execPath) : __dirname;
 const WEB_DIR = path.join(ROOT, "build");
 // Installed desktop apps keep writable files outside the application bundle.
 const DATA_DIR = process.env.YEATLE_DATA_DIR ? path.resolve(process.env.YEATLE_DATA_DIR) : ROOT;
+const CURATION_DIR = process.env.YEATLE_DATA_DIR ? DATA_DIR : path.join(ROOT, "data");
 const STEMS_DIR = process.env.YEATLE_STEMS_DIR ? path.resolve(process.env.YEATLE_STEMS_DIR) : process.env.YEATLE_DATA_DIR ? path.join(DATA_DIR, "Songs") : path.join(WEB_DIR, "Songs");
 const CACHE_FILE = path.join(DATA_DIR, "songs-cache.json");
 // Bump when saved song metadata changes meaning, so older saved lists are corrected on load.
@@ -227,7 +228,7 @@ try {
     ipBlockMs: CONFIG.ipRestrictionDays * 86400000
   });
 } catch (error) { console.error(`Leaderboard accounts: ${error.message}`); process.exit(1); }
-const ERA_COVERS = (loadJson(path.join(DATA_DIR, "era-covers.json"), {}).covers) || {};
+const ERA_COVERS = (loadJson(path.join(CURATION_DIR, "era-covers.json"), {}).covers) || {};
 let dailyAuthority;
 try {
   if (typeof CONFIG.dailyAuthority !== "string" || typeof CONFIG.dailyPublicUrl !== "string") throw new Error("Use strings for dailyAuthority and dailyPublicUrl.");
@@ -904,7 +905,7 @@ function coverForEra(era) {
   The admin panel can still force a split: song-splits.json lists the title and
   era to separate.
 */
-const SPLITS_FILE = path.join(DATA_DIR, "song-splits.json");
+const SPLITS_FILE = path.join(CURATION_DIR, "song-splits.json");
 let SPLITS = (loadJson(SPLITS_FILE, {}).splits || []).filter(x => x && x.title && x.era);
 const splitKey = (title, era) => `${norm(title)}|${eraBaseKey(era)}`;
 const splitRowKey = (title, trackerKey) => `${norm(title)}|${trackerKey}`;
@@ -2684,9 +2685,9 @@ function attachJokes(songs, stamp) {
  * ------------------------------------------------------------------ */
 
 const crypto = require("crypto");
-const HIDDEN_FILE = path.join(DATA_DIR, "hidden-songs.json");
-const RENAMES_FILE = path.join(DATA_DIR, "song-renames.json");
-const ROW_EDITS_FILE = path.join(DATA_DIR, "song-edits.json");
+const HIDDEN_FILE = path.join(CURATION_DIR, "hidden-songs.json");
+const RENAMES_FILE = path.join(CURATION_DIR, "song-renames.json");
+const ROW_EDITS_FILE = path.join(CURATION_DIR, "song-edits.json");
 // Stable tracker-row fingerprints keep edits connected when the sheet refreshes.
 const trackerRowKey = row => crypto.createHash("sha256").update(JSON.stringify([
   norm(row.title), (row.features || []).map(norm), norm(row.era), norm(row.tab),
@@ -4031,7 +4032,7 @@ function requestSignals(req) {
   const ip = clientIp(req, TRUSTED_PROXIES);
   if (!ip && req.headers["x-forwarded-for"] && !warnedUntrustedProxy) {
     warnedUntrustedProxy = true;
-    console.warn("[leaderboard] Requests arrive through a reverse proxy that isn't listed in trustedProxies, so address limits and restrictions are off. See the README's config table.");
+    console.warn("[leaderboard] Requests arrive through a reverse proxy that isn't listed in trustedProxies, so address limits and restrictions are off. See docs/configuration.md.");
   }
   return { ipHash: signalHasher.ip(ip), deviceHash: signalHasher.device(cleanDeviceId(req.headers[DEVICE_HEADER])) };
 }

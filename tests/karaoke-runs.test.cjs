@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { createLeaderboardStore, SOLVE_CREDIT_BURST, SOLVE_CREDIT_PER_HOUR } = require("../leaderboard.cjs");
+const { createLeaderboardStore, SOLVE_CREDIT_BURST, SOLVE_CREDIT_PER_HOUR } = require("../server/leaderboard.cjs");
 
 const scoringModule = import(pathToFileURL(path.join(__dirname, "../build/assets/karaoke-scoring.mjs")).href);
 const karaokeModule = import(pathToFileURL(path.join(__dirname, "../build/assets/karaoke.js")).href);

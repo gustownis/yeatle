@@ -1,10 +1,10 @@
-// Checks catalog-metadata.json answer groups against a running Yeatle server with the
+// Checks data/catalog-metadata.json answer groups against a running Yeatle server with the
 // real tracker: every member exists, and every member's dropdown name is accepted as
 // the answer for every other member. Also lists the hidden state of each member.
 // Run: node scripts/answer-groups-check.cjs [http://127.0.0.1:3093]
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { answerGroups = [], sameRecordings = [] } = require("../catalog-metadata.json");
+const { answerGroups = [], sameRecordings = [] } = require("../data/catalog-metadata.json");
 
 const base = (process.argv[2] || "http://127.0.0.1:3093").replace(/\/$/, "");
 

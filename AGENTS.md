@@ -94,8 +94,9 @@ private notes intact throughout synchronization.
   check both desktop and portrait/mobile layouts.
   Keep the tab strip content-sized and put its full-width divider on the
   surrounding mode bar, so desktop transitions do not stretch the tab text.
-- Yeatle uses a Node.js browser server (`server.js`) and an Electron desktop
-  shell (`desktop/`). The working frontend lives in tracked `build/` files,
+- Yeatle uses a Node.js browser server (`server.js` and `server/`), tracked
+  catalog and curation defaults (`data/`), and an Electron desktop shell
+  (`desktop/`). The working frontend lives in tracked `build/` files,
   including `build/assets/`. Do not delete `build/` as disposable output.
 - `source/` is an incomplete imported Vite project: the original `src/`,
   including `main.jsx`, is missing. Read `source/README.md` before frontend
@@ -119,17 +120,17 @@ private notes intact throughout synchronization.
   ignored `daily-challenges.json` during updates; clients must not fall back
   to locally selected songs when the shared host is unavailable.
 - Keep playable sources, release status and answer identities separate. Use
-  `catalog-policy.cjs`, `catalog-metadata.json` and the documented rules in
+  `server/catalog-policy.cjs`, `data/catalog-metadata.json` and the documented rules in
   `docs/catalog-answer-policy.md` for verified equivalents and artist credits.
   Yeat vocal features are eligible; confirmed producer-only tracks are excluded
   from future rounds, including Stems only. Preserve existing ids, files and
   pinned challenges when correcting metadata. Shared instrumentals alone do
   not establish equivalent vocal recordings.
-- The anti-cheat rules live in a separate private repository that the website loads through `antiCheatModule` in its `config.json`. This repository only calls the judge's hooks (`STAND_IN_JUDGE` in `leaderboard.cjs` is the interface and the no-op default). Don't add detection rules, thresholds or their tests here, and don't document them anywhere in this public repository (docs, README, release notes, commit messages, the admin page's text). If you need the private repository and don't have it, ask the user.
+- The anti-cheat rules live in a separate private repository that the website loads through `antiCheatModule` in its `config.json`. This repository only calls the judge's hooks (`STAND_IN_JUDGE` in `server/leaderboard.cjs` is the interface and the no-op default). Don't add detection rules, thresholds or their tests here, and don't document them anywhere in this public repository (docs, README, release notes, commit messages, the admin page's text). If you need the private repository and don't have it, ask the user.
 - Admin Hide/Show is manual curation of eligible entries. Catalog exclusions use the same eligibility policy in gameplay, admin status and live control; do not duplicate them in default hidden-song settings or bypass them through Play in game. Clearing an old duplicate manual hide must not restore an excluded recording.
 - Any single-line pill, badge, or table cell with `overflow: hidden; text-overflow: ellipsis;` must keep a line-height of at least `1.3`, with padding-bottom clearance, so font descenders (`g`, `y`, `p`, `q`, `j`) are never sliced off.
 - WebP is the canonical image format for UI graphics. Unused `.png` and `.mp4` duplicates must never be committed to `build/`; confirm with `git grep` that a file is unreferenced before deleting it, because the minified bundles load some media by bare filename.
-- User state persistence in `leaderboard.cjs` must remain asynchronous and debounced to keep the event loop responsive during concurrent gameplay. Tests and shutdown paths use the store's synchronous `flush()`. Leaderboard responses are built per viewer from shared cached standings; never cache a whole response across viewers, and use `save()` rather than `persist()` for any change that can move a player on the boards.
+- User state persistence in `server/leaderboard.cjs` must remain asynchronous and debounced to keep the event loop responsive during concurrent gameplay. Tests and shutdown paths use the store's synchronous `flush()`. Leaderboard responses are built per viewer from shared cached standings; never cache a whole response across viewers, and use `save()` rather than `persist()` for any change that can move a player on the boards.
 
 ## Run and verify
 
@@ -146,7 +147,7 @@ instead of `npm` if execution policy blocks `npm.ps1`.
 | Desktop development | `npm run desktop` |
 | Windows x64 packages | `npm run dist:win -- --x64` on Windows |
 | Linux x64 packages | `npm run dist:linux -- --x64` on Linux |
-| Other architectures / macOS | See the current README and desktop build workflow |
+| Other architectures / macOS | See `docs/development.md` and the desktop build workflow |
 
 Browser play does not require installing desktop dependencies. Packaging
 outputs go in ignored `release/`; use ignored `.tmp/` for temporary checks.

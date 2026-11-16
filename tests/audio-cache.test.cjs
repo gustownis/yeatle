@@ -5,7 +5,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { Readable } = require("node:stream");
-const { createAudioCache } = require("../audio-cache.cjs");
+const { createAudioCache } = require("../server/audio-cache.cjs");
 
 const AUDIO = Buffer.concat([Buffer.from("ID3"), Buffer.alloc(997, 7)]);
 

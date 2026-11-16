@@ -4,7 +4,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const { pathToFileURL } = require("node:url");
-const { staticCacheHeaders, isNotModified, rangeAllowed } = require("../static-cache.cjs");
+const { staticCacheHeaders, isNotModified, rangeAllowed } = require("../server/static-cache.cjs");
 const performanceModule = import(pathToFileURL(path.join(__dirname, "../build/assets/performance.mjs")).href);
 
 test("static files revalidate without downloading unchanged bytes, and updates invalidate validators", () => {

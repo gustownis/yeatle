@@ -580,7 +580,7 @@ test("coverForEra resolves exact, loose/diacritic, and bracketed era names with 
   const script = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const looseDef = script.slice(script.indexOf("function looseEraKey("), script.indexOf("// RFC 4180 CSV"));
   const coverDef = script.slice(script.indexOf('// "LYFESTYLE [V1]"'), script.indexOf("const SPLITS_FILE"));
-  const covers = JSON.parse(fs.readFileSync(path.join(root, "era-covers.json"), "utf8")).covers;
+  const covers = JSON.parse(fs.readFileSync(path.join(root, "data", "era-covers.json"), "utf8")).covers;
 
   const makeLookup = map => {
     const context = vm.createContext({ ERA_COVERS: map });

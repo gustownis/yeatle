@@ -78,7 +78,7 @@ async function startGame() {
     const defaults = ["era-covers.json", "hidden-songs.json", "song-edits.json", "song-renames.json", "song-splits.json"];
     for (const file of defaults) {
       const target = path.join(dataDir, file);
-      if (!fs.existsSync(target)) fs.copyFileSync(path.join(PROJECT_DIR, file), target);
+      if (!fs.existsSync(target)) fs.copyFileSync(path.join(PROJECT_DIR, "data", file), target);
     }
     const configFile = path.join(dataDir, "config.json");
     if (!fs.existsSync(configFile)) fs.copyFileSync(path.join(PROJECT_DIR, "config.example.json"), configFile);

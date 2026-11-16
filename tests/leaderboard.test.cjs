@@ -5,8 +5,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { fork } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
-const { createLeaderboardStore, computeMetrics, mergeProgress, BLOCKED_USERNAME_MESSAGE, USERNAME_BLOCKED_MESSAGE, BLOCKED_NAME_LABEL } = require("../leaderboard.cjs");
-const { dailyDate, dailyResetAt, previousDailyDate } = require("../daily-challenge.cjs");
+const { createLeaderboardStore, computeMetrics, mergeProgress, BLOCKED_USERNAME_MESSAGE, USERNAME_BLOCKED_MESSAGE, BLOCKED_NAME_LABEL } = require("../server/leaderboard.cjs");
+const { dailyDate, dailyResetAt, previousDailyDate } = require("../server/daily-challenge.cjs");
 const frontendModule = import(pathToFileURL(path.join(__dirname, "../build/assets/leaderboard.mjs")).href);
 
 const root = path.resolve(__dirname, "..");
@@ -500,7 +500,7 @@ test("the admin panel filters usernames on the shared host and clients rename th
 });
 
 test("alive 4 a min, regular person and terrified are blocked in any spelling", async t => {
-  const { isBuiltInBlockedUsername } = require("../leaderboard.cjs");
+  const { isBuiltInBlockedUsername } = require("../server/leaderboard.cjs");
   for (const name of ["alive4amin", "Alive_4_A_Min", "aliveforaminute", "a1ive4min", "xxalive4aminxx", "regularperson", "Reguler.Persn", "r3gul4rp3rs0n", "regperson", "Terrified", "t3rr1f13d", "terrrifyed", "im_terifid"]) {
     assert.ok(isBuiltInBlockedUsername(name), `${name} should be blocked`);
   }

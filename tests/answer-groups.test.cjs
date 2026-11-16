@@ -2,8 +2,8 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { guessKeys, resolveGroupKeys, applyCatalogMetadata } = require("../catalog-policy.cjs");
-const { answerGroups, sameRecordings } = require("../catalog-metadata.json");
+const { guessKeys, resolveGroupKeys, applyCatalogMetadata } = require("../server/catalog-policy.cjs");
+const { answerGroups, sameRecordings } = require("../data/catalog-metadata.json");
 // Tracker records for every group member as the live catalog built them on 2026-11-01.
 const records = require("./fixtures/answer-groups.json");
 

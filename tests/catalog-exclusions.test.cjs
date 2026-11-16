@@ -5,8 +5,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const runtime = require("./fixtures/catalog-runtime.cjs");
-const { isGuessingEligible } = require("../catalog-policy.cjs");
-const { dailyDate } = require("../daily-challenge.cjs");
+const { isGuessingEligible } = require("../server/catalog-policy.cjs");
+const { dailyDate } = require("../server/daily-challenge.cjs");
 const root = path.resolve(__dirname, "..");
 const sourceKey = song => `${song.source.kind}:${song.source.id}`;
 

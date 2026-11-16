@@ -43,28 +43,14 @@
     "files": [
       "desktop/**/*",
       "server.js",
+      "server/**/*",
+      "data/**/*",
       "package.json",
       "build/**/*",
       "!build/Songs/**/*",
       "config.example.json",
-      "era-covers.json",
-      "hidden-songs.json",
-      "song-edits.json",
-      "song-renames.json",
-      "song-splits.json",
       "LICENSE",
-      "THIRD_PARTY_NOTICES.md",
-      "licenses/**/*",
-      "static-cache.cjs",
-      "audio-cache.cjs",
-      "live-control.cjs",
-      "stem-catalog.cjs",
-      "daily-challenge.cjs",
-      "daily-authority.cjs",
-      "leaderboard.cjs",
-      "client-signals.cjs",
-      "catalog-policy.cjs",
-      "catalog-metadata.json"
+      "licenses/**/*"
     ],
     "win": {
       "target": [
