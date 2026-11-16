@@ -81,19 +81,24 @@ test("one recording listed under two spellings becomes one song; separate versio
   // A curator hid this leak; it must not be folded into the released song.
   const { list } = await trackerServer(t, { "hidden-songs.json": { hidden: [{ id: "cantstopthis", name: "Cant stop this", era: "Lyfë", key: "cantstopthis|lyfe" }] } });
   const named = text => list.songs.filter(song => song.title === text);
-  // "The Coste" [V2]/[V5] leaks and the released "THE COSTËS" name each other and match in length.
+  // "The Coste" [V2]/[V5] leaks match released "THE COSTËS" in length and guests, so All songs
+  // keeps THE COSTËS Released (playing the Pillows pre-master) and suppresses duplicate Unreleased entries.
   const coste = list.songs.find(song => song.id === "thecostes");
-  assert.deepEqual([coste.era, coste.eraYear, coste.tab], ["LYFESTYLE [V2]", 2024, "Unreleased"], "the all-songs entry describes the full leaked source it actually plays");
+  assert.deepEqual([coste.era, coste.recordedIn, coste.eraYear, coste.tab, coste.preview], ["LYFESTYLE", "LYFESTYLE [V2]", 2024, "Released", false]);
+  assert.equal(coste.poolVariants.unreleased, undefined);
   assert.deepEqual([coste.poolVariants.released.era, coste.poolVariants.released.recordedIn, coste.poolVariants.released.eraYear], ["LYFESTYLE", "LYFESTYLE [V2]", 2024]);
   assert.ok(coste.keys.includes("thecoste") && coste.keys.includes("thecostes"));
   assert.deepEqual(coste.formerIds, ["thecoste"], "progress saved under the old id can follow it");
   const { matchesSong } = await import(pathToFileURL(path.join(root, "build/assets/snippet-rules.mjs")).href);
   for (const guess of ["The Coste", "THE COSTËS", "the costes", "THE COSTES!", "costes"]) assert.ok(matchesSong(coste, guess), guess);
   assert.equal(matchesSong(coste, "The Cost"), false, "no prefix matches");
-  assert.deepEqual(await suggestionsFor(t, list.songs, "The cos"), [["The Coste", "also THE COSTËS, COSTËS", "LYFESTYLE [V2] · 2024 · Unreleased"]]);
-  // An ordinary spelling difference ("Tru 2 U" leaks of "Tru to U").
+  assert.deepEqual(await suggestionsFor(t, list.songs, "The cos"), [["THE COSTËS", "also the coste, COSTËS", "LYFESTYLE · 2024"]]);
+  // An ordinary spelling difference ("Tru 2 U" OG File leak of "Tru to U").
   const tru = list.songs.filter(song => song.keys.includes("tru2u"));
   assert.equal(tru.length, 1);
+  assert.equal(tru[0].tab, "Released");
+  assert.equal(tru[0].preview, false);
+  assert.equal(tru[0].poolVariants.unreleased, undefined);
   assert.equal(tru[0].poolVariants.released.title, "Tru to U");
   assert.ok(matchesSong(tru[0], "Tru 2 U") && matchesSong(tru[0], "Tru to U"));
   // A genuinely different version: the 2:58/1:46 "nother league" leaks of the 1:17 "EveryTime".

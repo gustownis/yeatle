@@ -162,3 +162,17 @@ test("Stems, Snippets, Daily, and Karaoke volume bars are uniform and display pe
   assert.match(karaokeHtml, /<output id="stage-volume-out" aria-hidden="true">80%<\/output>/);
   assert.match(karaokeJs, /\$\("#stage-volume-out"\)\.textContent = `\$\{settings\.volume\}%`/);
 });
+
+test("stems tab renders single Full Song waveform after guessing in split/filter mode while keeping local 4-stem packs", () => {
+  const dailyHtml = fs.readFileSync(path.join(__dirname, "../build/daily.html"), "utf8");
+  const dailyMjs = fs.readFileSync(path.join(__dirname, "../build/assets/daily.mjs"), "utf8");
+
+  assert.match(dailyHtml, /<div class="result-top">\s*<img id="result-cover" class="cover" alt="" hidden>/);
+  assert.match(dailyMjs, /function coverForSong\(song\)/);
+  assert.match(dailyMjs, /\$?\("#result-cover"\)|coverEl = \$\("#result-cover"\)/);
+  assert.match(bundle, /\[Ke,W,f,cl,\$,qt\]/);
+  assert.match(bundle, /\$!=="playing"&&qt!=="stems"/);
+  assert.match(bundle, /children:"Full Song"/);
+  assert.match(bundle, /il\.current\[qt==="filter"\?3:4\]=[a-zA-Z_$]+/);
+  assert.match(bundle, /\["Drums","Bass","Other","Song Info","Vocals"\]/);
+});

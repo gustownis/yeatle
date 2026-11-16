@@ -6,13 +6,7 @@ does not establish identical vocal performances. Confirm an audio relationship
 before merging entries or sharing progress. Linked answers that keep recordings
 separate are a maintainer decision (see Linked answers).
 
-The existing 1.11.3 catalog merges are retained. Each merged entry now also
-retains its individual source records and tracker fingerprints. Public pool
-variants contain safe metadata and stable audio identifiers; source host data
-stays on the server. Selecting Released or Unreleased projects the appropriate
-source rather than playing a leaked file under a released label. Stems only
-selects the installed pack. All songs retains the existing source quality
-ranking; it does not globally prioritize releases.
+The existing 1.11.3 catalog merges are retained. Each merged entry now also retains its individual source records and tracker fingerprints. Public pool variants contain safe metadata and stable audio identifiers; source host data stays on the server. Selecting Released or Unreleased projects the appropriate source rather than playing a leaked file under a released label, and near-identical unreleased alternates (under 5 seconds of difference with identical guest credits, or matched pre-masters) stay out of Unreleased so released songs only appear separately there when a meaningfully different alternate version exists. Stems only selects the installed pack. When a merged song has an eligible Released track, All songs keeps the release unless a local 4-stem pack is installed, using matching OG/Demo/Master pre-masters in place of streaming previews whenever available.
 
 `server/catalog-policy.cjs` handles eligibility. Explicit Production/producer-only
 credits and confirmed recordings without Yeat vocals are excluded from future normal rounds, suggestions and the stem
@@ -84,7 +78,7 @@ At the maintainer's request (2026-11-01), open-verse demos and the features they
 
 ## Pre-masters and OG files for released tracks
 
-Released tracks that stream Apple's 30-second preview play a full audio file instead when a verified pre-master exists on pillows.su. Entries in `premasters` in `data/catalog-metadata.json` define verified standalone pre-masters, such as the Yung Kayo - fleek [V2] pre-master file replacing the 30-second preview for Yung Kayo - YEET (feat. Yeat). In addition, merged catalog entries whose unreleased variants include an OG File or Master recording with matching length (same length or less than 2 seconds of difference) and matching guest credits automatically use that pre-master file in place of the streaming preview (such as Rackz got më [V3], while songs with different arrangements or outros like Morë and More V1 remain separate). The preview stays the recorded source, so exclusions and saved references are unaffected, while `preview: false` removes the 30s preview badge and gameplay plays the full audio file.
+Released tracks that stream Apple's 30-second preview play a full audio file instead when a verified pre-master exists on pillows.su or another direct audio host. Entries in `premasters` in `data/catalog-metadata.json` define verified standalone pre-masters, such as the Yung Kayo - fleek [V2] pre-master file replacing the 30-second preview for Yung Kayo - YEET (feat. Yeat). In addition, merged catalog entries whose unreleased variants include an OG File, Master, or `<2s` matching OG/Demo pre-master with matching guest credits automatically use that pre-master file in place of the streaming preview and keep the `All songs` entry `Released`. Unreleased variants that differ from the released song by less than 5 seconds with identical guest credits (or match a pre-master) stay out of `Unreleased`, while genuinely different versions (`>=5s` difference or changed featured artists, except explicit exclusions such as Morë V1) remain playable in `Unreleased`. The preview stays the recorded source, so exclusions and saved references are unaffected, while `preview: false` removes the 30s preview badge and gameplay plays the full audio file.
 
 Links apply when the server sends a song, including pinned Daily challenges, without changing a stored challenge. Feature titles also accept their aliases with the lead artist in front. `scripts/answer-groups-check.cjs` checks every group against a running server with the real tracker, and `tests/answer-groups.test.cjs` checks them against saved tracker records.
 

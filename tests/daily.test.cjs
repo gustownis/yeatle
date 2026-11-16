@@ -321,3 +321,62 @@ test("with dailyHideAnswer the Daily's answer stays on the server until the roun
   assert.equal((await act({ kind: "state" }, device, copy)).body.attempts.length, 1, "the copy forwards the device and reaches the same round");
   assert.equal((await act({ kind: "guess", text: "x", challenge: "v2:old" }, device)).status, 409);
 });
+
+test("daily reveal includes era cover art and falls back via coverForEra for older snapshots missing cover", async t => {
+  const dir = folder(t);
+  const date = dailyDate();
+  const eraCovers = require("../data/era-covers.json").covers;
+  const snapshotSong = {
+    id: "olddailysong",
+    title: "Old Daily Song",
+    display: "Old Daily Song",
+    era: "2093",
+    eraYear: 2024,
+    year: 2024,
+    tab: "Released",
+    mode: "filter",
+    length: "2:30",
+    source: { kind: "url", id: "https://audio.invalid/olddaily" },
+    keys: ["olddailysong"]
+  };
+  fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({
+    tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "", dailyHideAnswer: true
+  }));
+  fs.writeFileSync(path.join(dir, "songs-cache.json"), JSON.stringify({
+    format: 4,
+    updated: 1,
+    eras: [{ name: "2093", cover: eraCovers["2093"], aliases: [], start: "2024-01-01", end: "2024-12-31" }],
+    songs: [snapshotSong]
+  }));
+  fs.writeFileSync(path.join(dir, "daily-challenges.json"), JSON.stringify({
+    [date]: { id: `v2:${date}:olddailysong`, song: snapshotSong, seed: 11, clipAt: 5 }
+  }));
+
+  const url = await server(t, dir);
+  const daily = await (await fetch(`${url}/api/daily`)).json();
+  assert.equal(daily.song, undefined);
+
+  const auth = { "X-Yeatle-Device": "b".repeat(32) };
+  const result = await (await fetch(`${url}/api/account/daily`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...auth },
+    body: JSON.stringify({ challenge: daily.id, kind: "guess", text: "olddailysong" })
+  })).json();
+  assert.equal(result.status, "won");
+  assert.equal(result.song.era, "2093");
+  assert.equal(result.song.cover, eraCovers["2093"]);
+
+  // Older un-hidden Daily snapshot missing cover also receives coverForEra fallback on /api/daily.
+  const openDir = folder(t);
+  const openSong = { ...snapshotSong, id: "unmappedcover", title: "Unmapped Cover", display: "Unmapped Cover", era: "4L", keys: ["unmappedcover"] };
+  fs.writeFileSync(path.join(openDir, "config.json"), JSON.stringify({
+    tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "", dailyHideAnswer: false
+  }));
+  fs.writeFileSync(path.join(openDir, "era-covers.json"), JSON.stringify({ covers: { "4L": eraCovers["4L"] } }));
+  fs.writeFileSync(path.join(openDir, "songs-cache.json"), JSON.stringify({ format: 4, updated: 1, eras: [], songs: [openSong] }));
+  fs.writeFileSync(path.join(openDir, "daily-challenges.json"), JSON.stringify({
+    [date]: { id: `v2:${date}:unmappedcover`, song: openSong, seed: 12, clipAt: 5 }
+  }));
+  const openDaily = await (await fetch(`${await server(t, openDir)}/api/daily`)).json();
+  assert.equal(openDaily.song.cover, eraCovers["4L"]);
+});

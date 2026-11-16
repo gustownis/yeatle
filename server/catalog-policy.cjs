@@ -143,25 +143,126 @@ function isExcludedRecording(song) {
   return false;
 }
 
+const premasterById = new Map(premasters.map(entry => [entry.id, entry]));
+
+function trackSeconds(length) {
+  const m = /^\s*~?(\d+):(\d{2})\s*$/.exec(String(length || ""));
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+const guestFeatureKey = features => (features || [])
+  .flatMap(f => String(f).replace(/^(feat|ft|with)\b\.?\s*/i, "").split(/\s*(?:&|,|\band\b)\s*/i))
+  .map(f => answerKey(f))
+  .filter(k => k && !["yeat", "lilyeat", "krankykranky", "luhgeeky", "luhgeekum", "lyfestylecorporation"].includes(k))
+  .sort()
+  .join("+");
+
+function isPremasterType(row) {
+  return /^(?:og\s*file|master)$/i.test(String(row?.type || "").trim());
+}
+
+function isPremasterCandidate(row) {
+  return isPremasterType(row) || /og/i.test(String(row?.availability || ""));
+}
+
+function isReleaseRecord(row) {
+  return Boolean(row && row.tab === "Released" && !isPremasterType(row) && String(row.type || "").trim().toUpperCase() !== "OG");
+}
+
+function isDirectAudioSource(source, strict = false) {
+  if (!source?.kind) return false;
+  return strict ? !["apple", "search", "stems"].includes(source.kind) : source.kind === "pillows";
+}
+
+function hasVerifiedPremaster(id) {
+  return premasterById.has(id);
+}
+
+// Original/pre-master exports and <2s matching same-guest OG files paired with a release are
+// the released song's pre-master audio rather than separate unreleased tracks.
+function isReleasedPremasterRow(row, releasedRow, songId = row?.id || releasedRow?.id) {
+  if (!row || row.tab !== "Unreleased" || !isReleaseRecord(releasedRow)) return false;
+  if (!isPremasterCandidate(row) || !isDirectAudioSource(row.source, isPremasterType(row))) return false;
+  const verified = premasterById.get(songId)?.source;
+  if (verified && row.source.kind === verified.kind && row.source.id === verified.id) return true;
+  const relSec = trackSeconds(releasedRow.length);
+  const rowSec = trackSeconds(row.length);
+  if (relSec == null || rowSec == null || Math.abs(relSec - rowSec) >= 2) return false;
+  return guestFeatureKey(row.features) === guestFeatureKey(releasedRow.features);
+}
+
+// Unreleased alternates that differ by under 5 seconds with identical guest credits (plus any
+// matched pre-master) are not distinct enough to appear alongside the released song in Unreleased.
+function isRedundantReleaseVariant(row, releasedRow, songId = row?.id || releasedRow?.id) {
+  if (!row || row.tab !== "Unreleased" || !isReleaseRecord(releasedRow)) return false;
+  if (isReleasedPremasterRow(row, releasedRow, songId)) return true;
+  if (!row.source?.kind) return false;
+  const relSec = trackSeconds(releasedRow.length);
+  const rowSec = trackSeconds(row.length);
+  if (relSec == null || rowSec == null || Math.abs(relSec - rowSec) >= 5) return false;
+  return guestFeatureKey(row.features) === guestFeatureKey(releasedRow.features);
+}
+
+function releasedHasFullAudio(releasedRow, eligible, songId) {
+  if (!isReleaseRecord(releasedRow)) return false;
+  if (isDirectAudioSource(releasedRow.source, true) || hasVerifiedPremaster(songId)) return true;
+  return eligible.some(row => isReleasedPremasterRow(row, releasedRow, songId));
+}
+
+function shouldPreferReleaseRow(song, releasedRow, eligible) {
+  if (!isReleaseRecord(releasedRow) || song.source?.kind === "stems" || song.mode === "stems") return false;
+  if (releasedHasFullAudio(releasedRow, eligible, song.id)) return true;
+  if (song.tab !== "Unreleased") return false;
+  const relSec = trackSeconds(releasedRow.length);
+  const relGuests = guestFeatureKey(releasedRow.features);
+  return !eligible.some(row => {
+    if (row.tab !== "Unreleased" || !isDirectAudioSource(row.source, true)) return false;
+    const rowSec = trackSeconds(row.length);
+    return relSec != null && rowSec != null && Math.abs(relSec - rowSec) < 2 && guestFeatureKey(row.features) === relGuests;
+  });
+}
+
 // Metadata changes can retire the source previously selected for a merged title.
 // Keep every audio mapping, but choose an eligible recording for future rounds.
 function reconcileCatalogEligibility(song, sourceRank) {
   if (!song.sourceVariants) return song;
   const eligible = song.sourceVariants.filter(isGuessingEligible)
     .sort((a, b) => sourceRank[a.source?.kind] - sourceRank[b.source?.kind]);
+  const releasedVariant = eligible.find(row => row.tab === "Released");
+  const isRedundantAlt = row => isRedundantReleaseVariant(row, releasedVariant, song.id);
   const poolVariants = {};
   for (const [pool, accepts] of Object.entries({
     released: row => row.tab === "Released",
-    unreleased: row => row.tab === "Unreleased",
+    unreleased: row => row.tab === "Unreleased" && !isRedundantAlt(row),
     stems: row => row.mode === "stems"
   })) {
     const current = song.poolVariants?.[pool];
-    const replacement = current && isGuessingEligible(current) ? current : eligible.find(accepts);
+    const replacement = current && isGuessingEligible(current) && (pool !== "unreleased" || !isRedundantAlt(current))
+      ? current
+      : eligible.find(accepts);
     if (replacement) poolVariants[pool] = replacement;
   }
-  const replacement = !isGuessingEligible(song) && eligible[0];
-  return { ...song, ...(replacement ? { ...replacement, id: song.id, keys: song.keys, mergedFrom: song.mergedFrom,
-    guessingEligible: true } : {}), sourceVariants: song.sourceVariants, poolVariants };
+  const shouldKeepRelease = shouldPreferReleaseRow(song, releasedVariant, eligible);
+  const replacement = !isGuessingEligible(song)
+    ? (shouldKeepRelease ? releasedVariant : eligible[0])
+    : (shouldKeepRelease && song.tab !== "Released" ? releasedVariant : null);
+  return {
+    ...song,
+    ...(replacement ? {
+      ...replacement,
+      id: song.id,
+      aliases: song.aliases || replacement.aliases,
+      keys: song.keys,
+      mergedFrom: song.mergedFrom,
+      cover: replacement.era === song.era ? (song.cover || replacement.cover) : replacement.cover,
+      ...(song.formerIds ? { formerIds: song.formerIds } : {}),
+      ...(song.answerId ? { answerId: song.answerId } : {}),
+      ...(song.equivalentIds ? { equivalentIds: song.equivalentIds } : {}),
+      guessingEligible: true
+    } : {}),
+    sourceVariants: song.sourceVariants,
+    poolVariants
+  };
 }
 
 // The same normalization as the server's norm() and the game's normalizeGuess().
@@ -331,25 +432,17 @@ function resolveGroupKeys(song, lookup, acceptedKeys) {
   };
 }
 
-function trackSeconds(length) {
-  const m = /^(\d+):(\d{2})$/.exec(String(length || "").trim());
-  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
-}
-
-const guestFeatureKey = features => (features || [])
-  .flatMap(f => String(f).replace(/^(feat|ft|with)\b\.?\s*/i, "").split(/\s*(?:&|,|\band\b)\s*/i))
-  .map(f => answerKey(f))
-  .filter(k => k && !["yeat", "lilyeat", "krankykranky", "luhgeeky", "luhgeekum", "lyfestylecorporation"].includes(k))
-  .sort()
-  .join("+");
-
 function findOgPremaster(releasedSong, variants) {
   if (!variants || !variants.length) return null;
   const relSec = trackSeconds(releasedSong.length);
   const relGuests = guestFeatureKey(releasedSong.features);
   if (relSec == null) return null;
 
-  const candidates = variants.filter(v => v !== releasedSong && v.tab === "Unreleased" && v.source?.kind === "pillows");
+  const candidates = variants.filter(v =>
+    v !== releasedSong &&
+    v.tab === "Unreleased" &&
+    isDirectAudioSource(v.source, isPremasterType(v))
+  );
   if (!candidates.length) return null;
 
   const matching = candidates.filter(v => {
@@ -360,7 +453,8 @@ function findOgPremaster(releasedSong, variants) {
   });
   if (!matching.length) return null;
 
-  const ogs = matching.filter(v => /og|master/i.test(v.type) || /og/i.test(v.availability));
+  const strict = matching.filter(isPremasterType);
+  const ogs = strict.length ? strict : matching.filter(v => /og|master/i.test(v.type) || /og/i.test(v.availability));
   const picked = ogs.length ? ogs[ogs.length - 1] : null;
   return picked ? picked.source : null;
 }
@@ -369,7 +463,6 @@ function findOgPremaster(releasedSong, variants) {
 // verified (see premasters in data/catalog-metadata.json), plays that full file instead. The
 // preview stays the recorded source, so exclusions and saved references are unaffected, and
 // already pinned Daily snapshots, which lack this field, keep the audio they were pinned with.
-const premasterById = new Map(premasters.map(entry => [entry.id, entry]));
 function premasterFor(song, variants) {
   const played = song.mode === "stems" ? song.fallback : song.source;
   const isPreview = played && (played.kind === "apple" || played.kind === "search");
@@ -485,4 +578,4 @@ function applyCatalogMetadata(song, parentSourceVariants) {
   return result;
 }
 
-module.exports = { answerKey, guessKeys, answerGroupFor, sameRecordingFor, groupAnswerKeys, resolveGroupKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility };
+module.exports = { answerKey, guessKeys, answerGroupFor, sameRecordingFor, groupAnswerKeys, resolveGroupKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility, trackSeconds, guestFeatureKey, isPremasterType, hasVerifiedPremaster, isReleasedPremasterRow, isRedundantReleaseVariant };

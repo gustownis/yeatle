@@ -117,12 +117,12 @@ test("a merged title preserves source-specific pools, metadata, stems and stable
   const songs = catalog.buildSongList([...released, ...unreleased], []);
   const coste = songs.find(song => song.id === "thecostes");
   assert.ok(coste, "the 1.11.3 canonical id is retained");
+  assert.equal(coste.tab, "Released");
   assert.equal(coste.poolVariants.released.tab, "Released");
-  assert.equal(coste.poolVariants.unreleased.tab, "Unreleased");
+  assert.equal(coste.poolVariants.released.preview, false);
+  assert.equal(coste.poolVariants.unreleased, undefined, "matching <5s OG variants do not pollute Unreleased");
   assert.equal(coste.poolVariants.released.source.kind, "apple");
-  assert.equal(coste.poolVariants.unreleased.source.kind, "pillows");
-  assert.notEqual(coste.poolVariants.released.audioId, coste.poolVariants.unreleased.audioId);
-  assert.equal(coste.audioId, coste.poolVariants.unreleased.audioId, "All songs shares the cache identity of the actual selected source");
+  assert.equal(coste.audioId, coste.poolVariants.released.audioId, "All songs shares the cache identity of the selected Released source");
   assert.equal(coste.sourceVariants.length, 3, "both leaks and the release keep their individual source metadata");
   catalog.setSongs(songs, "test");
   for (const variant of coste.sourceVariants) assert.equal(catalog.index().get(variant.audioId).source.id, variant.source.id);
@@ -133,12 +133,26 @@ test("a merged title preserves source-specific pools, metadata, stems and stable
   assert.equal(releasedPool[0].audioId, coste.poolVariants.released.audioId);
   assert.equal(JSON.stringify(catalog.publicSong(coste)).includes('"source"'), false, "private source hosts are stripped from every public variant");
 
+  // Merged title with a genuinely different unreleased version (>=5s diff) preserves both pools.
+  const distinctSongs = catalog.buildSongList([
+    { title: "Distinct Alt", features: [], aliases: [], era: "4L", recordedIn: "4L", releasedOn: "4L", date: "2021", year: 2021, length: "2:20", type: "Mixtape Track", availability: "Full", tab: "Released", source: { kind: "apple", id: "rel-da" } },
+    { title: "Distinct Alt", features: [], aliases: [], era: "4L", date: "2021", year: 2021, length: "3:05", type: "Demo", availability: "OG File", tab: "Unreleased", source: { kind: "pillows", id: "unrel-da" } }
+  ], []);
+  const distinct = distinctSongs.find(song => song.id === "distinctalt");
+  assert.equal(distinct.tab, "Released");
+  assert.equal(distinct.poolVariants.released.tab, "Released");
+  assert.equal(distinct.poolVariants.unreleased.tab, "Unreleased");
+  assert.equal(distinct.poolVariants.released.source.kind, "apple");
+  assert.equal(distinct.poolVariants.unreleased.source.kind, "pillows");
+  assert.notEqual(distinct.poolVariants.released.audioId, distinct.poolVariants.unreleased.audioId);
+  assert.equal(songsForPool([plain(catalog.publicSong(distinct))], "unreleased")[0].audioId, distinct.poolVariants.unreleased.audioId);
+
   const withStems = catalog.buildSongList([...released, ...unreleased], [{ folder: "THE COSTËS", title: "THE COSTËS", features: [], producers: [], aliases: [], info: {} }]);
   const installed = withStems.find(song => song.id === "thecostes");
   assert.equal(installed.poolVariants.stems.folder, "THE COSTËS");
   assert.equal(installed.audioId, installed.poolVariants.stems.audioId);
   assert.equal(installed.poolVariants.released.mode, "stems");
-  assert.equal(installed.poolVariants.unreleased.mode, "filter", "installed released stems never make a leaked source eligible as released");
+  assert.equal(installed.poolVariants.unreleased, undefined);
 });
 
 test("an old mixed-source cache keeps its audio while awaiting verified filter provenance", t => {
@@ -528,5 +542,143 @@ test("applyCorrections uses indexed buckets while preserving rule application or
     for (const [key, val] of Object.entries(rule.set)) {
       assert.deepEqual(out[key], val, `rule ${JSON.stringify(rule.match)} should set ${key}`);
     }
+  }
+});
+
+test("OG File and Master rows paired with a release keep All songs Released, exclude themselves from Unreleased, and retain genuine OG leaks", t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-premaster-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], port: 0, openBrowser: false, refreshMinutes: 0 }));
+  const runtimeCatalog = runtime(dir);
+  {
+    const makeRow = overrides => ({
+      title: "Sample", features: [], producers: ["Clibbo"], aliases: [],
+      era: "4L", recordedIn: "", releasedOn: "4L", displayEra: "4L",
+      date: "Jun 11, 2021", year: 2021, length: "2:09", type: "Mixtape Track",
+      availability: "Full", tab: "Released", source: { kind: "apple", id: "1571111111" },
+      ...overrides
+    });
+
+    const cantThinkApple = makeRow({ title: "Cant Think", era: "Different Creature", displayEra: "Different Creature", releasedOn: "Different Creature", type: "EP Track", source: { kind: "apple", id: "1570000001" }, length: "2:09" });
+    const cantThinkOgV1 = makeRow({
+      title: "Cant Think", era: "Different Creature", displayEra: "Different Creature", releasedOn: "",
+      date: "Jun 2, 2024", year: 2019, length: "2:27", type: "OG", tab: "Unreleased",
+      source: { kind: "pillows", id: "1".repeat(32) }
+    });
+    const cantThinkOgFile = makeRow({
+      title: "Cant Think", era: "Different Creature", displayEra: "Different Creature", releasedOn: "",
+      date: "", length: "2:09", type: "OG File", tab: "Unreleased",
+      source: { kind: "pillows", id: "2".repeat(32) }
+    });
+
+    const marchingRel = makeRow({
+      title: "MARCHING", era: "2093", displayEra: "2093", releasedOn: "2093",
+      length: "~3:01", type: "Single", source: { kind: "apple", id: "1730000002" }
+    });
+    const marchingMaster = makeRow({
+      title: "MARCHING", era: "2093", displayEra: "2093", releasedOn: "",
+      length: "3:01", type: "Master", tab: "Unreleased", source: { kind: "pillows", id: "3".repeat(32) }
+    });
+
+    const bellRel = makeRow({ title: "The Bell", length: "2:46", type: "Single", source: { kind: "apple", id: "1800000003" } });
+    const bellOgFile = makeRow({
+      title: "The Bell", length: "2:46", type: "OG File", tab: "Unreleased",
+      source: { kind: "imgur", id: "tB123abc" }
+    });
+
+    const genuineOgRel = makeRow({ title: "Alt Song", length: "2:12", type: "Album Track", source: { kind: "apple", id: "1900000004" } });
+    const genuineOgDiff = makeRow({
+      title: "Alt Song", length: "2:25", type: "OG", tab: "Unreleased",
+      source: { kind: "pillows", id: "4".repeat(32) }
+    });
+    const nearMatchOgRel = makeRow({ title: "Same Vibe", length: "2:33", type: "Album Track", source: { kind: "apple", id: "1900000005" } });
+    const nearMatchOg = makeRow({
+      title: "Same Vibe", length: "2:35", type: "OG", availability: "OG File", tab: "Unreleased",
+      source: { kind: "pillows", id: "6".repeat(32) }
+    });
+
+    const songs = runtimeCatalog.buildSongList([
+      cantThinkApple, cantThinkOgV1, cantThinkOgFile,
+      marchingRel, marchingMaster,
+      bellRel, bellOgFile,
+      genuineOgRel, genuineOgDiff,
+      nearMatchOgRel, nearMatchOg
+    ], []);
+
+    const cantThink = songs.find(s => s.id === "cantthink");
+    assert.equal(cantThink.tab, "Released");
+    assert.equal(cantThink.premaster.id, "2".repeat(32));
+    assert.equal(cantThink.preview, false);
+    assert.equal(cantThink.poolVariants.released.tab, "Released");
+    assert.equal(cantThink.poolVariants.released.premaster.id, "2".repeat(32));
+    assert.equal(cantThink.poolVariants.unreleased.tab, "Unreleased");
+    assert.equal(cantThink.poolVariants.unreleased.source.id, "1".repeat(32), "genuine OG leak remains in Unreleased while OG File stays out");
+
+    const marching = songs.find(s => s.id === "marching");
+    assert.equal(marching.tab, "Released");
+    assert.equal(marching.premaster.kind, "pillows", "MARCHING uses verified premaster in catalog-metadata.json");
+    assert.equal(marching.preview, false);
+    assert.equal(marching.poolVariants.unreleased, undefined, "Master premaster is excluded from Unreleased pool");
+
+    // Non-premaster-table Master row + approximate ~M:SS release length also matches automatically.
+    const customRel = makeRow({ title: "Custom Master Track", era: "2093", displayEra: "2093", releasedOn: "2093", length: "~3:01", type: "Single", source: { kind: "apple", id: "1739999999" } });
+    const customMaster = makeRow({ title: "Custom Master Track", era: "2093", displayEra: "2093", releasedOn: "", length: "3:01", type: "Master", tab: "Unreleased", source: { kind: "pillows", id: "5".repeat(32) } });
+    const [custom] = runtimeCatalog.buildSongList([customRel, customMaster], []);
+    assert.equal(custom.tab, "Released");
+    assert.equal(custom.premaster.id, "5".repeat(32));
+    assert.equal(custom.preview, false);
+    assert.equal(custom.poolVariants.unreleased, undefined);
+
+    const bell = songs.find(s => s.id === "thebell");
+    assert.equal(bell.tab, "Released");
+    assert.deepEqual(bell.premaster, { kind: "imgur", id: "tB123abc" });
+    assert.equal(bell.poolVariants.unreleased, undefined);
+
+    const alt = songs.find(s => s.id === "altsong");
+    assert.equal(alt.tab, "Released");
+    assert.equal(alt.poolVariants.released.tab, "Released");
+    assert.equal(alt.poolVariants.unreleased.source.id, "4".repeat(32), "genuinely different (>=5s) alt version stays in Unreleased");
+
+    const sameVibe = songs.find(s => s.id === "samevibe");
+    assert.equal(sameVibe.tab, "Released");
+    assert.equal(sameVibe.poolVariants.unreleased, undefined, "under-5s matching-guest OG variant does not show up in Unreleased");
+
+    // Format 3 cache repair removes stale OG File premaster classification on upgrade.
+    const staleFormat3 = {
+      ...cantThink,
+      ...cantThink.sourceVariants[2],
+      id: "cantthink",
+      tab: "Unreleased",
+      era: "Different Creature",
+      premaster: undefined,
+      poolVariants: { released: cantThink.sourceVariants[0], unreleased: cantThink.sourceVariants[2] }
+    };
+    const [repaired] = runtimeCatalog.upgradeCachedSongs({ format: 3, eras: [], songs: [staleFormat3] });
+    assert.equal(repaired.tab, "Released");
+    assert.equal(repaired.premaster.id, "2".repeat(32));
+    assert.equal(repaired.preview, false);
+    assert.equal(repaired.poolVariants.unreleased.source.id, "1".repeat(32));
+  }
+});
+
+test("all 9 newly verified premasters in catalog-metadata.json resolve Released previews to full audio", () => {
+  const verifiedIds = [
+    "number1",
+    "smooktober",
+    "3g",
+    "richminion",
+    "slammheavymetal@split-1c9bb3092615",
+    "lyfestyle@lyfestyle",
+    "missmydawg",
+    "marching",
+    "countup"
+  ];
+  for (const id of verifiedIds) {
+    const out = applyCatalogMetadata({
+      id, title: id, tab: "Released",
+      source: { kind: "apple", id: "1000000001" }, preview: true
+    });
+    assert.equal(out.premaster?.kind, "pillows", `${id} resolves to verified Pillows premaster`);
+    assert.equal(out.preview, false, `${id} clears preview badge`);
   }
 });

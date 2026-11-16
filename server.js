@@ -35,7 +35,7 @@ const { createDailyAuthority, cleanDailyUrl } = require("./server/daily-authorit
 const { createLeaderboardStore } = require("./server/leaderboard.cjs");
 const { DEVICE_HEADER, cleanDeviceId, clientIp, normalIp, loadSecret, createSignalHasher, createRateLimiter } = require("./server/client-signals.cjs");
 const { pathToFileURL } = require("url");
-const { answerKey, guessKeys, resolveGroupKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility } = require("./server/catalog-policy.cjs");
+const { answerKey, guessKeys, resolveGroupKeys, creditFor, isGuessingEligible, catalogExclusionReason, applyCatalogMetadata, stemBindingFor, reconcileStemSources, reconcileCatalogEligibility, trackSeconds, guestFeatureKey, hasVerifiedPremaster, isReleasedPremasterRow, isRedundantReleaseVariant } = require("./server/catalog-policy.cjs");
 const compressedAssets = createCompressedCache();
 const activeSongFeed = createActiveSongFeed();
 const APP_VERSION = require("./package.json").version;
@@ -49,7 +49,7 @@ const CURATION_DIR = process.env.YEATLE_DATA_DIR ? DATA_DIR : path.join(ROOT, "d
 const STEMS_DIR = process.env.YEATLE_STEMS_DIR ? path.resolve(process.env.YEATLE_STEMS_DIR) : process.env.YEATLE_DATA_DIR ? path.join(DATA_DIR, "Songs") : path.join(WEB_DIR, "Songs");
 const CACHE_FILE = path.join(DATA_DIR, "songs-cache.json");
 // Bump when saved song metadata changes meaning, so older saved lists are corrected on load.
-const SONG_CACHE_FORMAT = 3;
+const SONG_CACHE_FORMAT = 4;
 const PREVIEW_CACHE_FILE = path.join(DATA_DIR, "preview-cache.json");
 const dailyChallenge = createDailyChallenges(path.join(DATA_DIR, "daily-challenges.json"));
 try {
@@ -200,7 +200,7 @@ try {
         date, id: publicDailyId(saved, date), tries: 6,
         matches: text => Boolean(snippetRules && snippetRules.matchesSong(pub, text)),
         matchesVersion: text => Boolean(snippetRules && snippetRules.matchesVersion?.(pub, text)),
-        reveal: () => ({ display: pub.display, title: pub.title, era: pub.eraDisplay || pub.era || "", eraDisplay: pub.eraDisplay || "", eraYear: pub.eraYear || null, year: pub.year || null, tab: pub.tab || "", relatedRecording: pub.relatedRecording || "" })
+        reveal: () => ({ display: pub.display, title: pub.title, era: pub.era || "", eraDisplay: pub.eraDisplay || "", eraYear: pub.eraYear || null, year: pub.year || null, tab: pub.tab || "", cover: pub.cover || "", relatedRecording: pub.relatedRecording || "" })
       };
     },
     snippetSong: (id, pool) => {
@@ -930,11 +930,6 @@ function isThrowaway(row) {
   return /\bthrowaway\b/i.test(String(row && row.type || ""));
 }
 
-// "2:33" -> 153 seconds
-function trackSeconds(length) {
-  const m = /^(\d+):(\d{2})$/.exec(String(length || "").trim());
-  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
-}
 
 // "feat. Lil Uzi Vert" and "with Lil Uzi Vert" name the same guest.
 const guestKey = features => (features || []).map(f => norm(String(f).replace(/^(feat|ft|with)\b\.?\s*/i, ""))).filter(Boolean).sort().join("+");
@@ -1063,7 +1058,7 @@ function buildSongList(sheetRows, stemFolders) {
 
     const aSec = trackSeconds(row.length);
     const bSec = trackSeconds(held.length);
-    const hasLengthDiff = aSec == null || bSec == null || Math.abs(aSec - bSec) >= 2;
+    const hasLengthDiff = aSec == null || bSec == null || Math.abs(aSec - bSec) >= 2 || guestFeatureKey(row.features) !== guestFeatureKey(held.features);
     const rankRow = (row.tab !== "Released" && held.tab === "Released" && hasLengthDiff) ? 999 : SOURCE_RANK[row.source.kind];
     const rankHeld = (held.tab !== "Released" && row.tab === "Released" && hasLengthDiff) ? 999 : SOURCE_RANK[held.source.kind];
     const betterSource = rankRow < rankHeld ? row.source : held.source;
@@ -1190,7 +1185,17 @@ function buildSongList(sheetRows, stemFolders) {
       variants = variants.map(row => ({ ...row, artistRole: "producer-only" }));
     }
     const eligible = variants.filter(isGuessingEligible);
-    const primary = eligible.find(row => row.source === song.source) || eligible[0] || variants.find(row => row.source === song.source) || variants[0];
+    const releasedRow = eligible
+      .filter(row => row.tab === "Released")
+      .sort((a, b) => SOURCE_RANK[a.source.kind] - SOURCE_RANK[b.source.kind])[0];
+    const hasReleaseAudio = releasedRow && (
+      !["apple", "search", "stems"].includes(releasedRow.source.kind) ||
+      hasVerifiedPremaster(key) ||
+      eligible.some(row => isReleasedPremasterRow(row, releasedRow, key))
+    );
+    const primary = song.source.kind !== "stems" && hasReleaseAudio
+      ? releasedRow
+      : eligible.find(row => row.source === song.source) || eligible[0] || variants.find(row => row.source === song.source) || variants[0];
     const entry = { ...toGameSong(primary, key), aliases: song.aliases || primary.aliases || [], keys: guessKeys(song), mergedFrom: song.mergedFrom || [] };
     const sources = variants.map(row => ({
       ...toGameSong(row, key), trackerKey: row._trackerKey || null,
@@ -1199,7 +1204,7 @@ function buildSongList(sheetRows, stemFolders) {
     const forPool = {};
     for (const [pool, accepts] of Object.entries({
       released: row => row.tab === "Released",
-      unreleased: row => row.tab === "Unreleased",
+      unreleased: row => row.tab === "Unreleased" && !isRedundantReleaseVariant(row, releasedRow, key),
       stems: row => row.source.kind === "stems"
     })) {
       const row = sources.filter(row => accepts(row) && isGuessingEligible(row))
@@ -1237,15 +1242,17 @@ function upgradeCachedSongs(cached) {
   if (cached.format >= SONG_CACHE_FORMAT) return cached.songs;
   const eras = new Map((Array.isArray(cached.eras) ? cached.eras : []).map(era => [era.name, era]));
   return cached.songs.map(song => {
+    let upgraded = song;
     // Old merged lists discarded source provenance. Keep their audio and ids,
     // but don't pretend their best file is a verified released or leaked source.
     // A normal tracker refresh reconstructs the per-source pool choices.
-    if (!song.poolVariants && new Set((song.mergedFrom || []).map(row => row.tab)).size > 1) {
-      return { ...song, tab: "Unknown", poolVariants: song.mode === "stems" ? { stems: { ...song, tab: "Unknown" } } : {} };
+    if (!upgraded.poolVariants && new Set((upgraded.mergedFrom || []).map(row => row.tab)).size > 1) {
+      upgraded = { ...upgraded, tab: "Unknown", poolVariants: upgraded.mode === "stems" ? { stems: { ...upgraded, tab: "Unknown" } } : {} };
+    } else if (upgraded.tab === "Released" && isThrowaway(upgraded) && upgraded.recordedIn) {
+      const era = upgraded.recordedIn, info = eras.get(era);
+      upgraded = { ...upgraded, era, recordedIn: "", eraYear: (info && info.year) || null, cover: (info && info.cover) || coverForEra(era) || upgraded.cover };
     }
-    if (song.tab !== "Released" || !isThrowaway(song) || !song.recordedIn) return song;
-    const era = song.recordedIn, info = eras.get(era);
-    return { ...song, era, recordedIn: "", eraYear: (info && info.year) || null, cover: (info && info.cover) || coverForEra(era) || song.cover };
+    return cached.format < 4 ? reconcileCatalogEligibility(applyCatalogMetadata(upgraded), SOURCE_RANK) : upgraded;
   });
 }
 
@@ -2496,6 +2503,11 @@ function publicSong(song) {
     if (aliases?.length) out = { ...out, aliases };
   }
   out = cleanMangledDisplayAndAliases(out);
+  if (!out.cover && (out.era || out.eraDisplay)) {
+    const indexed = SONG_INDEX.get(out.id);
+    const cover = (indexed && indexed.era === out.era && indexed.cover) || ERAS.find(e => e.name === out.era || e.name === out.eraDisplay)?.cover || coverForEra(out.era) || coverForEra(out.eraDisplay);
+    if (cover) out = { ...out, cover };
+  }
   const { source, fallback, premaster, mergedFrom, sourceVariants, poolVariants, ...rest } = out;
   let pubPools;
   if (poolVariants) {

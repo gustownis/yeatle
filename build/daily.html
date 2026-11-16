@@ -60,7 +60,12 @@
         </form>
         <ol id="guesses" class="guesses" aria-label="Your guesses so far"></ol>
         <section id="result" hidden aria-live="polite">
-          <p id="result-label" class="muted"></p><h2 id="answer"></h2><p id="result-detail"></p>
+          <div class="result-top">
+            <img id="result-cover" class="cover" alt="" hidden>
+            <div>
+              <p id="result-label" class="result-label"></p><h2 id="answer" class="result-title"></h2><p id="result-detail" class="muted"></p>
+            </div>
+          </div>
           <div class="result-actions"><button id="share" class="btn solid">Copy result</button>
             <a class="btn" href="./?mode=snippet">Keep playing Snippets</a></div>
           <textarea id="share-text" readonly aria-label="Your result to copy" hidden></textarea>

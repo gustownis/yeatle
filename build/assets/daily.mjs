@@ -5,6 +5,22 @@ import { dailyRounds } from "./leaderboard.mjs?v=1.13.11";
 const $ = selector => document.querySelector(selector);
 const suggestions = attachSongSuggestions($("#guess"), $("#song-suggestions"));
 let challenge, round, storageKey, clockAt, serverAt, loading = false;
+let catalogSongs = [], catalogEras = [];
+const ALIVE_WHITE_COVER = "https://i1.sndcdn.com/artworks-3AabyPZmITS5OQRk-ylKvNA-original.jpg";
+const coverRolls = new WeakMap();
+function coverForSong(song) {
+  if (!song) return "";
+  let cover = song.cover || "";
+  if (!cover) {
+    const match = catalogSongs.find(item => (song.id && item.id === song.id) || (song.era && item.era === song.era && item.cover))
+      || catalogEras.find(item => item.name === song.era && item.cover);
+    cover = match?.cover || "";
+  }
+  if (!cover || String(song.era || "").normalize("NFD").replace(/\s*[\[(].*$/, "").toLowerCase().replace(/[^a-z0-9]/g, "") !== "alive") return cover;
+  let pick = coverRolls.get(song);
+  if (pick === undefined) coverRolls.set(song, pick = Math.random() < 0.5);
+  return pick ? ALIVE_WHITE_COVER : cover;
+}
 let ctx, master, clipGain, buffers, sources = [], audioLoad, abortAudio, playback = 0;
 let ready = false, busy = false, playing = false, storageAvailable = true;
 let playStartAt = 0, playDuration = 0, playFrame = 0;
@@ -146,11 +162,27 @@ function render() {
   }
   $("#guesses").replaceChildren(...guessItems);
   $("#result").hidden = !done;
+  const coverEl = $("#result-cover");
   if (done) {
+    const src = coverForSong(challenge.song);
+    if (src && coverEl.dataset.failedSrc !== src) {
+      if (coverEl.getAttribute("src") !== src) {
+        delete coverEl.dataset.failedSrc;
+        coverEl.src = src;
+      }
+      coverEl.hidden = false;
+    } else {
+      coverEl.removeAttribute("src");
+      coverEl.hidden = true;
+    }
     $("#result-label").textContent = round.status === "won" ? "The song is" : "The song was";
     $("#answer").textContent = challenge.song.display || challenge.song.title;
     const solvedSeconds = BASE_LENGTHS[round.attempts.length - 1];
     $("#result-detail").textContent = [round.status === "won" ? `You found it in ${solvedSeconds} second${solvedSeconds === 1 ? "" : "s"}.` : "Tomorrow brings another song.", challenge.song.eraDisplay || challenge.song.era, challenge.song.eraYear || challenge.song.year, challenge.song.tab, challenge.song.relatedRecording && `Related recording: ${challenge.song.relatedRecording}`].filter(Boolean).join(" · ");
+  } else {
+    coverEl.removeAttribute("src");
+    delete coverEl.dataset.failedSrc;
+    coverEl.hidden = true;
   }
 }
 
@@ -335,7 +367,10 @@ async function loadChallenge() {
     suggestions.setSongs(pinned);
     songsPromise.then(list => {
       if (!list || challenge !== body) return;
-      suggestions.setSongs([...pinned, ...(list.songs || [])]);
+      catalogSongs = Array.isArray(list.songs) ? list.songs : [];
+      catalogEras = Array.isArray(list.eras) ? list.eras : [];
+      suggestions.setSongs([...pinned, ...catalogSongs]);
+      if (round && round.status !== "playing" && $("#result-cover").hidden && !$("#result-cover").dataset.failedSrc) render();
     });
   } catch (error) { challenge = null; notice(error.message); $("#retry").hidden = false; }
   finally { loading = false; render(); }
@@ -343,6 +378,11 @@ async function loadChallenge() {
 
 $("#play").onclick = play;
 $("#retry").onclick = loadChallenge;
+$("#result-cover").onerror = () => {
+  const coverEl = $("#result-cover");
+  coverEl.dataset.failedSrc = coverEl.getAttribute("src") || "";
+  coverEl.hidden = true;
+};
 $("#guess-form").onsubmit = event => { event.preventDefault(); const text = $("#guess").value.trim(); if (text) attempt(text); };
 $("#skip").onclick = () => attempt("", true);
 $("#mute").onclick = () => { muted = !muted; syncVolume(false); };
