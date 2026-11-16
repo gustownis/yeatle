@@ -6,6 +6,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const runtime = require("./fixtures/catalog-runtime.cjs");
 const { isGuessingEligible } = require("../catalog-policy.cjs");
+const { dailyDate } = require("../daily-challenge.cjs");
 const root = path.resolve(__dirname, "..");
 const sourceKey = song => `${song.source.kind}:${song.source.id}`;
 
@@ -112,7 +113,7 @@ test("an installed excluded recording cannot enter the stems pool, and a pinned 
   assert.equal(list.songs.length, 0);
   assert.equal(list.retiredSongs[0].mode, "stems");
   assert.deepEqual({ ...catalog.index().get(song.id).fallback }, { ...row.source });
-  const date = new Date().toISOString().slice(0, 10);
+  const date = dailyDate();
   const pinned = { id: `v1:${date}:${song.id}`, song, seed: 23, clipAt: 7.125 };
   const original = JSON.stringify({ [date]: pinned });
   fs.writeFileSync(path.join(folder, "daily-challenges.json"), original);

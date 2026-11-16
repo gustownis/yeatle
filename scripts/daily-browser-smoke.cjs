@@ -256,10 +256,8 @@ async function play(page, length) {
   };
   await page.route(`${origin}/api/daily`, clockResponse);
   await dailyPage(page);
-  // the page labels a Daily with the local date it started on
-  const nextStart = new Date(daily.resetsAt);
-  const nextLabel = `${nextStart.getFullYear()}-${String(nextStart.getMonth() + 1).padStart(2, "0")}-${String(nextStart.getDate()).padStart(2, "0")}`;
-  await page.waitForFunction(date => document.querySelector("#day").textContent.includes(date), nextLabel);
+  // the page labels a Daily with the canonical challenge date
+  await page.waitForFunction(date => document.querySelector("#day").textContent.includes(date), nextDate);
   assert.equal(await page.locator("#guesses li").count(), 0);
   assert.equal(await page.locator("#play").textContent(), "Play 0.1s");
   assert.ok(clockRequests >= 2);

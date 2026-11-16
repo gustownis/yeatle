@@ -300,13 +300,10 @@ function expired() {
   return false;
 }
 
-// The Daily changes at 00:00 UTC, which is still the evening before in the Americas. Show the
-// player's own calendar date at the moment this Daily started, so it never reads as tomorrow.
-// (Saved rounds and the server keep using the UTC date.)
+// Everyone playing the same Daily sees and shares the same canonical challenge date
+// (the day starting at 12am EST/EDT = 6am CET/CEST), regardless of browser timezone.
 function dayLabel(daily) {
-  const d = new Date(daily.resetsAt - 86400000);
-  if (Number.isNaN(d.getTime())) return daily.date;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return daily.date;
 }
 
 async function loadChallenge() {
@@ -381,6 +378,6 @@ addEventListener("pagehide", dispose);
 setInterval(() => {
   if (!challenge || loading || expired()) return;
   const seconds = Math.max(0, Math.ceil((challenge.resetsAt - serverNow()) / 1000));
-  $("#reset").textContent = `Next song in ${Math.floor(seconds / 3600)}h ${Math.floor(seconds / 60) % 60}m ${seconds % 60}s · midnight UTC`;
+  $("#reset").textContent = `Next song in ${Math.floor(seconds / 3600)}h ${Math.floor(seconds / 60) % 60}m ${seconds % 60}s · 12am EST (6am CET/CEST)`;
 }, 1000);
 loadChallenge();

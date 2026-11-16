@@ -6,6 +6,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const runtime = require("./fixtures/catalog-runtime.cjs");
 const { creditFor, isGuessingEligible, applyCatalogMetadata, reconcileCatalogEligibility } = require("../catalog-policy.cjs");
+const { dailyDate } = require("../daily-challenge.cjs");
 const { validateCatalog } = require("../desktop/stem-downloads.cjs");
 const root = path.join(__dirname, "..");
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -76,7 +77,7 @@ test("an installed pack cannot erase the matched track's production-only credit"
 });
 
 test("eligibility corrections preserve a pinned Daily song, audio route and clip across a restart", async t => {
-  const date = new Date().toISOString().slice(0, 10);
+  const date = dailyDate();
   const song = { id: "pinned-production", title: "Pinned production", features: [], keys: ["pinnedproduction"], source: { kind: "pillows", id: "original-audio" }, mode: "filter", type: "Production", tab: "Released" };
   const saved = { [date]: { id: `v1:${date}:${song.id}`, song, seed: 23, clipAt: 7.125 } };
   const { catalog, folder } = setup(t, { "daily-challenges.json": saved,
@@ -250,7 +251,7 @@ test("a cached Cant See misbinding restores both recordings without changing pin
   ls.cover = "ls-cover";
   const stem = { ...alive, source: { kind: "stems", folder: "Cant See" }, fallback: alive.source, mode: "stems", folder: "Cant See", audioId: "old-stem-audio" };
   const old = { ...stem, poolVariants: { unreleased: stem, stems: stem }, sourceVariants: [alive, stem] };
-  const date = new Date().toISOString().slice(0, 10);
+  const date = dailyDate();
   const pinned = { [date]: { id: `v1:${date}:${alive.id}`, song: old, seed: 23, clipAt: 6.5 } };
   const { catalog, folder } = setup(t, { "daily-challenges.json": pinned });
   const before = JSON.parse((await catalog.request("/api/daily")).body);

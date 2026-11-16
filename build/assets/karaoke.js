@@ -2560,7 +2560,7 @@ function init() {
   // Stems / Snippets tabs go back to the game in that mode
   document.querySelectorAll(".tabs [data-mode]").forEach(tab => tab.addEventListener("click", () => {
     store.set("yeatle:gameMode", tab.dataset.mode);
-    window.location.href = "./";
+    window.location.href = `./?mode=${encodeURIComponent(tab.dataset.mode)}`;
   }));
   $("#search").addEventListener("input", renderSongList);
   $("#enable-mics").addEventListener("click", enableMics);

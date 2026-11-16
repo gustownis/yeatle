@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { promisify } = require("node:util");
+const { dailyDayNumber } = require("./daily-challenge.cjs");
 
 const scrypt = promisify(crypto.scrypt);
 
@@ -233,7 +234,7 @@ function mergeProgress(existingRaw, incomingRaw, now = Date.now(), { checkDailyW
     };
   }
 
-  const today = Math.floor(now / DAY_MS);
+  const today = dailyDayNumber(now);
   const dailyMap = {};
   if (base.daily && typeof base.daily === "object") {
     for (const [date, value] of Object.entries(base.daily)) {
@@ -316,7 +317,7 @@ function computeMetrics(progress, now = Date.now(), canonicalSongId = null, rank
   }
 
   let dailyStreak = 0;
-  const today = Math.floor(now / DAY_MS);
+  const today = dailyDayNumber(now);
   if (uniqueDays.length && uniqueDays[uniqueDays.length - 1] >= today - 1) {
     dailyStreak = 1;
     for (let i = uniqueDays.length - 2; i >= 0 && uniqueDays[i] === uniqueDays[i + 1] - 1; i--) dailyStreak++;
@@ -899,10 +900,10 @@ function createLeaderboardStore(file, {
       mapEntry: m => ({ primary: m.karaokeTotalScore, secondary: m.karaokeSongs, bestScore: m.karaokeBestScore }) }
   ];
 
-  // The sorted standings, shared by every viewer. Streaks end at the UTC day change, so a
+  // The sorted standings, shared by every viewer. Streaks end at the Daily reset, so a
   // cached copy never crosses one.
   function currentStandings(now) {
-    const day = Math.floor(now / DAY_MS);
+    const day = dailyDayNumber(now);
     if (boardCache && boardCache.day === day && now >= boardCache.at && now - boardCache.at < BOARD_CACHE_MS) return boardCache;
     let grandfathered = false;
     const users = Object.values(state.users).filter(u => !isBanned(u)).map(u => {

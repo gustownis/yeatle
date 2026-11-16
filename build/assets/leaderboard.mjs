@@ -159,6 +159,17 @@ export function applyServerProgress(progress, storage = globalThis.localStorage,
   return changed;
 }
 
+function lastSundayUtc(year, monthIndex) {
+  const lastDay = new Date(Date.UTC(year, monthIndex + 1, 0));
+  return Date.UTC(year, monthIndex, lastDay.getUTCDate() - lastDay.getUTCDay(), 1, 0, 0);
+}
+
+function dailyDayNumber(now = Date.now()) {
+  const year = new Date(now).getUTCFullYear();
+  const summer = now >= lastSundayUtc(year, 2) && now < lastSundayUtc(year, 9);
+  return Math.floor((now - (summer ? 4 : 5) * 3600000) / 86400000);
+}
+
 export function computeLocalDailyStreak(storage = globalThis.localStorage, now = Date.now()) {
   const { daily } = collectLocalProgress(storage);
   const days = [];
@@ -171,7 +182,7 @@ export function computeLocalDailyStreak(storage = globalThis.localStorage, now =
   days.sort((a, b) => a - b);
   const unique = [...new Set(days)];
   if (!unique.length) return 0;
-  const today = Math.floor(now / 86400000);
+  const today = dailyDayNumber(now);
   const last = unique[unique.length - 1];
   if (last < today - 1) return 0;
   let streak = 1;

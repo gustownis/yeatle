@@ -1011,3 +1011,68 @@ test("malformed request URLs, null-byte paths, invalid audio IDs, and bad admin 
   });
   assert.match(rawResponse, /^HTTP\/1\.1 400 /);
 });
+
+test("pages serve page-specific Open Graph embeds, mode redirects, and distinct cache tags", async t => {
+  const folder = dataFolder(t);
+  config(folder);
+  const { url } = await launch(t, folder);
+  const meta = (html, name, attr = "property") => {
+    const match = html.match(new RegExp(`<meta\\b[^>]*\\b${attr}=["']${name}["'][^>]*\\bcontent=["']([^"']*)["']`, "i"));
+    return match ? match[1] : "";
+  };
+  const titleOf = html => (html.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || "";
+
+  const cases = [
+    ["/", "Yeatle", "Yeatle", "/"],
+    ["/?mode=stems", "Yeatle Stems", "Yeatle Stems", "/?mode=stems"],
+    ["/?mode=snippet", "Yeatle Snippets", "Yeatle Snippets", "/?mode=snippet"],
+    ["/daily", "Yeatle Daily", "Yeatle Daily", "/daily"],
+    ["/karaoke", "Yeatle Karaoke", "Yeatle Karaoke", "/karaoke"],
+    ["/stems-download.html", "Download HQ stems", "Yeatle HQ Stems", "/stems-download.html"]
+  ];
+  const etags = new Set();
+  for (const [reqPath, expectedTitle, expectedOgTitle, canonicalPath] of cases) {
+    const res = await fetch(`${url}${reqPath}`, { headers: { "Accept-Encoding": "gzip" } });
+    assert.equal(res.status, 200, reqPath);
+    assert.equal(res.headers.get("content-encoding"), "gzip", reqPath);
+    const etag = res.headers.get("etag");
+    assert.ok(etag, reqPath);
+    etags.add(etag);
+    const html = await res.text();
+    assert.equal(titleOf(html), expectedTitle, reqPath);
+    assert.equal(meta(html, "theme-color", "name"), "#8901b9", reqPath);
+    assert.equal(meta(html, "og:title"), expectedOgTitle, reqPath);
+    assert.ok(meta(html, "og:description").length > 10, reqPath);
+    assert.equal(meta(html, "og:url"), `${url}${canonicalPath}`, reqPath);
+    assert.equal(meta(html, "og:image"), `${url}/favicon.png`, reqPath);
+
+    const head = await fetch(`${url}${reqPath}`, { method: "HEAD" });
+    assert.equal(head.status, 200, `HEAD ${reqPath}`);
+    assert.equal(await head.text(), "");
+  }
+  assert.equal(etags.size, cases.length, "each page/mode has a distinct ETag");
+
+  // Forwarded proxy headers resolve the public HTTPS origin, while invalid hosts fall back safely.
+  const forwarded = await fetch(`${url}/?mode=snippet`, {
+    headers: { "X-Forwarded-Host": "playyeatle.duckdns.org", "X-Forwarded-Proto": "https", "Accept-Encoding": "br" }
+  });
+  assert.equal(forwarded.status, 200);
+  assert.equal(forwarded.headers.get("content-encoding"), "br");
+  const forwardedHtml = await forwarded.text();
+  assert.equal(meta(forwardedHtml, "og:url"), "https://playyeatle.duckdns.org/?mode=snippet");
+  assert.equal(meta(forwardedHtml, "og:image"), "https://playyeatle.duckdns.org/favicon.png");
+  assert.notEqual(forwarded.headers.get("etag"), (await fetch(`${url}/?mode=snippet`)).headers.get("etag"));
+
+  const unsafeForwarded = await fetch(`${url}/daily`, {
+    headers: { "X-Forwarded-Host": "bad host/<script>" }
+  });
+  assert.equal(unsafeForwarded.status, 200);
+  assert.equal(meta(await unsafeForwarded.text(), "og:url"), `${url}/daily`);
+
+  // Mode alias paths redirect cleanly with any extra query parameters intact.
+  for (const [alias, expected] of [["/stems", "/?mode=stems"], ["/snippets", "/?mode=snippet"], ["/snippet?foo=bar", "/?foo=bar&mode=snippet"]]) {
+    const redir = await fetch(`${url}${alias}`, { redirect: "manual" });
+    assert.equal(redir.status, 308, alias);
+    assert.equal(redir.headers.get("location"), expected, alias);
+  }
+});

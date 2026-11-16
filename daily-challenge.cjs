@@ -2,6 +2,44 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
 
+const DAY_MS = 86400000;
+const HOUR_MS = 3600000;
+
+// EU DST transitions happen at 01:00 UTC on the last Sunday of March and October.
+function lastSundayUtc(year, monthIndex) {
+  const lastDay = new Date(Date.UTC(year, monthIndex + 1, 0));
+  return Date.UTC(year, monthIndex, lastDay.getUTCDate() - lastDay.getUTCDay(), 1, 0, 0);
+}
+
+function isEuropeanSummer(ms) {
+  const year = new Date(ms).getUTCFullYear();
+  return ms >= lastSundayUtc(year, 2) && ms < lastSundayUtc(year, 9);
+}
+
+// Daily resets at 06:00 CET/CEST (05:00 UTC in winter / 04:00 UTC in summer, matching 12am EST/EDT).
+function dailyOffsetMs(ms = Date.now()) {
+  return (isEuropeanSummer(ms) ? 4 : 5) * HOUR_MS;
+}
+
+function dailyDayNumber(now = Date.now()) {
+  return Math.floor((now - dailyOffsetMs(now)) / DAY_MS);
+}
+
+function dailyDate(now = Date.now()) {
+  return new Date(now - dailyOffsetMs(now)).toISOString().slice(0, 10);
+}
+
+function dailyResetAt(dateOrNow = Date.now()) {
+  const date = typeof dateOrNow === "string" ? dateOrNow : dailyDate(dateOrNow);
+  const nextMidnightUtc = Date.parse(`${date}T00:00:00Z`) + DAY_MS;
+  return nextMidnightUtc + dailyOffsetMs(nextMidnightUtc + 3 * HOUR_MS);
+}
+
+function previousDailyDate(dateOrNow = Date.now()) {
+  const date = typeof dateOrNow === "string" ? dateOrNow : dailyDate(dateOrNow);
+  return new Date(Date.parse(`${date}T00:00:00Z`) - DAY_MS).toISOString().slice(0, 10);
+}
+
 // One shared clock and one persisted choice per server, independent of clients,
 // tracker ordering, filters, refreshes, and process restarts.
 function createDailyChallenges(file) {
@@ -33,8 +71,8 @@ function createDailyChallenges(file) {
     return entry;
   };
   const challengeFor = (songs, now = Date.now()) => {
-    const date = new Date(now).toISOString().slice(0, 10);
-    const resetsAt = Date.parse(`${date}T00:00:00Z`) + 86400000;
+    const date = dailyDate(now);
+    const resetsAt = dailyResetAt(date);
     if (!days[date] && !pick(date, songs)) return null;
     const entry = days[date];
     if (!entry?.song?.id || !Number.isInteger(entry.seed)) throw new Error("Invalid saved daily challenge.");
@@ -54,4 +92,4 @@ function createDailyChallenges(file) {
   return challengeFor;
 }
 
-module.exports = { createDailyChallenges };
+module.exports = { createDailyChallenges, dailyOffsetMs, dailyDayNumber, dailyDate, dailyResetAt, previousDailyDate };

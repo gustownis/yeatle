@@ -3,8 +3,16 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#000000">
+    <meta name="theme-color" content="#8901b9">
     <title>Yeatle Daily</title>
+    <meta name="description" content="One song. Everyone. Every day. Start with 0.1 seconds and guess today's Yeat song in up to 6 tries.">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Yeatle">
+    <meta property="og:title" content="Yeatle Daily">
+    <meta property="og:description" content="One song. Everyone. Every day. Start with 0.1 seconds and guess today's Yeat song in up to 6 tries.">
+    <meta property="og:url" content="https://playyeatle.duckdns.org/daily">
+    <meta property="og:image" content="https://playyeatle.duckdns.org/favicon.png">
+    <meta property="og:image:alt" content="Yeatle">
     <link rel="icon" href="./favicon-64.png">
     <link rel="modulepreload" href="./assets/snippet-rules.mjs?v=1.13.10">
     <link rel="modulepreload" href="./assets/song-suggestions.mjs?v=1.13.10">
@@ -58,7 +66,7 @@
           <textarea id="share-text" readonly aria-label="Your result to copy" hidden></textarea>
         </section>
       </section>
-      <footer class="daily-footer"><p id="reset">A new song at midnight UTC.</p><p>Your progress is saved in this browser. Daily uses its own progress, separate from practice.</p></footer>
+      <footer class="daily-footer"><p id="reset">A new song at 12am EST (6am CET/CEST).</p><p>Your progress is saved in this browser. Daily uses its own progress, separate from practice.</p></footer>
     </main>
   </body>
 </html>

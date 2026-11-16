@@ -44,13 +44,13 @@ These are the same rankings as the 🏆 window in the game: banned accounts aren
 ```json
 {
   "date": "2026-10-30",
-  "resetsAt": "2026-10-31T00:00:00.000Z",
+  "resetsAt": "2026-10-31T05:00:00.000Z",
   "secondsUntilReset": 21349,
   "yesterday": { "date": "2026-10-29", "answer": "Talk", "era": "2093" }
 }
 ```
 
-The Daily resets at midnight UTC. `yesterday` is `null` if no Daily was played that day.
+The Daily resets at 12am EST (6am CET/CEST). `yesterday` is `null` if no Daily was played that day.
 
 ## `GET /api/v1`
 

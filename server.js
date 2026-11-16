@@ -30,7 +30,7 @@ const { staticCacheHeaders, isNotModified, rangeAllowed, createCompressedCache, 
 const { createAudioCache } = require("./audio-cache.cjs");
 const { createActiveSongFeed } = require("./live-control.cjs");
 const { createStemCatalog } = require("./stem-catalog.cjs");
-const { createDailyChallenges } = require("./daily-challenge.cjs");
+const { createDailyChallenges, dailyDate, dailyResetAt, previousDailyDate } = require("./daily-challenge.cjs");
 const { createDailyAuthority, cleanDailyUrl } = require("./daily-authority.cjs");
 const { createLeaderboardStore } = require("./leaderboard.cjs");
 const { DEVICE_HEADER, cleanDeviceId, clientIp, normalIp, loadSecret, createSignalHasher, createRateLimiter } = require("./client-signals.cjs");
@@ -191,7 +191,7 @@ try {
     snippetPool: (pool, excludedEras) => snippetPoolIds(pool, excludedEras),
     dailyToday: now => {
       if (!CONFIG.dailyHideAnswer || CONFIG.dailyAuthority) return null;
-      const date = new Date(now).toISOString().slice(0, 10);
+      const date = dailyDate(now);
       const saved = dailyChallenge.saved(date);
       if (!saved) return null;
       const pub = publicSong(saved.song);
@@ -1999,7 +1999,109 @@ const MIME = {
   ".jpeg": "image/jpeg", ".lrc": "text/plain; charset=utf-8", ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif"
 };
 
-function serveStatic(req, res, pathname, { noStore = false } = {}) {
+const VALID_HOST = /^(?:[a-zA-Z0-9.-]+|\[[a-fA-F0-9:]+\])(?::\d{1,5})?$/;
+const LOOPBACK_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/i;
+
+function requestOrigin(req) {
+  const forwardedHost = String(req.headers["x-forwarded-host"] || "").split(",")[0].trim();
+  const hostHeader = String(req.headers.host || "").trim();
+  const rawHost = VALID_HOST.test(forwardedHost) ? forwardedHost : (VALID_HOST.test(hostHeader) ? hostHeader : "");
+  if (rawHost) {
+    const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim().toLowerCase();
+    const proto = forwardedProto === "http" || forwardedProto === "https"
+      ? forwardedProto
+      : LOOPBACK_HOST.test(rawHost) ? "http" : "https";
+    return `${proto}://${rawHost}`;
+  }
+  try {
+    if (CONFIG.dailyPublicUrl) return new URL(CONFIG.dailyPublicUrl).origin;
+  } catch {}
+  return "https://playyeatle.duckdns.org";
+}
+
+function pageEmbedMeta(pathname, searchParams) {
+  if (pathname === "/daily" || pathname === "/daily.html") {
+    return {
+      title: "Yeatle Daily",
+      ogTitle: "Yeatle Daily",
+      description: "One song. Everyone. Every day. Start with 0.1 seconds and guess today's Yeat song in up to 6 tries.",
+      canonicalPath: "/daily"
+    };
+  }
+  if (pathname === "/karaoke" || pathname === "/karaoke.html") {
+    return {
+      title: "Yeatle Karaoke",
+      ogTitle: "Yeatle Karaoke",
+      description: "Sing along to Yeat tracks with real-time pitch and rhythm scoring for up to four microphones.",
+      canonicalPath: "/karaoke"
+    };
+  }
+  if (pathname === "/stems-download.html") {
+    return {
+      title: "Download HQ stems",
+      ogTitle: "Yeatle HQ Stems",
+      description: "Download optional higher-quality stem packs for Yeatle.",
+      canonicalPath: "/stems-download.html"
+    };
+  }
+  if (pathname === "/" || pathname === "/index.html") {
+    const mode = searchParams?.get("mode");
+    if (mode === "snippet") {
+      return {
+        title: "Yeatle Snippets",
+        ogTitle: "Yeatle Snippets",
+        description: "Guess released and unreleased Yeat songs from short audio snippets across four difficulty modes.",
+        canonicalPath: "/?mode=snippet"
+      };
+    }
+    if (mode === "stems") {
+      return {
+        title: "Yeatle Stems",
+        ogTitle: "Yeatle Stems",
+        description: "Guess released and unreleased Yeat songs as isolated drums, bass, instruments, and vocals unlock.",
+        canonicalPath: "/?mode=stems"
+      };
+    }
+    return {
+      title: "Yeatle",
+      ogTitle: "Yeatle",
+      description: "Guess released and unreleased Yeat songs from isolated stems, short snippets, the shared Daily challenge, or sing along in Karaoke mode.",
+      canonicalPath: "/"
+    };
+  }
+  return null;
+}
+
+function escapeHtmlAttr(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function replaceMetaContent(html, attrName, attrValue, content) {
+  const safe = escapeHtmlAttr(content);
+  const re = new RegExp(`(<meta\\b[^>]*\\b${attrName}=["']${attrValue}["'][^>]*\\bcontent=["'])([^"']*)(["'][^>]*>)`, "i");
+  return html.replace(re, (_, before, _old, after) => `${before}${safe}${after}`);
+}
+
+function renderPageHtml(rawHtml, req, pathname, searchParams) {
+  const meta = pageEmbedMeta(pathname, searchParams);
+  if (!meta) return rawHtml;
+  const origin = requestOrigin(req);
+  const url = `${origin}${meta.canonicalPath}`;
+  const image = `${origin}/favicon.png`;
+  let html = rawHtml.replace(/<title>[\s\S]*?<\/title>/i, () => `<title>${escapeHtmlAttr(meta.title)}</title>`);
+  html = replaceMetaContent(html, "name", "description", meta.description);
+  html = replaceMetaContent(html, "property", "og:title", meta.ogTitle);
+  html = replaceMetaContent(html, "property", "og:description", meta.description);
+  html = replaceMetaContent(html, "property", "og:url", url);
+  html = replaceMetaContent(html, "property", "og:image", image);
+  return html;
+}
+
+function serveStatic(req, res, pathname, { noStore = false, searchParams = null } = {}) {
   let rel;
   try { rel = decodeURIComponent(pathname); } catch (err) { rel = pathname; }
   if (rel.includes("\0")) { res.writeHead(400); res.end("Bad request"); return; }
@@ -2024,6 +2126,10 @@ function serveStatic(req, res, pathname, { noStore = false } = {}) {
     } catch { /* normal 404 handling below */ }
   }
 
+  const embedMeta = base === WEB_DIR && path.extname(file).toLowerCase() === ".html"
+    ? pageEmbedMeta(pathname, searchParams)
+    : null;
+
   fs.stat(file, async (err, stat) => {
     if (err || !stat.isFile()) { res.writeHead(404); res.end("Not found"); return; }
 
@@ -2033,6 +2139,13 @@ function serveStatic(req, res, pathname, { noStore = false } = {}) {
     // Round audio uses a unique per-round URL; omit file ETag/Last-Modified while
     // allowing the browser media element to retain buffered byte ranges during the round.
     const cache = noStore ? { "Cache-Control": "private, max-age=600" } : staticCacheHeaders(file, stat, APP_VERSION);
+    if (embedMeta && cache.ETag) {
+      const variantHash = crypto.createHash("sha256")
+        .update(`${requestOrigin(req)}\n${embedMeta.canonicalPath}`)
+        .digest("hex")
+        .slice(0, 12);
+      cache.ETag = cache.ETag.replace(/"$/, `-${variantHash}"`);
+    }
     for (const [header, value] of Object.entries(cache)) res.setHeader(header, value);
     if (isNotModified(req.headers, cache.ETag, stat.mtimeMs)) {
       res.writeHead(304);
@@ -2057,9 +2170,32 @@ function serveStatic(req, res, pathname, { noStore = false } = {}) {
       return;
     }
 
+    const encoding = compressible && !req.headers.range ? acceptedEncoding(req.headers["accept-encoding"]) : null;
+    if (embedMeta) {
+      try {
+        const rawHtml = await fs.promises.readFile(file, "utf8");
+        if (res.destroyed) return;
+        const body = Buffer.from(renderPageHtml(rawHtml, req, pathname, searchParams), "utf8");
+        if (encoding) {
+          const encoded = await encodeBuffer(body, encoding);
+          if (res.destroyed) return;
+          res.writeHead(200, { "Content-Type": type, "Content-Encoding": encoding, "Content-Length": encoded.length });
+          if (req.method === "HEAD") { res.end(); return; }
+          res.end(encoded);
+          return;
+        }
+        res.writeHead(200, { "Content-Type": type, "Content-Length": body.length, "Accept-Ranges": "bytes" });
+        if (req.method === "HEAD") { res.end(); return; }
+        res.end(body);
+      } catch (_) {
+        if (!res.headersSent) { res.writeHead(404); res.end("Not found"); }
+        else res.destroy();
+      }
+      return;
+    }
+
     // Keep byte ranges and audio untouched. Reuse bounded compressed variants;
     // larger files still stream so their full contents are not held in memory.
-    const encoding = compressible && !req.headers.range ? acceptedEncoding(req.headers["accept-encoding"]) : null;
     if (encoding) {
       try {
         const body = await compressedAssets.get(file, stat, encoding);
@@ -3580,7 +3716,7 @@ async function handleAdmin(req, res, pathname) {
     if (CONFIG.dailyAuthority) { sendJson(res, 409, { error: `This copy shows the Daily from ${CONFIG.dailyAuthority}. Replace it in that website's admin panel.` }); return true; }
     try {
       if (!SONGS.length) await refreshOnce();
-      const date = new Date().toISOString().slice(0, 10);
+      const date = dailyDate();
       const { replaced, entry } = dailyChallenge.replace(date, dailyEraSongs(SONGS.filter(s => !isHidden(s) && isGuessingEligible(s))));
       const old = publicSong(replaced);
       console.log(`[daily] An admin replaced ${date}'s Daily (${old.display || old.title}).`);
@@ -3814,10 +3950,9 @@ const API_BOARDS = {
 const API_LIMIT_PER_MINUTE = 120;
 
 function apiDaily(now = Date.now()) {
-  const day = 86400000;
-  const date = new Date(now).toISOString().slice(0, 10);
-  const resetsAt = Date.parse(`${date}T00:00:00Z`) + day;
-  const yesterdayDate = new Date(resetsAt - 2 * day).toISOString().slice(0, 10);
+  const date = dailyDate(now);
+  const resetsAt = dailyResetAt(date);
+  const yesterdayDate = previousDailyDate(date);
   const saved = dailyChallenge.saved(yesterdayDate);
   const song = saved ? publicSong(saved.song) : null;
   return {
@@ -3925,6 +4060,14 @@ const server = http.createServer(async (req, res) => {
       res.end();
       return;
     }
+    const modeAlias = /^\/(stems|snippets?)(?:\.html\/?|\/)?$/.exec(pathname);
+    if (modeAlias) {
+      const targetParams = new URLSearchParams(searchParams);
+      targetParams.set("mode", modeAlias[1] === "stems" ? "stems" : "snippet");
+      res.writeHead(308, { Location: `/?${targetParams}`, "Cache-Control": "no-cache" });
+      res.end();
+      return;
+    }
     if (await handleAdmin(req, res, pathname)) return;
     if (await handleLeaderboard(req, res, pathname)) return;
     if (await handlePublicApi(req, res, pathname, searchParams)) return;
@@ -3983,7 +4126,7 @@ const server = http.createServer(async (req, res) => {
       if (!daily) return sendJson(res, 503, { error: "No daily songs are available yet. Sync the tracker or add a local stem pack, then try again." });
       // A withdrawn song is unavailable for the rest of the day; never give
       // different players a replacement challenge under the same date.
-      if (isHidden(daily.song)) return sendJson(res, 503, { error: "Today's song has been withdrawn. Come back after midnight UTC." });
+      if (isHidden(daily.song)) return sendJson(res, 503, { error: "Today's song has been withdrawn. Come back after 12am EST (6am CET/CEST)." });
       const id = publicDailyId(daily, daily.date);
       const stemParts = daily.song.mode === "stems" && !daily.song.fallback ? ["drums", "bass", "other", "vocals"] : null;
       if (pathname === "/api/daily/audio" || dailyAudio) {
@@ -4026,7 +4169,7 @@ const server = http.createServer(async (req, res) => {
       return serveSongAudio(req, res, songId);
     }
 
-    serveStatic(req, res, pathname);
+    serveStatic(req, res, pathname, { searchParams });
   } catch (err) {
     console.error(err);
     if (!res.headersSent) sendJson(res, 500, { error: err.message });

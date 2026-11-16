@@ -6,6 +6,7 @@ const path = require("node:path");
 const { fork } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 const { createLeaderboardStore, computeMetrics, mergeProgress, BLOCKED_USERNAME_MESSAGE, USERNAME_BLOCKED_MESSAGE, BLOCKED_NAME_LABEL } = require("../leaderboard.cjs");
+const { dailyDate, dailyResetAt, previousDailyDate } = require("../daily-challenge.cjs");
 const frontendModule = import(pathToFileURL(path.join(__dirname, "../build/assets/leaderboard.mjs")).href);
 
 const root = path.resolve(__dirname, "..");
@@ -194,14 +195,14 @@ test("board changes appear at once, and a banned viewer is still refused from ca
   assert.throws(() => store.getLeaderboards(leader.token, NOW + 3), { banned: true });
 });
 
-test("the cached standings expire and never cross a UTC day", async t => {
-  const dayStart = Math.floor(NOW / DAY) * DAY;
+test("the cached standings expire and never cross a Daily reset", async t => {
+  const resetAt = dailyResetAt(dailyDate(NOW));
   const store = newStore(t);
   await store.register({ username: "streaker", password: "password1", progress: { daily: { [day(0)]: won(day(0)) } } }, NOW);
   const streak = at => store.getLeaderboards("", at).boards.daily.entries[0].dailyStreak;
-  assert.equal(streak(dayStart + DAY - 1000), 1);
-  assert.equal(streak(dayStart + 2 * DAY + 1), 0, "a missed day shows without waiting");
-  assert.equal(streak(dayStart + DAY - 1000), 1, "an earlier time rebuilds too");
+  assert.equal(streak(resetAt - 1000), 1);
+  assert.equal(streak(resetAt + DAY + 1), 0, "a missed day shows without waiting");
+  assert.equal(streak(resetAt - 1000), 1, "an earlier time rebuilds too");
 });
 
 test("a burst of changes is saved once, in the background, and nothing is lost", async t => {
@@ -603,8 +604,8 @@ test("the game shows the same blocked-name message as the server", async () => {
 test("the public API shares leaderboards and yesterday's Daily answer, never today's", async t => {
   const hostDir = tempDir(t);
   writeCatalog(hostDir, ["flawless", "talk", "gettinold"]);
-  const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - DAY).toISOString().slice(0, 10);
+  const today = dailyDate();
+  const yesterday = previousDailyDate(today);
   const daily = (date, id, title) => ({ song: { id, title, display: title, era: "2093", mode: "filter", source: { kind: "url", id: "https://audio.invalid/x" } }, seed: 7, clipAt: 6, id: `v1:${date}:${id}` });
   fs.writeFileSync(path.join(hostDir, "daily-challenges.json"), JSON.stringify({ [yesterday]: daily(yesterday, "talk", "Talk"), [today]: daily(today, "secretsong", "Secret Song") }));
   const hostUrl = await startServer(t, hostDir, "");

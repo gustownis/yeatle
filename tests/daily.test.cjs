@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { fork } = require("node:child_process");
-const { createDailyChallenges } = require("../daily-challenge.cjs");
+const { createDailyChallenges, dailyDate, dailyResetAt, previousDailyDate } = require("../daily-challenge.cjs");
 const { createDailyAuthority } = require("../daily-authority.cjs");
 const rules = import("../build/assets/snippet-rules.mjs");
 const root = path.resolve(__dirname, "..");
@@ -15,20 +15,41 @@ function folder(t) {
 }
 const pool = ["alpha", "beta", "gamma"].map(id => ({ id, title: id, display: id, mode: "filter", source: { kind: "search" }, keys: [id] }));
 
-test("daily choice survives reordered/changed libraries and restarts, and changes UTC dates", t => {
+test("daily choice survives reordered/changed libraries and restarts, and resets at 12am EST / 6am CET-CEST", t => {
   const file = path.join(folder(t), "daily-challenges.json");
-  const now = Date.parse("2026-10-19T23:59:59.999Z");
+  // Summer (CEST = UTC+2, EDT = UTC-4): 6am CEST / 12am EDT = 04:00 UTC.
+  const summerNow = Date.parse("2026-10-20T03:59:59.999Z");
   const get = createDailyChallenges(file);
-  const first = get(pool, now);
+  const first = get(pool, summerNow);
   assert.equal(first.date, "2026-10-19");
-  assert.equal(first.resetsAt, now + 1);
-  assert.deepEqual(get([...pool].reverse(), now), first);
-  assert.deepEqual(createDailyChallenges(file)([{ ...pool[0], title: "Renamed" }], now), first);
-  assert.deepEqual(get([], now), first);
-  const next = get(pool, now + 1);
+  assert.equal(first.resetsAt, Date.parse("2026-10-20T04:00:00.000Z"));
+  assert.equal(first.resetsAt, summerNow + 1);
+  assert.deepEqual(get([...pool].reverse(), summerNow), first);
+  assert.deepEqual(createDailyChallenges(file)([{ ...pool[0], title: "Renamed" }], summerNow), first);
+  assert.deepEqual(get([], summerNow), first);
+  const next = get(pool, summerNow + 1);
   assert.equal(next.date, "2026-10-20");
   assert.notEqual(next.id, first.id);
   assert.equal(next.resetsAt, first.resetsAt + 86400000);
+
+  // Winter (CET = UTC+1, EST = UTC-5): 6am CET / 12am EST = 05:00 UTC.
+  const winterNow = Date.parse("2026-11-16T04:59:59.999Z");
+  const winterBefore = get(pool, winterNow);
+  assert.equal(winterBefore.date, "2026-11-15");
+  assert.equal(winterBefore.resetsAt, Date.parse("2026-11-16T05:00:00.000Z"));
+  assert.equal(winterBefore.resetsAt, winterNow + 1);
+  const winterAfter = get(pool, winterNow + 1);
+  assert.equal(winterAfter.date, "2026-11-16");
+  assert.equal(winterAfter.resetsAt, Date.parse("2026-11-17T05:00:00.000Z"));
+  assert.equal(previousDailyDate(winterAfter.date), "2026-11-15");
+
+  // European DST transitions keep the reset at 06:00 Berlin time (winter <-> summer).
+  assert.equal(dailyDate(Date.parse("2026-10-25T04:59:59.999Z")), "2026-10-24");
+  assert.equal(dailyDate(Date.parse("2026-10-25T05:00:00.000Z")), "2026-10-25");
+  assert.equal(dailyResetAt("2026-10-24"), Date.parse("2026-10-25T05:00:00.000Z"));
+  assert.equal(dailyDate(Date.parse("2027-03-28T03:59:59.999Z")), "2027-03-27");
+  assert.equal(dailyDate(Date.parse("2027-03-28T04:00:00.000Z")), "2027-03-28");
+  assert.equal(dailyResetAt("2027-03-27"), Date.parse("2027-03-28T04:00:00.000Z"));
 });
 
 test("daily selection is deterministic across equivalent servers and keeps only 32 dates", t => {
@@ -111,7 +132,7 @@ test("daily API pins local stems, excludes hidden songs, strips sources, and ign
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
   const daily = await response.json();
-  assert.equal(daily.date, new Date().toISOString().slice(0, 10));
+  assert.equal(daily.date, dailyDate());
   assert.equal(daily.song.id, "testsong");
   assert.equal(daily.song.source, undefined);
   assert.equal(daily.audio.length, 4);
@@ -212,7 +233,7 @@ test("an admin can replace a day's Daily with a different song, never a replaced
 
 test("replacing today's Daily from the admin panel moves accounts to the new song's result", async t => {
   const dir = folder(t);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = dailyDate();
   const song = (id, era) => ({ id, title: id, display: id, era, keys: [id], mode: "filter", length: "2:30", source: { kind: "url", id: `https://audio.invalid/${id}` } });
   fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "" }));
   fs.writeFileSync(path.join(dir, "admin.json"), JSON.stringify({ password: "letmein" }));
