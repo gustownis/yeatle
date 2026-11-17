@@ -316,3 +316,76 @@ test("ADL [V1] is forced to 2024 only and does not extend into 2025", async t =>
   assert.equal(adl.start, "April 10, 2024");
   assert.equal(adl.end, "Late 2024");
 });
+
+test("balanced alias lists containing 'with' keep clean titles/aliases and merge with Luh Leakyz releases", async t => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-leakyz-"));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  const fixtures = path.join(folder, "tracker");
+  fs.mkdirSync(fixtures);
+  fs.writeFileSync(path.join(fixtures, "1617341558.csv"), [
+    "Rec. Era,Rel. Era,Name,Track Length,Release Date,Type,Link(s)",
+    `"4L","Luh Leakyz Vol. 1","X with the boot up\n(with Lyfestyle Corporation) (prod. Lukovic & YEAT)\n(Different bootup, Different boot up, X With The Bootup)","2:58","Oct 23, 2026","Mixtape Track","https://music.apple.com/us/song/x-with-the-boot-up/6825987505"`,
+    `"2 Alivë","Luh Leakyz Vol. 1","Countup [V2]\n(with Lyfestyle Corporation & Summrs) (prod. Trgc & kayyo)\n(countup, Count up, rXY30)","2:34","Oct 23, 2026","Mixtape Track","https://music.apple.com/us/song/countup/6825987512"`,
+    `"2 Alivë","2 Alivë","Summrs - Countup [V1]\n(feat. Yeat) (prod. Trgc & kayyo)\n(countup, Count up, rXY30)","2:34","Nov 29, 2021","Feature","https://pillows.su/f/0bdc48b8109728a6f40bede04fb5dd80"`,
+    `"Lyfëstyle [V1]","2093 (P3)","Timë Passed [V1]\n(prod. Synthetic)\n(Sidëwayz 2)","2:21","Feb 21, 2024","Album Track","https://pillows.su/f/bea0e903015edf41f7596f50dda16b8c"`,
+    `"Lyfëstyle [V1]","Luh Leakyz Vol. 1","Time Passëd [V2]\n(with Lyfestyle Corporation) (prod. Synthetic)\n(Timë Passed, Sidëwayz 2)","2:21","Oct 23, 2026","Mixtape Track","https://music.apple.com/us/song/time-passed/6825987381"`
+  ].join("\n"));
+  fs.writeFileSync(path.join(fixtures, "1241081326.csv"), [
+    "Era,Name,Track Length,Type,Available Length,Link(s)",
+    `"4L","Different bootup [V4]\n(prod. Lukovic & YEAT)\n(Different boot up, X with the boot up, X With The Bootup)","2:58","Demo","OG File","https://pillows.su/f/8ede53f3384bb7e367078fb53c3b3fa3"`,
+    `"ADL [V2]","Justin Bieber - YOU KNOW I CARE [V2]\n(feat. Yeat)\n(i love u i care, WITH ME)","4:14","Demo","Full","https://pillows.su/f/1178c1a1c8d339467c3a2cfd0aab7ae5"`,
+    `"2 Alivë","GO2WORK feat. Summrs)","2:40","Throwaway","Full","https://pillows.su/f/11111111111111111111111111111111"`
+  ].join("\n"));
+
+  const runtime = require("./fixtures/catalog-runtime.cjs")(folder, fixtures);
+  const releasedRows = await runtime.loadTab({ name: "Released", gid: "1617341558" });
+  const unreleasedRows = await runtime.loadTab({ name: "Unreleased", gid: "1241081326" });
+  runtime.years.set("luhleakyzvol1", 2026);
+  runtime.years.set("2alive", 2022);
+  runtime.years.set("4l", 2021);
+  runtime.setSongs(runtime.buildSongList([...releasedRows, ...unreleasedRows], []), "sheet");
+  const list = JSON.parse(runtime.songListJson()).songs;
+
+  const bootup = list.find(song => song.id === "xwiththebootup");
+  assert.ok(bootup, "Different bootup merges into X with the boot up even with with Lyfestyle Corporation");
+  assert.equal(bootup.title, "X with the boot up");
+  assert.equal(bootup.display, "X with the boot up (with Lyfestyle Corporation)");
+  assert.deepEqual(bootup.aliases, ["Different bootup"]);
+  assert.equal(bootup.tab, "Released");
+  assert.equal(bootup.era, "Luh Leakyz Vol. 1");
+  assert.equal(bootup.recordedIn, "4L");
+  assert.equal(bootup.preview, false);
+  assert.equal(bootup.poolVariants.unreleased, undefined);
+  assert.deepEqual(bootup.formerIds, ["differentbootup", "differentbootupdifferentbootupx", "xwiththebootupdifferentbootupdifferentbootupx"]);
+
+  const bieber = list.find(song => song.id === "justinbieberyouknowicare");
+  assert.equal(bieber.display, "Justin Bieber - YOU KNOW I CARE (feat. Yeat)");
+  assert.deepEqual(bieber.aliases, ["i love u i care", "WITH ME"]);
+  const go2work = list.find(song => song.id === "go2work");
+  assert.equal(go2work.display, "GO2WORK (feat. Summrs)");
+
+  const { matchesSong } = await import(pathToFileURL(path.join(root, "build/assets/snippet-rules.mjs")).href);
+  for (const guess of ["X with the boot up", "X with the boot up (with Lyfestyle Corporation)", "Different bootup", "Different boot up", "X With The Bootup"]) {
+    assert.ok(matchesSong(bootup, guess), `bootup accepts "${guess}"`);
+  }
+  const timePassed = list.find(song => song.id === "timepassed");
+  assert.ok(matchesSong(timePassed, "Time Passëd (with Lyfestyle Corporation)"));
+
+  const countup = list.find(song => song.id === "countup");
+  const summrsCountup = list.find(song => song.id === "summrscountup");
+  assert.ok(matchesSong(countup, summrsCountup.display));
+  assert.ok(matchesSong(summrsCountup, countup.display));
+  assert.ok(matchesSong(summrsCountup, "Countup"));
+
+  const { songsForPool } = await import(pathToFileURL(path.join(root, "build/assets/song-pools.mjs")).href);
+  const poolCountup = songsForPool(list, "all").filter(song => song.answerId === "countup");
+  assert.equal(poolCountup.length, 1);
+  assert.equal(poolCountup[0].eraDisplay, "2 Alivë / Luh Leakyz Vol. 1");
+
+  assert.deepEqual(await suggestionsFor(t, list, "Different boot"), [
+    ["X with the boot up (with Lyfestyle Corporation)", "also Different bootup", "Luh Leakyz Vol. 1 · 2026"]
+  ]);
+  assert.deepEqual(await suggestionsFor(t, list, "Summrs - Count"), [
+    ["Countup (with Lyfestyle Corporation & Summrs)", "also rXY30", "2 Alivë / Luh Leakyz Vol. 1 · 2026"]
+  ]);
+});

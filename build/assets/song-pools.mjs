@@ -36,7 +36,9 @@ export function songsForPool(songs, pool = "all") {
     if (!held) {
       unique.set(key, song);
     } else {
-      const eraDisplay = held.eraDisplay || song.eraDisplay || (held.era && song.era && held.era !== song.era ? `${held.era} / ${song.era}` : "");
+      const eraDisplay = held.eraDisplay || song.eraDisplay || (held.era && song.era && held.era !== song.era
+        ? ((song.eraYear && held.eraYear && song.eraYear < held.eraYear) ? `${song.era} / ${held.era}` : `${held.era} / ${song.era}`)
+        : "");
       const chosen = (song.mode === "stems" && held.mode !== "stems") || (song.id === key && held.id !== key && held.mode !== "stems") ? song : held;
       unique.set(key, eraDisplay && !chosen.eraDisplay ? { ...chosen, eraDisplay } : chosen);
     }

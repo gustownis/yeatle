@@ -118,5 +118,7 @@
   {"id": "krank", "title": "Krank", "display": "Krank (Chains)", "era": "Lyfë", "tab": "Released", "keys": [], "features": []},
   {"id": "krank@edit-e5a02f262fbf", "title": "Krank", "display": "Krank", "era": "Lyfë", "tab": "Released", "keys": ["krank", "geeklikekrank", "geeklikecrank"], "features": []},
   {"id": "lilyachtystill", "title": "Lil Yachty - Still", "display": "Lil Yachty - Still (feat. YEAT)", "era": "Trëndi", "tab": "Unreleased", "keys": ["lilyachtystill", "still", "lilyachtystillfeatyeat", "ifidie", "lilyachtyifidie"], "features": ["feat. YEAT"]},
-  {"id": "lilyachtystill@2alive", "title": "Lil Yachty - Still", "display": "Lil Yachty - Still (feat. Yeat)", "era": "2 Alivë", "tab": "Unreleased", "keys": ["lilyachtystill", "still", "lilyachtystillfeatyeat", "ifidie", "lilyachtyifidie"], "features": ["feat. Yeat"]}
+  {"id": "lilyachtystill@2alive", "title": "Lil Yachty - Still", "display": "Lil Yachty - Still (feat. Yeat)", "era": "2 Alivë", "tab": "Unreleased", "keys": ["lilyachtystill", "still", "lilyachtystillfeatyeat", "ifidie", "lilyachtyifidie"], "features": ["feat. Yeat"]},
+  {"id": "countup", "title": "Countup", "display": "Countup (with Lyfestyle Corporation & Summrs)", "era": "Luh Leakyz Vol. 1", "tab": "Released", "keys": ["countup", "countupwithlyfestylecorporationandsummrs", "rxy30"], "features": ["with Lyfestyle Corporation & Summrs"]},
+  {"id": "summrscountup", "title": "Summrs - Countup", "display": "Summrs - Countup (feat. Yeat)", "era": "2 Alivë", "tab": "Released", "keys": ["summrscountup", "countup", "summrscountupfeatyeat", "rxy30", "summrsrxy30"], "features": ["feat. Yeat"]}
 ]

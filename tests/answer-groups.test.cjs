@@ -111,4 +111,9 @@ test("same recordings share one answer and their progress; open verses stay sepa
   assert.equal(still[0].display, "Lil Yachty - Still (feat. Yeat)");
   assert.equal(still[0].eraDisplay, "Trëndi / 2 Alivë");
   assert.equal(still[1].eraDisplay, "Trëndi / 2 Alivë");
+  const countup = ["countup", "summrscountup"].map(id => applyCatalogMetadata(byId.get(id)));
+  assert.equal(countup[0].answerId, "countup");
+  assert.equal(countup[1].answerId, "countup");
+  assert.deepEqual(countup[0].equivalentIds, ["summrscountup"]);
+  assert.deepEqual(countup[1].equivalentIds, ["countup"]);
 });

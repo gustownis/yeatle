@@ -74,7 +74,7 @@ no such label.
 
 At the maintainer's request (2026-11-01), open-verse demos and the features they became answer for each other, and so do songs listed under both Yeat's and a collaborator's name or as an earlier and later version. These are listed in `answerGroups` in `data/catalog-metadata.json`. A guess naming any member of a group, including its exact dropdown name such as "Yung Bans - Yea Yea (feat. Yeat)" for the Yea! demo, is right for every member. Each member stays its own recording with its own credits, status, audio, eligibility and progress; the link adds answer names only, so excluded recordings such as Fleek V2 stay out of rounds. The Popout open verse and KillBunk's Pop Out are linked this way; the unrelated Popout snippets are not.
 
-`sameRecordings` lists one recording that appears in more than one entry, such as two tracker rows that link the same pillows.su file. These share an `answerId` (one entry in pools and suggestions) and `equivalentIds` (shared progress) as well as their names. The released Krank and its Lyfë OG file row are listed this way; the separate 2 Alivë Chains demo is hidden.
+`sameRecordings` lists one recording that appears in more than one entry, such as two tracker rows that link the same pillows.su file or an earlier release reissued on a later compilation. These share an `answerId` (one entry in pools and suggestions) and `equivalentIds` (shared progress) as well as their names. The released Krank and its Lyfë OG file row are listed this way (the separate 2 Alivë Chains demo is hidden), and so are Countup (Luh Leakyz Vol. 1) and Summrs - Countup (feat. Yeat) (2 Alivë).
 
 ## Pre-masters and OG files for released tracks
 

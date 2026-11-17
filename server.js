@@ -49,7 +49,7 @@ const CURATION_DIR = process.env.YEATLE_DATA_DIR ? DATA_DIR : path.join(ROOT, "d
 const STEMS_DIR = process.env.YEATLE_STEMS_DIR ? path.resolve(process.env.YEATLE_STEMS_DIR) : process.env.YEATLE_DATA_DIR ? path.join(DATA_DIR, "Songs") : path.join(WEB_DIR, "Songs");
 const CACHE_FILE = path.join(DATA_DIR, "songs-cache.json");
 // Bump when saved song metadata changes meaning, so older saved lists are corrected on load.
-const SONG_CACHE_FORMAT = 4;
+const SONG_CACHE_FORMAT = 5;
 const PREVIEW_CACHE_FILE = path.join(DATA_DIR, "preview-cache.json");
 const dailyChallenge = createDailyChallenges(path.join(DATA_DIR, "daily-challenges.json"));
 try {
@@ -584,8 +584,15 @@ function parseNameCell(cell) {
   // ⭐ ✨ 🏆 mark Best Of / Special / Grails on the sheet
   text = text.replace(/^[^\p{L}\p{N}#$!.(]+/u, "").trim();
 
-  // a folder name like "GO2WORK feat. Summrs)" lost its opening bracket
-  text = text.replace(/\s+((?:feat|ft|with)\.?\s[^()]*)\)\s*$/i, " ($1)");
+  // a folder name like "GO2WORK feat. Summrs)" lost its opening bracket; only repair an unmatched trailing ")"
+  text = text.replace(/\s+((?:feat|ft|with)\.?\s[^()]*)\)\s*$/i, (whole, inner, offset) => {
+    let depth = 0;
+    for (let i = 0; i < offset; i++) {
+      if (text[i] === "(") depth++;
+      else if (text[i] === ")" && depth > 0) depth--;
+    }
+    return depth === 0 ? ` (${inner})` : whole;
+  });
 
   const groups = [];
   let title = text.replace(/\(([^()]*)\)/g, (whole, inner) => {
@@ -931,9 +938,6 @@ function isThrowaway(row) {
 }
 
 
-// "feat. Lil Uzi Vert" and "with Lil Uzi Vert" name the same guest.
-const guestKey = features => (features || []).map(f => norm(String(f).replace(/^(feat|ft|with)\b\.?\s*/i, ""))).filter(Boolean).sort().join("+");
-
 // Exact, normalised names only (accents, case and punctuation): no prefix or
 // trailing-letter matching. Both entries must name each other, share an era, have
 // the same guests, and agree in length within 3 seconds. The tracker also lists
@@ -947,7 +951,7 @@ function aliasMatch(row, titleKey, rowEras, groupsByAlias) {
   const display = row.features.length ? `${row.title} (${row.features[0]})` : row.title;
   if ([row.era, row.releasedOn].some(era => era && HIDDEN_KEYS.has(`${norm(display)}|${norm(era)}`))) return null;
   const rowAliases = new Set(row.aliases.map(norm).filter(Boolean));
-  const guests = guestKey(row.features), released = row.tab === "Released";
+  const guests = guestFeatureKey(row.features), released = row.tab === "Released";
   const candidates = (groupsByAlias.get(titleKey) || []).filter(group =>
     rowEras.some(e => group.eras.has(e)) && [...group.titles].some(title => rowAliases.has(title)) &&
     group.guests === guests && !(released && group.released) && group.lengths.some(other => Math.abs(other - seconds) <= 3));
@@ -1018,7 +1022,7 @@ function buildSongList(sheetRows, stemFolders) {
         // the first group keeps the plain id, so saved renames / hidden songs still line up
         let id = groups.length ? `${titleKey}@${recKey || relKey || "other"}` : titleKey;
         for (let n = 2; byKey.has(id) || groups.some(g => g.id === id); n++) id = `${titleKey}@${recKey || relKey || "other"}-${n}`;
-        group = { id, eras: new Set(), titles: new Set(), lengths: [], guests: guestKey(row.features), formerIds: new Set() };
+        group = { id, eras: new Set(), titles: new Set(), lengths: [], guests: guestFeatureKey(row.features), formerIds: new Set() };
         allGroups.push(group);
         groups.push(group);
         groupsByTitle.set(titleKey, groups);
@@ -1219,7 +1223,26 @@ function buildSongList(sheetRows, stemFolders) {
       entry.poolVariants = forPool;
       entry.sourceVariants = sources;
     }
-    songs.push(reconcileCatalogEligibility(applyCatalogMetadata(entry), SOURCE_RANK));
+    const built = reconcileCatalogEligibility(applyCatalogMetadata(entry), SOURCE_RANK);
+    if (built.sourceVariants?.length > 1) {
+      const hasYeatFeat = item => /\b(?:feat\.?|ft\.?|with)\s+yeat\b/i.test((item.features || []).join(" "));
+      const primaryGuests = guestFeatureKey(built.features);
+      const primaryYeatFeat = hasYeatFeat(built);
+      const mergedKeys = new Set(built.keys || []);
+      for (const variant of built.sourceVariants) {
+        if (isGuessingEligible(variant) && guestFeatureKey(variant.features) === primaryGuests && hasYeatFeat(variant) === primaryYeatFeat) {
+          for (const k of guessKeys(variant)) mergedKeys.add(k);
+        }
+      }
+      const keys = [...mergedKeys];
+      built.keys = keys;
+      if (built.poolVariants) {
+        for (const pool of Object.keys(built.poolVariants)) {
+          built.poolVariants[pool] = { ...built.poolVariants[pool], keys };
+        }
+      }
+    }
+    songs.push(built);
   });
 
   songs.sort((a, b) => a.title.localeCompare(b.title));
@@ -1252,7 +1275,7 @@ function upgradeCachedSongs(cached) {
       const era = upgraded.recordedIn, info = eras.get(era);
       upgraded = { ...upgraded, era, recordedIn: "", eraYear: (info && info.year) || null, cover: (info && info.cover) || coverForEra(era) || upgraded.cover };
     }
-    return cached.format < 4 ? reconcileCatalogEligibility(applyCatalogMetadata(upgraded), SOURCE_RANK) : upgraded;
+    return cached.format < SONG_CACHE_FORMAT ? reconcileCatalogEligibility(applyCatalogMetadata(upgraded), SOURCE_RANK) : upgraded;
   });
 }
 

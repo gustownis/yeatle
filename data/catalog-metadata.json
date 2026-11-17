@@ -219,7 +219,7 @@
     },
     {
       "title": "Justin Bieber - YOU KNOW I CARE",
-      "titleKey": "justinbieberyouknowicareiloveuicare",
+      "titleKey": "justinbieberyouknowicare",
       "tab": "Unreleased",
       "versions": ["V1"],
       "sources": [{"kind":"pillows","id":"a005d762d26d239c286561648af20633"}]
@@ -492,7 +492,8 @@
     },
     {"match": {"id": "krank", "tab": "Released"}, "set": {"display": "Krank"}, "basis": "The released Krank showed as \"Krank (Chains)\", the name of the separate 2 Alivë demo."},
     {"match": {"id": "lilyachtystill"}, "set": {"display": "Lil Yachty - Still (feat. Yeat)", "eraDisplay": "Trëndi / 2 Alivë", "recordedIn": "Trëndi"}, "basis": "Yeat recorded his verse in the Trëndi era (V2); the 2 Alivë entry (V3) is a louder bounce of the same recording."},
-    {"match": {"id": "lilyachtystill@2alive"}, "set": {"display": "Lil Yachty - Still (feat. Yeat)", "eraDisplay": "Trëndi / 2 Alivë", "recordedIn": "Trëndi"}, "basis": "Yeat recorded his verse in the Trëndi era (V2); the 2 Alivë entry (V3) is a louder bounce of the same recording."}
+    {"match": {"id": "lilyachtystill@2alive"}, "set": {"display": "Lil Yachty - Still (feat. Yeat)", "eraDisplay": "Trëndi / 2 Alivë", "recordedIn": "Trëndi"}, "basis": "Yeat recorded his verse in the Trëndi era (V2); the 2 Alivë entry (V3) is a louder bounce of the same recording."},
+    {"match": {"id": "xwiththebootup"}, "set": {"formerIds": ["differentbootup", "differentbootupdifferentbootupx", "xwiththebootupdifferentbootupdifferentbootupx"]}, "basis": "Different bootup [V4] (4L, pillows 8ede53f3384bb7e367078fb53c3b3fa3) is the OG file for X with the boot up (Luh Leakyz Vol. 1). Preserve the clean and prior mangled ids for saved progress and links."}
   ],
   "answerGroups": [
     {"ids": ["yea", "yungbansyeax2", "yungbansyeayea"], "kind": "open-verse", "basis": "Open-verse demo and the released feature or features built on it. They are different recordings, so each stays its own round, but the names answer for each other. Maintainer list, 2026-11-01."},
@@ -552,7 +553,8 @@
     {"ids": ["jealousy", "jelousy"], "answerId": "jealousy", "basis": "Both tracker rows link the same pillows.su file 7502c7639f21be8ad2bd5406e1ab9cc8. Preserve both ids."},
     {"ids": ["krank", "krank@edit-e5a02f262fbf"], "answerId": "krank", "basis": "The released Krank (EP track row, 2:55) and its Lyfë OG file row (V2, 2:55) are one song listed twice. The 2 Alivë Chains demo (krank@split-62aa8ddeb922) is a different recording and is hidden."},
     {"ids": ["lilyachtystill@2alive", "lilyachtystill"], "answerId": "lilyachtystill@2alive", "basis": "Still V2 (Trëndi, pillows 2011235d05ff51904777bd62da361be8) and V3 (2 Alivë, pillows bbb021f87d5e3bec85452012b4ce8f68) are the same 2:06 recording featuring Yeat; tracker notes V3 is a louder bounce of V2 dated Oct 20, 2021. Preserve both ids."},
-    {"ids": ["dontolivergeeked", "dontolivergeekedup"], "answerId": "dontolivergeekedup", "basis": "The unreleased Geeked (V3 master on pillows 0e66b50103fb8371257161e9485935c8, 2:38) and released GEEKED UP are the same recording. Both tracker rows share one answer and progress."}
+    {"ids": ["dontolivergeeked", "dontolivergeekedup"], "answerId": "dontolivergeekedup", "basis": "The unreleased Geeked (V3 master on pillows 0e66b50103fb8371257161e9485935c8, 2:38) and released GEEKED UP are the same recording. Both tracker rows share one answer and progress."},
+    {"ids": ["countup", "summrscountup"], "answerId": "countup", "basis": "Released Countup (Luh Leakyz Vol. 1, pre-master pillows 0bdc48b8109728a6f40bede04fb5dd80, 2:34) and released Summrs - Countup (feat. Yeat) (2 Alivë, pillows 0bdc48b8109728a6f40bede04fb5dd80, 2:34) are the same recording. Preserve both ids and share one answer and progress."}
   ],
   "premasters": [
     {"id": "yungkayoyeet", "source": {"kind": "pillows", "id": "d752a7e8092a4f412d000a8635ba8a4c"}, "basis": "OG pre-master file leaked as Yung Kayo - fleek [V2] on pillows d752a7e8092a4f412d000a8635ba8a4c (2:38, CD Quality) replaces 30s Apple preview for released Yung Kayo - YEET (feat. Yeat)."},
