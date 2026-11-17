@@ -312,15 +312,15 @@ function hourLabel(h) {
 }
 
 const PERSONAS = [
-  { key: "sniper", name: "The 0.1s Sniper", line: "You name songs off a blink. First-try solves were your whole year.", test: s => s.firstTry >= 10 && s.firstTry / Math.max(1, s.solved) >= 0.3 },
-  { key: "daily", name: "Daily Devotee", line: "The Daily was part of your routine. Same song as everyone, and you kept showing up.", test: s => s.daily.played >= 20 && s.daily.played * 4 >= s.rounds },
-  { key: "booth", name: "Booth Certified", line: "You didn't just guess the songs, you sang them.", test: s => s.karaoke.runs >= 8 },
-  { key: "extreme", name: "Extreme Menace", line: "Three tries, half a second, no hints. You kept choosing violence.", test: s => s.extreme >= 15 },
-  { key: "loyalist", name: s => `${s.topEras[0].name} Loyalist`, line: "One era kept coming back to you more than any other.", test: s => s.topEras[0] && s.solved >= 20 && s.topEras[0].count / s.solved >= 0.3 },
-  { key: "night", name: "3AM Guesser", line: "Most of your guessing happened when you should have been asleep.", test: s => s.logged >= 20 && s.nightShare >= 0.3 },
-  { key: "stems", name: "Stem Surgeon", line: "Drums first, then the rest. You took songs apart piece by piece.", test: s => s.modes.stems.p >= 20 && s.modes.stems.p >= s.rounds * 0.6 },
-  { key: "grinder", name: "The Grinder", line: "Hundreds of rounds. You treated Yeatle like a second job.", test: s => s.rounds >= 400 },
-  { key: "head", name: "Certified Yeatle Head", line: "Stems, Snippets, the Daily: you were everywhere.", test: () => true }
+  { key: "sniper", name: "Sniper", line: "A lot of your solves came on the very first try.", test: s => s.firstTry >= 10 && s.firstTry / Math.max(1, s.solved) >= 0.3 },
+  { key: "daily", name: "Regular", line: "You played the Daily more than almost anything else.", test: s => s.daily.played >= 20 && s.daily.played * 4 >= s.rounds },
+  { key: "booth", name: "Vocalist", line: "You spent a lot of the year singing in Karaoke.", test: s => s.karaoke.runs >= 8 },
+  { key: "extreme", name: "Hardcore", line: "You played a lot of Snippets on Extreme.", test: s => s.extreme >= 15 },
+  { key: "loyalist", name: s => `${s.topEras[0].name} Fan`, line: "Most of the songs you solved came from one era.", test: s => s.topEras[0] && s.solved >= 20 && s.topEras[0].count / s.solved >= 0.3 },
+  { key: "night", name: "Night Owl", line: "Most of your rounds were played late at night.", test: s => s.logged >= 20 && s.nightShare >= 0.3 },
+  { key: "stems", name: "Producer", line: "Most of your rounds were in Stems.", test: s => s.modes.stems.p >= 20 && s.modes.stems.p >= s.rounds * 0.6 },
+  { key: "grinder", name: "Grinder", line: "You played hundreds of rounds this year.", test: s => s.rounds >= 400 },
+  { key: "head", name: "All-Rounder", line: "You played a bit of everything.", test: () => true }
 ];
 
 function summarize(year, now = new Date()) {
