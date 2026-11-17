@@ -1,0 +1,195 @@
+/* Yeatle Wrapped: the yearly pop-up, its corner button and the recap window. */
+
+.yeatle-wrapped-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 4500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  animation: yeatle-wrapped-fade 0.25s ease-out both;
+}
+.yeatle-wrapped-overlay.soft { background: rgba(0, 0, 0, 0.6); }
+.yeatle-wrapped-overlay .btn {
+  padding: 10px 16px;
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+.yeatle-wrapped-overlay .btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
+.yeatle-wrapped-overlay .btn.solid { background: #fff; color: #000; border-color: #fff; font-weight: 600; }
+.yeatle-wrapped-overlay .btn.solid:hover:not(:disabled) { background: #dcdcdc; }
+.yeatle-wrapped-overlay .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.yeatle-wrapped-overlay .muted { color: rgba(255, 255, 255, 0.62); font-size: 0.85rem; }
+
+/* The one-time announcement. */
+.yeatle-wrapped-popup {
+  width: min(400px, 100%);
+  padding: 26px 24px 20px;
+  text-align: center;
+  background: linear-gradient(160deg, #1b0026 0%, #000 70%);
+  border: 1px solid rgba(181, 101, 224, 0.45);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.7), 0 0 40px rgba(137, 1, 185, 0.25);
+  animation: yeatle-wrapped-pop 0.35s cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+.yeatle-wrapped-popup h2 { margin: 6px 0 8px; font-size: 1.35rem; line-height: 1.2; }
+.yeatle-wrapped-popup p { margin: 0 0 10px; line-height: 1.45; }
+.yeatle-wrapped-popup-logo { display: block; width: 170px; height: auto; margin: 0 auto 2px; mix-blend-mode: screen; }
+.yeatle-wrapped-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
+
+/* The corner button. */
+.yeatle-wrapped-chip {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  background: linear-gradient(120deg, #8901b9, #4b0066);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55), 0 0 18px rgba(137, 1, 185, 0.35);
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  font-size: 0.85rem;
+  animation: yeatle-wrapped-pop 0.4s cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+.yeatle-wrapped-chip button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+.yeatle-wrapped-chip-open { display: flex; align-items: center; gap: 7px; padding: 8px 4px 8px 13px; font-weight: 600; line-height: 1.3; }
+.yeatle-wrapped-chip .icon { width: 18px; height: 18px; border-radius: 4px; }
+.yeatle-wrapped-chip-shrink { padding: 6px 11px 6px 6px; opacity: 0.7; font-size: 1rem; line-height: 1; }
+.yeatle-wrapped-chip-shrink:hover { opacity: 1; }
+.yeatle-wrapped-chip.small .label,
+.yeatle-wrapped-chip.small .yeatle-wrapped-chip-shrink { display: none; }
+.yeatle-wrapped-chip.small .yeatle-wrapped-chip-open { padding: 9px; }
+.yeatle-wrapped-chip.small .icon { width: 22px; height: 22px; }
+.yeatle-wrapped-chip:hover { border-color: rgba(255, 255, 255, 0.55); }
+
+/* The recap window. */
+.yeatle-wrapped-card {
+  position: relative;
+  width: min(420px, 100%);
+  height: min(740px, calc(100dvh - 32px));
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  background: #000;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 50px rgba(137, 1, 185, 0.25);
+  animation: yeatle-wrapped-pop 0.35s cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+.yeatle-wrapped-bars-top { position: absolute; top: 10px; left: 12px; right: 48px; z-index: 3; display: flex; gap: 4px; }
+.yeatle-wrapped-bars-top span { flex: 1; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.25); transition: background 0.2s ease; }
+.yeatle-wrapped-bars-top span.done { background: #fff; }
+.yeatle-wrapped-close {
+  position: absolute; top: 2px; right: 6px; z-index: 4;
+  width: 38px; height: 38px; padding: 0;
+  background: none; border: none; color: #fff; font-size: 1.7rem; line-height: 1; cursor: pointer; opacity: 0.85;
+}
+.yeatle-wrapped-close:hover { opacity: 1; }
+.yeatle-wrapped-nav {
+  position: absolute; bottom: 12px; z-index: 3;
+  width: 40px; height: 40px; padding: 0;
+  background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 50%;
+  color: #fff; font-size: 1.5rem; line-height: 1; cursor: pointer;
+}
+.yeatle-wrapped-nav.prev { left: 12px; }
+.yeatle-wrapped-nav.next { right: 12px; }
+.yeatle-wrapped-nav:disabled { opacity: 0.25; cursor: default; }
+.yeatle-wrapped-stage { position: absolute; inset: 0; cursor: pointer; user-select: none; -webkit-user-select: none; }
+
+.yeatle-wrapped-slide {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; justify-content: center; gap: 10px;
+  padding: 44px 26px 64px;
+  overflow-y: auto;
+  opacity: 0; visibility: hidden;
+  transform: translateY(14px);
+  transition: opacity 0.3s ease, transform 0.4s cubic-bezier(0.19, 1, 0.22, 1), visibility 0.3s;
+}
+.yeatle-wrapped-slide.on { opacity: 1; visibility: visible; transform: none; }
+.yeatle-wrapped-slide h2, .yeatle-wrapped-slide h3, .yeatle-wrapped-slide p { margin: 0; }
+.t-intro { background: radial-gradient(circle at 80% 15%, rgba(214, 120, 255, 0.45), transparent 55%), linear-gradient(165deg, #14001d, #5a0079 60%, #8901b9); text-align: center; align-items: center; }
+.t-numbers { background: linear-gradient(170deg, #000 10%, #3c0052 70%, #8901b9); }
+.t-eras { background: linear-gradient(190deg, #1c0228, #000 75%); }
+.t-songs { background: linear-gradient(160deg, #0b1a10, #000 55%, #24002f); gap: 22px; }
+.t-modes { background: linear-gradient(180deg, #000, #2b003b 80%); }
+.t-daily { background: radial-gradient(circle at 20% 85%, rgba(255, 140, 40, 0.28), transparent 55%), linear-gradient(170deg, #1a0d00, #000 70%); }
+.t-karaoke { background: radial-gradient(circle at 75% 20%, rgba(255, 70, 160, 0.35), transparent 55%), linear-gradient(170deg, #000, #3a0030); }
+.t-time { background: linear-gradient(200deg, #00121f, #000 60%, #1d0029); }
+.t-compare { background: linear-gradient(165deg, #3c0052, #000 70%); }
+.t-persona { background: radial-gradient(circle at 50% 30%, rgba(214, 120, 255, 0.5), transparent 60%), linear-gradient(180deg, #2d003e, #8901b9); text-align: center; align-items: center; }
+.t-share { background: linear-gradient(180deg, #14001d, #000 80%); cursor: default; user-select: text; -webkit-user-select: text; }
+
+.yeatle-wrapped-logo { width: min(260px, 80%); height: auto; mix-blend-mode: screen; }
+.yeatle-wrapped-kicker { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #e1b6ff; }
+.yeatle-wrapped-year { font-size: 2.6rem; line-height: 1.05; font-weight: 800; }
+.yeatle-wrapped-sub { color: rgba(255, 255, 255, 0.75); max-width: 30ch; }
+.yeatle-wrapped-badge { margin-top: 8px !important; padding: 5px 12px 6px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 999px; font-size: 0.85rem; line-height: 1.3; }
+.yeatle-wrapped-big b { display: block; font-size: 4rem; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
+.yeatle-wrapped-big span { color: rgba(255, 255, 255, 0.75); font-size: 1.05rem; }
+.yeatle-wrapped-line { font-size: 1.1rem; line-height: 1.4; color: rgba(255, 255, 255, 0.9); }
+.yeatle-wrapped-headline { font-size: 1.7rem; line-height: 1.15; font-weight: 800; }
+.yeatle-wrapped-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.yeatle-wrapped-row span { padding: 5px 11px 6px; background: rgba(255, 255, 255, 0.1); border-radius: 999px; font-size: 0.85rem; line-height: 1.3; }
+
+.yeatle-wrapped-top-era { display: flex; align-items: center; gap: 16px; margin: 4px 0 6px; }
+.yeatle-wrapped-top-era h3 { font-size: 1.6rem; line-height: 1.15; }
+.yeatle-wrapped-rank { color: #e1b6ff; font-weight: 800; }
+.yeatle-wrapped-cover { width: 44px; height: 44px; flex-shrink: 0; object-fit: cover; border-radius: 5px; background: #222; }
+.yeatle-wrapped-cover.lead { width: 132px; height: 132px; border-radius: 8px; box-shadow: 0 10px 30px rgba(137, 1, 185, 0.4); }
+.yeatle-wrapped-cover.missing { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #3c0052, #14001d); color: #e1b6ff; font-size: 1.3rem; font-weight: 800; }
+.yeatle-wrapped-cover.lead.missing { font-size: 3.6rem; }
+.yeatle-wrapped-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.yeatle-wrapped-list li { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.yeatle-wrapped-list .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; line-height: 1.3; padding-bottom: 2px; }
+.yeatle-wrapped-list .count { flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255, 255, 255, 0.6); font-size: 0.85rem; line-height: 1.3; padding-bottom: 2px; }
+.yeatle-wrapped-list .num { width: 1.2em; flex-shrink: 0; color: #e1b6ff; font-weight: 800; text-align: right; }
+.yeatle-wrapped-list.plain li { padding: 8px 12px; background: rgba(255, 255, 255, 0.07); border-radius: 8px; }
+.yeatle-wrapped-nemesis { padding: 14px; border: 1px solid rgba(229, 50, 45, 0.5); border-radius: 10px; background: rgba(229, 50, 45, 0.1); }
+.yeatle-wrapped-nemesis h3 { margin: 4px 0 !important; font-size: 1.35rem; }
+.yeatle-wrapped-nemesis .yeatle-wrapped-kicker { color: #ff8a80; }
+
+.yeatle-wrapped-bars { display: grid; gap: 12px; margin-top: 12px; }
+.yeatle-wrapped-bars .bar { display: grid; grid-template-columns: 76px 1fr auto; align-items: center; gap: 10px; }
+.yeatle-wrapped-bars .label { font-weight: 600; font-size: 0.9rem; }
+.yeatle-wrapped-bars .fill { height: 14px; width: var(--w); border-radius: 7px; background: linear-gradient(90deg, #8901b9, #d678ff); }
+.yeatle-wrapped-bars .n { font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, 0.75); font-size: 0.85rem; }
+
+.yeatle-wrapped-compare { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.yeatle-wrapped-compare li { padding: 9px 12px; background: rgba(255, 255, 255, 0.08); border-radius: 8px; line-height: 1.35; }
+.yeatle-wrapped-persona { font-size: 2.3rem; line-height: 1.1; font-weight: 800; }
+
+.yeatle-wrapped-preview {
+  margin: 0; padding: 14px;
+  background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px;
+  font: 0.95rem/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  white-space: pre-wrap; word-break: break-word; cursor: text;
+}
+.t-share .yeatle-wrapped-actions { justify-content: flex-start; margin-top: 4px; }
+.yeatle-wrapped-status { min-height: 1.4em; font-size: 0.9rem; color: #e1b6ff; }
+
+@keyframes yeatle-wrapped-fade { from { opacity: 0; } }
+@keyframes yeatle-wrapped-pop { from { opacity: 0; transform: scale(0.96) translateY(8px); } }
+
+@media (max-width: 560px) {
+  .yeatle-wrapped-overlay { padding: 0; }
+  .yeatle-wrapped-overlay.soft { padding: 16px; }
+  .yeatle-wrapped-card { width: 100%; height: 100dvh; border: none; border-radius: 0; }
+  .yeatle-wrapped-slide { padding-top: max(44px, calc(env(safe-area-inset-top) + 34px)); padding-bottom: max(64px, calc(env(safe-area-inset-bottom) + 60px)); }
+  .yeatle-wrapped-bars-top { top: max(10px, env(safe-area-inset-top)); }
+  .yeatle-wrapped-close { top: max(2px, calc(env(safe-area-inset-top) - 8px)); }
+  .yeatle-wrapped-nav { bottom: max(12px, env(safe-area-inset-bottom)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yeatle-wrapped-overlay, .yeatle-wrapped-popup, .yeatle-wrapped-card, .yeatle-wrapped-chip { animation: none; }
+  .yeatle-wrapped-slide { transition: none; transform: none; }
+}

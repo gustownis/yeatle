@@ -1123,7 +1123,14 @@ function initLeaderboardUI() {
   // Write to the storage that was called: sessionStorage shares this prototype, and
   // sending its writes to localStorage lost the game's saved song list between pages.
   Storage.prototype.setItem = function (key, value) {
+    // Stems and Snippets rounds are announced as they're saved, so Wrapped (wrapped.mjs)
+    // can note each finished round without patching anything else.
+    const roundKey = this === localStorage && typeof key === "string" && key.startsWith("yeatle:round:");
+    const before = roundKey ? this.getItem(key) : null;
     originalSetItem.call(this, key, value);
+    if (roundKey) {
+      try { window.dispatchEvent(new CustomEvent("yeatle:round-saved", { detail: { key, before, value: String(value) } })); } catch { /* Wrapped is optional */ }
+    }
     if (this === localStorage && typeof key === "string" && (key.startsWith("yeatle:completed") || key.startsWith("yeatle:stats") || key === "yeatle:prestige" || key.startsWith("yeatle:daily:") || key.startsWith("yeatle-karaoke-best:"))) {
       renderTriggerButton();
       if (accountState?.token && !bannedShown) {

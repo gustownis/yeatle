@@ -101,6 +101,14 @@ function save() {
   try { localStorage.setItem(storageKey, JSON.stringify(round)); }
   catch { storageAvailable = false; notice("Browser storage is unavailable. Keep this tab open to retain today's progress."); }
 }
+// Tells Wrapped (wrapped.mjs) which song a finished Daily was, since the saved round
+// doesn't name it. Only sent once the round is over and the song is known.
+function noteFinished() {
+  if (!challenge?.song || !round || round.status === "playing") return;
+  try {
+    dispatchEvent(new CustomEvent("yeatle:wrapped-record", { detail: { kind: "daily", date: challenge.date, status: round.status, tries: round.attempts.length, song: challenge.song } }));
+  } catch { /* Wrapped is optional */ }
+}
 function level() { return Math.min(round.attempts.length, BASE_LENGTHS.length - 1); }
 function render() {
   if (!challenge) return;
@@ -282,6 +290,7 @@ function applyServerRound(result) {
   };
   if (result.song) challenge.song = result.song;
   save();
+  noteFinished();
 }
 
 async function checkedAttempt(text, skip) {
@@ -323,6 +332,7 @@ function attempt(text, skip = false) {
   round.attempts.push({ kind: correct ? "right" : skip ? "skip" : "wrong", text: skip ? "" : text });
   round.status = correct ? "won" : round.attempts.length === BASE_LENGTHS.length ? "lost" : "playing";
   save();
+  noteFinished();
   $("#guess").value = "";
   suggestions.close();
   render();
@@ -361,6 +371,7 @@ async function loadChallenge() {
     $("#game").hidden = false;
     notice(round.status === "playing" ? "Tap Play to load today's song." : "Today's result is saved. Share it or keep playing Snippets.");
     render();
+    noteFinished();
     // Suggestions are optional; the pinned answer remains guessable after a tracker edit.
     // A checked Daily has no song to add: it would give the answer away.
     const pinned = body.checked ? [] : [body.song];

@@ -2458,6 +2458,13 @@ function showResults() {
     );
   });
   if (newBest) store.set(key, newBest);
+  // Wrapped (wrapped.mjs) keeps this year's Karaoke runs: the best score sung into a mic.
+  const sung = game.players.filter(p => p.detector).sort((a, b) => b.score - a.score)[0];
+  if (sung && sung.score > 0) {
+    try {
+      dispatchEvent(new CustomEvent("yeatle:wrapped-record", { detail: { kind: "karaoke", song: game.song, score: sung.score, accuracy: sung.durSum ? sung.accSum / sung.durSum : 0 } }));
+    } catch { /* Wrapped is optional */ }
+  }
   $("#results-title").textContent = game.song.display;
   $("#results-sub").textContent = `${DIFFICULTIES[game.difficulty].label}${game.whiteMode ? " · White people mode" : ""}${newBest ? ` · New best: ${newBest.score.toLocaleString()} by ${newBest.name}` : previous ? ` · Best: ${previous.score.toLocaleString()} by ${previous.name}` : ""}`;
   $("#results-cards").replaceChildren(...cards);
