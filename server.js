@@ -2174,7 +2174,8 @@ function serveStatic(req, res, pathname, { noStore = false, searchParams = null 
         "Content-Type": type, "Accept-Ranges": "bytes",
         "Content-Range": `bytes ${start}-${end}/${stat.size}`, "Content-Length": end - start + 1
       });
-      fs.createReadStream(file, { start, end }).pipe(res);
+      // pipeline closes the file when the player hangs up partway; .pipe() left it open.
+      pipeline(fs.createReadStream(file, { start, end }), res).catch(() => res.destroy());
       return;
     }
 
@@ -2220,7 +2221,7 @@ function serveStatic(req, res, pathname, { noStore = false, searchParams = null 
       "Content-Type": type, "Content-Length": stat.size, "Accept-Ranges": "bytes"
     });
     if (req.method === "HEAD") { res.end(); return; }
-    fs.createReadStream(file).pipe(res);
+    pipeline(fs.createReadStream(file), res).catch(() => res.destroy());
   });
 }
 
@@ -2312,7 +2313,7 @@ async function serveModel(req, res, stem) {
     if (isNotModified(req.headers, headers.ETag, stat.mtimeMs)) { res.writeHead(304, headers); res.end(); return; }
     res.writeHead(200, { ...headers, "Content-Type": "application/octet-stream", "Content-Length": stat.size });
     if (req.method === "HEAD") { res.end(); return; }
-    fs.createReadStream(file).pipe(res);
+    pipeline(fs.createReadStream(file), res).catch(() => res.destroy());
   } catch (err) {
     sendJson(res, 502, { error: `couldn't download the song splitter: ${err.message}` });
   }
@@ -2361,7 +2362,7 @@ function serveStemFile(req, res, searchParams) {
     "Content-Length": found.size, "Cache-Control": "no-store", "ETag": `"${found.sha256}"`, "X-Content-SHA256": found.sha256
   });
   if (req.method === "HEAD") { res.end(); release(); return; }
-  fs.createReadStream(found.file).on("error", () => res.destroy()).pipe(res);
+  pipeline(fs.createReadStream(found.file), res).catch(() => res.destroy());
 }
 
 /* ------------------------------------------------------------------ *
