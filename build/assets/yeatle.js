@@ -1,7 +1,7 @@
-import{inSongPool as YeatleInPool,songsForPool as YeatlePoolSongs,eraCounts as YeatleEraCounts,restorePracticeSong as YeatleRestorePractice}from"./song-pools.mjs?v=1.13.11";
-import{BASE_LENGTHS as YeatleBaseLengths,matchesSong as YeatleMatchesSong,matchesVersion as YeatleMatchesVersion}from"./snippet-rules.mjs?v=1.13.11";
+import{inSongPool as YeatleInPool,songsForPool as YeatlePoolSongs,eraCounts as YeatleEraCounts,restorePracticeSong as YeatleRestorePractice}from"./song-pools.mjs?v=1.14.0";
+import{BASE_LENGTHS as YeatleBaseLengths,matchesSong as YeatleMatchesSong,matchesVersion as YeatleMatchesVersion}from"./snippet-rules.mjs?v=1.14.0";
 // Snippets rounds are picked and checked by the server, so the answer never reaches this page early.
-import{snippetRounds as YeatleRounds}from"./leaderboard.mjs?v=1.13.11";
+import{snippetRounds as YeatleRounds}from"./leaderboard.mjs?v=1.14.0";
 // The last song list, kept for this window's session so returning from Daily or Karaoke
 // draws the full game in its first frame instead of an empty list that fills in later.
 // The game panel's last height for each mode, kept for this window's session. Snippets rounds
@@ -79,7 +79,7 @@ function YeatleScheduleWorkerIdle(){
 function gd(){
   clearTimeout(YeatleWorkerIdleTimer);
   if(zt)return zt;
-  const worker=new Worker(new URL("separator.worker.js?v=1.13.11",import.meta.url),{type:"module"});zt=worker;
+  const worker=new Worker(new URL("separator.worker.js?v=1.14.0",import.meta.url),{type:"module"});zt=worker;
   worker.onmessage=event=>{
     if(zt!==worker)return;
     const message=event.data;
@@ -100,7 +100,7 @@ function gd(){
   return worker;
 }
 let YeatleStemCacheModule;
-function YeatleGetStemCache(){return YeatleStemCacheModule||(YeatleStemCacheModule=import("./stem-cache.mjs?v=1.13.11").catch(()=>null))}
+function YeatleGetStemCache(){return YeatleStemCacheModule||(YeatleStemCacheModule=import("./stem-cache.mjs?v=1.14.0").catch(()=>null))}
 async function YeatleModelRevision(){try{return(await(await fetch("api/separator-revision",{cache:"no-store"})).json()).revision||null}catch{return null}}
 async function YeatleCacheInputs(job,bytes){const cache=await YeatleGetStemCache();if(!cache||typeof cache.canCacheStems!=="function"||!cache.canCacheStems(job.ctx))return;job.cacheModule=cache;job.audioHash=await cache.hashAudio(bytes).catch(()=>null);const revision=Vl.revision||await YeatleModelRevision();job.cacheKey=cache.stemCacheKey(job.audioHash,revision,bt)}
 async function YeatleCacheCompleted(job){const cache=job.cacheModule,buffers=job.buffers;if(!cache||!buffers||!job.audioHash)return;const revision=Vl.revision||await YeatleModelRevision();const key=cache.stemCacheKey(job.audioHash,revision,bt);if(key)await cache.saveStems(key,buffers,job.total,()=>job.cancelled)}
