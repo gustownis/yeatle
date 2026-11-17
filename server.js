@@ -2085,13 +2085,15 @@ function escapeHtmlAttr(text) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function replaceMetaContent(html, attrName, attrValue, content) {
   const safe = escapeHtmlAttr(content);
-  const re = new RegExp(`(<meta\\b[^>]*\\b${attrName}=["']${attrValue}["'][^>]*\\bcontent=["'])([^"']*)(["'][^>]*>)`, "i");
-  return html.replace(re, (_, before, _old, after) => `${before}${safe}${after}`);
+  // The old text runs to its own closing quote: "today's" must not end it early.
+  const re = new RegExp(`(<meta\\b[^>]*\\b${attrName}=["']${attrValue}["'][^>]*\\bcontent=)(["'])[\\s\\S]*?\\2([^>]*>)`, "i");
+  return html.replace(re, (_, before, quote, after) => `${before}${quote}${safe}${quote}${after}`);
 }
 
 function renderPageHtml(rawHtml, req, pathname, searchParams) {

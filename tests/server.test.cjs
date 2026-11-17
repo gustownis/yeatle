@@ -1017,8 +1017,9 @@ test("pages serve page-specific Open Graph embeds, mode redirects, and distinct 
   config(folder);
   const { url } = await launch(t, folder);
   const meta = (html, name, attr = "property") => {
-    const match = html.match(new RegExp(`<meta\\b[^>]*\\b${attr}=["']${name}["'][^>]*\\bcontent=["']([^"']*)["']`, "i"));
-    return match ? match[1] : "";
+    // Read up to the attribute's own closing quote, so an apostrophe inside it counts as text.
+    const match = html.match(new RegExp(`<meta\\b[^>]*\\b${attr}=["']${name}["'][^>]*\\bcontent=(["'])([\\s\\S]*?)\\1`, "i"));
+    return match ? match[2].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&") : "";
   };
   const titleOf = html => (html.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || "";
 
@@ -1051,6 +1052,12 @@ test("pages serve page-specific Open Graph embeds, mode redirects, and distinct 
     assert.equal(await head.text(), "");
   }
   assert.equal(etags.size, cases.length, "each page/mode has a distinct ETag");
+
+  // A description with an apostrophe is replaced whole, not cut at the apostrophe with the old text left behind.
+  const daily = await (await fetch(`${url}/daily`)).text();
+  const dailyText = "One song. Everyone. Every day. Start with 0.1 seconds and guess today's Yeat song in up to 6 tries.";
+  assert.equal(meta(daily, "og:description"), dailyText);
+  assert.equal(meta(daily, "description", "name"), dailyText);
 
   // Forwarded proxy headers resolve the public HTTPS origin, while invalid hosts fall back safely.
   const forwarded = await fetch(`${url}/?mode=snippet`, {
