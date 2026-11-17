@@ -846,11 +846,18 @@ function summarySlide(s, notify) {
 }
 
 let viewer = null;
+let opening = false;
 
 export async function openWrapped(year) {
-  if (viewer) return;
-  refresh();
-  await Promise.race([loadSongIndex(), new Promise(r => setTimeout(r, 2500))]);
+  // A second tap while the song list loads must not open a second window.
+  if (viewer || opening) return;
+  opening = true;
+  try {
+    refresh();
+    await Promise.race([loadSongIndex(), new Promise(r => setTimeout(r, 2500))]);
+  } finally {
+    opening = false;
+  }
   const s = summarize(year);
   const slides = buildSlides(s);
   slides.push(summarySlide(s));
