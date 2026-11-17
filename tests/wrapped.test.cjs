@@ -46,13 +46,16 @@ function playRound(mode, s, status, tries = 1) {
   wrapped._test.commitPending(key);
 }
 
-test("Wrapped is viewable from December 1 through January 7, every year", () => {
-  assert.equal(wrapped.wrappedYear(new RealDate(2026, 10, 30, 23, 59)), null);
+test("Wrapped is viewable from November 16 through January 7, every year", () => {
+  assert.equal(wrapped.wrappedYear(new RealDate(2026, 10, 15, 23, 59)), null);
+  assert.equal(wrapped.wrappedYear(new RealDate(2026, 10, 16, 0, 0)), 2026);
+  assert.equal(wrapped.wrappedYear(new RealDate(2026, 10, 30, 12, 0)), 2026);
   assert.equal(wrapped.wrappedYear(new RealDate(2026, 11, 1, 0, 0)), 2026);
   assert.equal(wrapped.wrappedYear(new RealDate(2026, 11, 31, 23, 59)), 2026);
   assert.equal(wrapped.wrappedYear(new RealDate(2027, 0, 7, 23, 59)), 2026);
   assert.equal(wrapped.wrappedYear(new RealDate(2027, 0, 8, 0, 0)), null);
   assert.equal(wrapped.wrappedYear(new RealDate(2031, 11, 5)), 2031);
+  assert.equal(wrapped.wrappedYear(new RealDate(2031, 5, 5)), null);
 });
 
 test("a finished round is recorded once, and only in the year it was played", () => {

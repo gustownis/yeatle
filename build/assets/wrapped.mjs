@@ -1,8 +1,8 @@
 // Yeatle Wrapped: a yearly recap of a player's own Yeatle year, shown in a pop-up window
 // over the current page (never a new tab or page).
 //
-// Timing, every year: it opens on December 1 and stays viewable through January 7 of the
-// next year (the player's local time). In December it shows the current year and keeps
+// Timing, every year: it opens on November 16 and stays viewable through January 7 of the
+// next year (the player's local time). Until then it shows the current year and keeps
 // updating as they play until December 31 ends; January 1-7 shows the finished year, and
 // play in those days only counts towards the new year. A one-time pop-up announces it
 // each year, then a small button in the bottom-right corner reopens it.
@@ -13,7 +13,7 @@
 //
 // Add ?wrapped=preview to any page's address to open the current year's Wrapped early.
 
-const OPENS = { month: 11, day: 1 };   // December 1
+const OPENS = { month: 10, day: 16 };  // November 16
 const CLOSES = { month: 0, day: 7 };   // through January 7 of the next year
 // Yeatle launched in 2026, so everything a player did before Wrapped existed happened in
 // 2026. Only that year counts progress saved before recording started.
@@ -457,7 +457,7 @@ function archiveFinishedYears(now = new Date()) {
 export function wrappedYear(now = new Date()) {
   const m = now.getMonth();
   const d = now.getDate();
-  if (m === OPENS.month && d >= OPENS.day) return now.getFullYear();
+  if (m > OPENS.month || (m === OPENS.month && d >= OPENS.day)) return now.getFullYear();
   if (m === CLOSES.month && d <= CLOSES.day) return now.getFullYear() - 1;
   return null;
 }
