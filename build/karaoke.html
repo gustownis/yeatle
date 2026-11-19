@@ -33,17 +33,17 @@
       <main id="setup" class="screen">
         <header class="top">
           <a href="./"><img class="logo" src="Images/Yeatle-Logo.webp" alt="Back to Yeatle" width="280" height="114"></a>
-          <nav class="tabs" role="tablist" aria-label="Game mode">
-            <button class="tab" role="tab" aria-selected="false" data-mode="stems">Stems</button>
-            <button class="tab" role="tab" aria-selected="false" data-mode="snippet">Snippets</button>
-            <button class="tab on" role="tab" aria-selected="true">Karaoke</button>
-            <button class="tab" role="tab" aria-selected="false" onclick="location.href='daily'">Daily</button>
+          <nav class="tabs" aria-label="Game mode">
+            <button class="tab" type="button" data-mode="stems">Stems</button>
+            <button class="tab" type="button" data-mode="snippet">Snippets</button>
+            <button class="tab on" type="button" aria-current="page">Karaoke</button>
+            <a class="tab" href="./daily">Daily</a>
           </nav>
         </header>
         <div class="setup-grid">
           <section class="panel songs">
             <h2>Pick a song</h2>
-            <input id="search" type="search" placeholder="Search songs, eras or features" autocomplete="off">
+            <input id="search" type="search" aria-label="Search songs" placeholder="Search songs, eras or features" autocomplete="off">
             <div class="row shuffle-row">
               <button id="shuffle" class="btn small" title="Pick a random song from the chosen eras">Shuffle</button>
               <button id="shuffle-eras" class="btn small" title="Choose which eras Shuffle picks from">Eras: All</button>
@@ -93,7 +93,7 @@
         </div>
       </main>
 
-      <main id="loading" class="screen" hidden>
+      <section id="loading" class="screen" hidden aria-label="Loading song">
         <div class="loading-box">
           <img class="logo" src="Images/Yeatle-Logo.webp" alt="" width="280" height="114">
           <h2 id="load-title"></h2>
@@ -101,11 +101,11 @@
           <div id="load-bar" class="bar"><i></i></div>
           <button id="load-cancel" class="btn">Cancel</button>
         </div>
-      </main>
+      </section>
 
-      <main id="stage" class="screen" hidden>
+      <section id="stage" class="screen" hidden aria-label="Karaoke stage">
         <header class="stage-top">
-          <button id="pause-btn" class="btn small" title="Pause (Esc)">❚❚</button>
+          <button id="pause-btn" class="btn small" type="button" title="Pause (Esc)" aria-label="Pause">❚❚</button>
           <div class="stage-info"><b id="stage-title"></b><small id="stage-diff"></small></div>
           <button id="mark-skip" class="btn small" title="Save a skip time for this song (K)" hidden>Mark skip</button>
           <button id="skip" class="btn small" hidden></button>
@@ -128,9 +128,9 @@
             <p class="muted keys">Esc / Space pause · S skip ahead · [ and ] nudge lyric timing · K mark a skip (White people mode)</p>
           </div>
         </div>
-      </main>
+      </section>
 
-      <main id="results" class="screen" hidden>
+      <section id="results" class="screen" hidden aria-label="Karaoke results">
         <div class="results-box">
           <h2 id="results-title"></h2>
           <p id="results-sub" class="muted"></p>
@@ -141,7 +141,7 @@
             <button id="another" class="btn">Pick another song</button>
           </div>
         </div>
-      </main>
+      </section>
     </div>
   </body>
 </html>

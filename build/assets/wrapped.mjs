@@ -492,8 +492,7 @@ function shareUrl() {
 
 const plural = (n, one, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 
-// Short on purpose: five lines and a link, so pasting it doesn't flood a chat.
-export function shareText(s) {
+function shareLines(s) {
   const lines = [`Yeatle Wrapped ${s.year}`];
   lines.push(s.rounds ? `${plural(s.solved, "song")} guessed (${s.accuracy}%)` : `${plural(s.daily.won, "Daily", "Dailies")} won`);
   if (s.topEras[0]) lines.push(`Top era: ${s.topEras[0].name}`);
@@ -501,8 +500,12 @@ export function shareText(s) {
   else if (s.firstTry) lines.push(plural(s.firstTry, "first-try solve"));
   else if (s.karaoke.best) lines.push(`Karaoke best: ${s.karaoke.best.best.toLocaleString()}`);
   lines.push(`Type: ${s.persona.name}`);
-  lines.push(shareUrl().replace(/^https?:\/\//, "").replace(/\/$/, ""));
-  return lines.join("\n");
+  return lines;
+}
+
+// Short on purpose: five lines and a link, so pasting it doesn't flood a chat.
+export function shareText(s) {
+  return [...shareLines(s), shareUrl().replace(/\/$/, "")].join("\n");
 }
 
 function loadImage(src, timeout = 4000) {
@@ -798,8 +801,9 @@ function buildSlides(s) {
 }
 
 function summarySlide(s, notify) {
+  const previewText = shareLines(s).join("\n");
   const text = shareText(s);
-  const preview = el("pre", { class: "yeatle-wrapped-preview", text });
+  const preview = el("pre", { class: "yeatle-wrapped-preview", text: previewText });
   const status = el("p", { class: "yeatle-wrapped-status", role: "status", "aria-live": "polite" });
   const say = msg => { status.textContent = msg; notify?.(msg); };
   const copy = el("button", { class: "btn solid", type: "button", text: "Copy text" });
@@ -866,9 +870,45 @@ function summarySlide(s, notify) {
 let viewer = null;
 let opening = false;
 
+function trapTab(e, container) {
+  if (!container?.querySelectorAll) return;
+  const items = [...container.querySelectorAll("button:not([disabled]):not([hidden]), a[href], [tabindex]:not([tabindex='-1'])")]
+    .filter(el => !el.closest?.("[aria-hidden='true'], [inert]") && el.offsetParent !== null);
+  if (!items.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement;
+  if (e.shiftKey && (active === first || !container.contains?.(active))) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
+function navIcon(d, size = 18) {
+  if (typeof document.createElementNS !== "function") return null;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.9");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  p.setAttribute("d", d);
+  svg.appendChild(p);
+  return svg;
+}
+
 export async function openWrapped(year) {
   // A second tap while the song list loads must not open a second window.
   if (viewer || opening) return;
+  const opener = document.activeElement?.focus ? document.activeElement : null;
   opening = true;
   try {
     refresh();
@@ -880,31 +920,44 @@ export async function openWrapped(year) {
   const slides = buildSlides(s);
   slides.push(summarySlide(s));
   let index = 0;
-  const bars = el("div", { class: "yeatle-wrapped-bars-top" }, slides.map(() => el("span")));
+  const bars = el("div", { class: "yeatle-wrapped-bars-top", "aria-hidden": "true" }, slides.map(() => el("span")));
+  const live = el("p", { class: "yeatle-wrapped-sr", "aria-live": "polite" });
   const stage = el("div", { class: "yeatle-wrapped-stage" }, slides);
-  const close = el("button", { class: "yeatle-wrapped-close", type: "button", "aria-label": "Close Wrapped", text: "×" });
-  const prevBtn = el("button", { class: "yeatle-wrapped-nav prev", type: "button", "aria-label": "Previous", text: "‹" });
-  const nextBtn = el("button", { class: "yeatle-wrapped-nav next", type: "button", "aria-label": "Next", text: "›" });
-  const card = el("div", { class: "yeatle-wrapped-card", role: "dialog", "aria-modal": "true", "aria-label": `Yeatle Wrapped ${year}` }, bars, close, stage, prevBtn, nextBtn);
+  const closeIcon = navIcon("M4 4l8 8M12 4l-8 8", 16);
+  const prevIcon = navIcon("M10 3.5L5.5 8 10 12.5", 18);
+  const nextIcon = navIcon("M6 3.5L10.5 8 6 12.5", 18);
+  const close = el("button", { class: "yeatle-wrapped-close", type: "button", "aria-label": "Close Wrapped", ...(closeIcon ? {} : { text: "×" }) }, closeIcon);
+  const prevBtn = el("button", { class: "yeatle-wrapped-nav prev", type: "button", "aria-label": "Previous slide", ...(prevIcon ? {} : { text: "‹" }) }, prevIcon);
+  const nextBtn = el("button", { class: "yeatle-wrapped-nav next", type: "button", "aria-label": "Next slide", ...(nextIcon ? {} : { text: "›" }) }, nextIcon);
+  const card = el("div", { class: "yeatle-wrapped-card", role: "dialog", "aria-modal": "true", "aria-label": `Yeatle Wrapped ${year}` }, bars, live, close, stage, prevBtn, nextBtn);
   const overlay = el("div", { class: "yeatle-wrapped-overlay" }, card);
 
   const show = i => {
     index = Math.max(0, Math.min(slides.length - 1, i));
-    slides.forEach((slide, n) => slide.classList.toggle("on", n === index));
+    slides.forEach((slide, n) => {
+      const on = n === index;
+      slide.classList.toggle("on", on);
+      slide.setAttribute("aria-hidden", on ? "false" : "true");
+      slide.inert = !on;
+    });
     [...bars.children].forEach((bar, n) => bar.classList.toggle("done", n <= index));
     prevBtn.disabled = index === 0;
     nextBtn.disabled = index === slides.length - 1;
+    const heading = slides[index].querySelector?.("h2, h3, .yeatle-wrapped-year")?.textContent?.trim();
+    live.textContent = heading ? `Slide ${index + 1} of ${slides.length}: ${heading}` : `Slide ${index + 1} of ${slides.length}`;
   };
   const shut = () => {
     overlay.remove();
+    document.body?.classList?.remove("yeatle-wrapped-open");
     removeEventListener("keydown", onKey, true);
     viewer = null;
     if (closeViewer === shut) closeViewer = null;
+    if (opener?.isConnected) opener.focus({ preventScroll: true });
   };
   closeViewer = shut;
   // While Wrapped is open, keys belong to it: the game's shortcuts (Space, S, Enter) wait.
   const onKey = e => {
-    if (e.key === "Tab") return;
+    if (e.key === "Tab") { trapTab(e, card); return; }
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); shut(); }
     else if (e.key === "ArrowRight") { e.preventDefault(); show(index + 1); }
@@ -921,6 +974,7 @@ export async function openWrapped(year) {
     show(e.clientX - rect.left < rect.width * 0.3 ? index - 1 : index + 1);
   });
   addEventListener("keydown", onKey, true);
+  document.body?.classList?.add("yeatle-wrapped-open");
   document.body.append(overlay);
   viewer = overlay;
   show(0);
@@ -928,6 +982,7 @@ export async function openWrapped(year) {
 }
 
 function announce(year) {
+  const opener = document.activeElement?.focus ? document.activeElement : null;
   const later = el("button", { class: "btn", type: "button", text: "Later" });
   const go = el("button", { class: "btn solid", type: "button", text: "Show me" });
   const box = el("div", { class: "yeatle-wrapped-popup", role: "dialog", "aria-modal": "true", "aria-labelledby": "yeatle-wrapped-popup-title" },
@@ -940,20 +995,23 @@ function announce(year) {
     el("div", { class: "yeatle-wrapped-actions" }, later, go));
   const overlay = el("div", { class: "yeatle-wrapped-overlay soft" }, box);
   const onKey = e => {
-    if (e.key === "Tab") return;
+    if (e.key === "Tab") { trapTab(e, box); return; }
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); shut(); }
   };
-  const shut = () => {
+  const shut = (restoreFocus = true) => {
     overlay.remove();
+    document.body?.classList?.remove("yeatle-wrapped-open");
     removeEventListener("keydown", onKey, true);
     if (closeAnnounce === shut) closeAnnounce = null;
+    if (restoreFocus && opener?.isConnected) opener.focus({ preventScroll: true });
   };
   closeAnnounce = shut;
-  later.addEventListener("click", shut);
-  go.addEventListener("click", () => { shut(); openWrapped(year); });
-  overlay.addEventListener("mousedown", e => { if (e.target === overlay) shut(); });
+  later.addEventListener("click", () => shut(true));
+  go.addEventListener("click", () => { shut(false); openWrapped(year); });
+  overlay.addEventListener("mousedown", e => { if (e.target === overlay) shut(true); });
   addEventListener("keydown", onKey, true);
+  document.body?.classList?.add("yeatle-wrapped-open");
   document.body.append(overlay);
   go.focus({ preventScroll: true });
 }
@@ -963,7 +1021,7 @@ function mountChip(year) {
   const small = () => read(KEY.chip(year), false) === "small";
   const open = el("button", { class: "yeatle-wrapped-chip-open", type: "button", "aria-label": `Open your Yeatle Wrapped ${year}` },
     el("img", { class: "icon", src: "favicon-64.png", alt: "" }), el("span", { class: "label", text: `Wrapped ${year}` }));
-  const shrink = el("button", { class: "yeatle-wrapped-chip-shrink", type: "button", "aria-label": "Make this button smaller", text: "×" });
+  const shrink = el("button", { class: "yeatle-wrapped-chip-shrink", type: "button", "aria-label": "Minimize Wrapped button", title: "Minimize", text: "–" });
   const chip = el("div", { class: "yeatle-wrapped-chip" }, open, shrink);
   const sync = () => chip.classList.toggle("small", small());
   open.addEventListener("click", () => {

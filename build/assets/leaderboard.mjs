@@ -18,11 +18,11 @@ const ACCOUNT_CHECK_MS = 60000;
 
 const BOARD_META = {
   daily: {
-    tabLabel: "Daily 🔥",
+    tabLabel: "Daily",
     heading: "Top Daily players",
-    rule: "🔥 streak counts Dailies finished while signed in",
-    formatYou: entry => `You're #${entry.rank} with 🔥 ${entry.dailyStreak} streak (${entry.dailyWins} ${entry.dailyWins === 1 ? "win" : "wins"}).`,
-    formatRight: entry => `${entry.dailyWins} ${entry.dailyWins === 1 ? "win" : "wins"}${entry.bestDailyStreak > 0 ? ` · best 🔥 ${entry.bestDailyStreak}` : ""}`
+    rule: "streak counts Dailies finished while signed in",
+    formatYou: entry => `You're #${entry.rank} with a ${entry.dailyStreak}-day streak (${entry.dailyWins} ${entry.dailyWins === 1 ? "win" : "wins"}).`,
+    formatRight: entry => `${entry.dailyWins} ${entry.dailyWins === 1 ? "win" : "wins"}${entry.bestDailyStreak > 0 ? ` · best ${entry.bestDailyStreak}d` : ""}`
   },
   stems: {
     tabLabel: "Stems",
@@ -622,12 +622,36 @@ function initLeaderboardUI() {
   triggerBtn.setAttribute("aria-label", "Open Leaderboards");
   triggerBtn.addEventListener("click", () => openModal());
 
+  function svgIcon(paths, size = 13) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", String(size));
+    svg.setAttribute("height", String(size));
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "1.6");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("aria-hidden", "true");
+    for (const d of paths) {
+      const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("d", d);
+      svg.appendChild(p);
+    }
+    return svg;
+  }
+
   function renderTriggerButton() {
     const streak = currentStreakBadgeValue();
     const parts = [];
     const trophy = document.createElement("span");
     trophy.className = "lb-trophy";
-    trophy.textContent = "🏆";
+    trophy.appendChild(svgIcon([
+      "M2.5 13.5V9h3.5v4.5",
+      "M6 13.5V3.5h4v10",
+      "M10 13.5V6.5h3.5v7",
+      "M1.5 13.5h13",
+    ], 13));
     parts.push(trophy);
 
     const label = document.createElement("span");
@@ -644,13 +668,17 @@ function initLeaderboardUI() {
       const badge = document.createElement("span");
       badge.className = "yeatle-lb-streak";
       badge.title = `${streak} day Daily streak`;
-      badge.textContent = `🔥 ${streak}`;
+      badge.textContent = `${streak}d`;
       parts.push(badge);
     }
     if (accountState?.usernameBlocked) {
       const warn = document.createElement("span");
       warn.className = "lb-blocked";
-      warn.textContent = "⚠️";
+      warn.appendChild(svgIcon([
+        "M8 2.5L14 13H2L8 2.5Z",
+        "M8 6.5v3",
+        "M8 11.25h.01",
+      ], 13));
       parts.push(warn);
     }
     triggerBtn.title = accountState?.usernameBlocked ? USERNAME_BLOCKED_MESSAGE : "Leaderboards & Account Sync";
@@ -685,24 +713,53 @@ function initLeaderboardUI() {
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
+  let lastFocused = null;
+
+  function focusablesIn(root) {
+    return [...root.querySelectorAll("button:not([disabled]):not([hidden]), input:not([disabled]):not([hidden]), a[href], [tabindex]:not([tabindex='-1'])")]
+      .filter(el => el.offsetParent !== null);
+  }
+
   function closeModal() {
+    if (!isOpen) return;
     isOpen = false;
     overlay.hidden = true;
+    const target = lastFocused?.isConnected ? lastFocused : triggerBtn;
+    lastFocused = null;
+    if (target?.isConnected) target.focus({ preventScroll: true });
   }
 
   function openModal() {
     if (bannedShown) return;
+    lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : triggerBtn;
     activeBoard = defaultBoardForPage();
     isOpen = true;
     overlay.hidden = false;
     renderModal();
+    const closeBtn = modal.querySelector(".yeatle-lb-close");
+    if (closeBtn) closeBtn.focus({ preventScroll: true });
     refreshLeaderboard(true);
   }
 
   window.addEventListener("keydown", e => {
-    if (isOpen && e.key === "Escape") {
+    if (!isOpen) return;
+    if (e.key === "Escape") {
       e.preventDefault();
       closeModal();
+      return;
+    }
+    if (e.key === "Tab") {
+      const items = focusablesIn(modal);
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   });
 
@@ -882,6 +939,10 @@ function initLeaderboardUI() {
   }
 
   function renderModal() {
+    const prevScroll = modal.querySelector(".yeatle-lb-list")?.scrollTop || 0;
+    const activeEl = document.activeElement;
+    const prevFocusKey = activeEl && modal.contains(activeEl) ? activeEl.dataset?.lbFocus || "" : "";
+
     const head = document.createElement("div");
     head.className = "yeatle-lb-head";
     const headText = document.createElement("div");
@@ -890,12 +951,13 @@ function initLeaderboardUI() {
     h2.textContent = "Leaderboards";
     const sub = document.createElement("p");
     sub.className = "yeatle-lb-sub";
-    sub.textContent = "WHO HAS SOLVED THE MOST SONGS AND KEPT THEIR DAILY STREAK";
+    sub.textContent = "Top scores and active Daily streaks across Yeatle.";
     headText.append(h2, sub);
 
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "yeatle-lb-close";
+    closeBtn.dataset.lbFocus = "close";
     closeBtn.setAttribute("aria-label", "Close leaderboards");
     closeBtn.textContent = "×";
     closeBtn.addEventListener("click", closeModal);
@@ -921,7 +983,8 @@ function initLeaderboardUI() {
       if (streak > 0) {
         const badge = document.createElement("span");
         badge.className = "yeatle-lb-streak";
-        badge.textContent = `🔥 ${streak}`;
+        badge.title = `${streak} day Daily streak`;
+        badge.textContent = `${streak}d`;
         userLine.appendChild(badge);
       }
 
@@ -929,19 +992,22 @@ function initLeaderboardUI() {
       actions.className = "yeatle-lb-account-actions";
       const syncBtn = document.createElement("button");
       syncBtn.type = "button";
-      syncBtn.className = "yeatle-lb-btn-action primary";
+      syncBtn.className = "yeatle-lb-btn-action";
+      syncBtn.dataset.lbFocus = "sync";
       syncBtn.textContent = "Sync progress";
       syncBtn.addEventListener("click", () => syncNow(false));
 
       const outBtn = document.createElement("button");
       outBtn.type = "button";
       outBtn.className = "yeatle-lb-btn-action";
+      outBtn.dataset.lbFocus = "logout";
       outBtn.textContent = "Log out";
       outBtn.addEventListener("click", handleLogout);
 
       const renameBtn = document.createElement("button");
       renameBtn.type = "button";
       renameBtn.className = "yeatle-lb-btn-action";
+      renameBtn.dataset.lbFocus = "rename";
       renameBtn.textContent = "Change username";
       renameBtn.hidden = renaming;
       renameBtn.addEventListener("click", () => {
@@ -1014,13 +1080,14 @@ function initLeaderboardUI() {
     } else {
       const note = document.createElement("p");
       note.className = "yeatle-lb-account-note";
-      note.textContent = "Log in or create an account to transfer your progress across devices and appear on the leaderboard.";
+      note.textContent = "Sign in to sync progress across devices and join the boards.";
 
       const form = document.createElement("form");
       form.className = "yeatle-lb-auth-form";
       const userIn = document.createElement("input");
       userIn.type = "text";
       userIn.placeholder = "Username";
+      userIn.setAttribute("aria-label", "Username");
       userIn.maxLength = 20;
       userIn.autocomplete = "username";
       userIn.required = true;
@@ -1030,6 +1097,7 @@ function initLeaderboardUI() {
       const passIn = document.createElement("input");
       passIn.type = "password";
       passIn.placeholder = "Password (4+ chars)";
+      passIn.setAttribute("aria-label", "Password");
       passIn.maxLength = 128;
       passIn.autocomplete = "current-password";
       passIn.required = true;
@@ -1042,12 +1110,14 @@ function initLeaderboardUI() {
       const loginBtn = document.createElement("button");
       loginBtn.type = "submit";
       loginBtn.className = "yeatle-lb-btn-action primary";
+      loginBtn.dataset.lbFocus = "login";
       loginBtn.disabled = busyAuth;
       loginBtn.textContent = busyAuth ? "Working…" : "Log in";
 
       const regBtn = document.createElement("button");
       regBtn.type = "button";
       regBtn.className = "yeatle-lb-btn-action";
+      regBtn.dataset.lbFocus = "register";
       regBtn.disabled = busyAuth;
       regBtn.textContent = "Create account";
       regBtn.addEventListener("click", () => {
@@ -1075,6 +1145,8 @@ function initLeaderboardUI() {
     if (statusMessage) {
       const st = document.createElement("p");
       st.className = `yeatle-lb-status${statusError ? " err" : ""}`;
+      st.setAttribute("role", statusError ? "alert" : "status");
+      st.setAttribute("aria-live", "polite");
       st.textContent = statusMessage;
       accountBox.appendChild(st);
     }
@@ -1084,16 +1156,33 @@ function initLeaderboardUI() {
     const tabs = document.createElement("div");
     tabs.className = "yeatle-lb-tabs";
     tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "Leaderboard modes");
+    const boardKeys = Object.keys(BOARD_META);
     for (const [key, meta] of Object.entries(BOARD_META)) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.role = "tab";
       btn.className = `yeatle-lb-tab${activeBoard === key ? " on" : ""}`;
+      btn.dataset.lbFocus = `tab:${key}`;
       btn.setAttribute("aria-selected", String(activeBoard === key));
       btn.textContent = meta.tabLabel;
       btn.addEventListener("click", () => {
         activeBoard = key;
         renderModal();
+      });
+      btn.addEventListener("keydown", e => {
+        const idx = boardKeys.indexOf(key);
+        let nextIdx = -1;
+        if (e.key === "ArrowRight") nextIdx = (idx + 1) % boardKeys.length;
+        else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + boardKeys.length) % boardKeys.length;
+        else if (e.key === "Home") nextIdx = 0;
+        else if (e.key === "End") nextIdx = boardKeys.length - 1;
+        if (nextIdx >= 0) {
+          e.preventDefault();
+          activeBoard = boardKeys[nextIdx];
+          renderModal();
+          modal.querySelector(`[data-lb-focus="tab:${activeBoard}"]`)?.focus();
+        }
       });
       tabs.appendChild(btn);
     }
@@ -1152,18 +1241,27 @@ function initLeaderboardUI() {
         const rankSpan = document.createElement("span");
         rankSpan.className = "yeatle-lb-rank";
         rankSpan.textContent = String(entry.rank);
+        left.appendChild(rankSpan);
+
+        if (entry.rank === 1 && (entry.primary > 0 || entry.dailyStreak > 0)) {
+          const leader = document.createElement("span");
+          leader.className = "yeatle-lb-leader";
+          leader.appendChild(svgIcon([
+            "M2.5 11.5L1.5 5l3.5 2.5L8 3.5l3 4 3.5-2.5-1 6.5h-11Z",
+          ], 12));
+          left.appendChild(leader);
+        }
 
         const nameSpan = document.createElement("span");
         nameSpan.className = "yeatle-lb-name";
-        nameSpan.textContent = `${entry.rank === 1 && (entry.primary > 0 || entry.dailyStreak > 0) ? "👑 " : ""}${entry.username}`;
-
-        left.append(rankSpan, nameSpan);
+        nameSpan.textContent = entry.username;
+        left.appendChild(nameSpan);
 
         if (entry.dailyStreak > 0) {
           const streakBadge = document.createElement("span");
           streakBadge.className = "yeatle-lb-streak";
           streakBadge.title = `${entry.dailyStreak} day Daily streak`;
-          streakBadge.textContent = `🔥 ${entry.dailyStreak}`;
+          streakBadge.textContent = `${entry.dailyStreak}d`;
           left.appendChild(streakBadge);
         }
 
@@ -1186,6 +1284,15 @@ function initLeaderboardUI() {
     }
 
     modal.replaceChildren(head, body);
+
+    if (prevScroll > 0) {
+      const nextList = modal.querySelector(".yeatle-lb-list");
+      if (nextList) nextList.scrollTop = prevScroll;
+    }
+    if (prevFocusKey) {
+      const nextFocus = modal.querySelector(`[data-lb-focus="${prevFocusKey}"]`);
+      if (nextFocus) nextFocus.focus({ preventScroll: true });
+    }
   }
 
   // Intercept localStorage writes so progress syncs automatically when a round finishes.
@@ -1222,10 +1329,13 @@ function initLeaderboardUI() {
   ensureTriggerMounted();
   window.addEventListener("DOMContentLoaded", ensureTriggerMounted);
   window.addEventListener("pagereveal", ensureTriggerMounted, true);
-  triggerObserver = new MutationObserver(() => {
-    if (!bannedShown && !triggerBtn.isConnected) ensureTriggerMounted();
-  });
-  triggerObserver.observe(document.body, { childList: true, subtree: true });
+  const mountRoot = document.getElementById("root");
+  if (mountRoot) {
+    triggerObserver = new MutationObserver(() => {
+      if (!bannedShown && !triggerBtn.isConnected) ensureTriggerMounted();
+    });
+    triggerObserver.observe(mountRoot, { childList: true, subtree: true });
+  }
 
   watchForCheatTools();
 
