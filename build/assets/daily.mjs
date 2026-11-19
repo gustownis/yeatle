@@ -169,8 +169,16 @@ function render() {
     }
   }
   $("#guesses").replaceChildren(...guessItems);
-  $("#result").hidden = !done;
   const coverEl = $("#result-cover");
+  if (done && !challenge.song) {
+    $("#result").hidden = true;
+    coverEl.removeAttribute("src");
+    delete coverEl.dataset.failedSrc;
+    coverEl.hidden = true;
+    if (!loading) loadChallenge();
+    return;
+  }
+  $("#result").hidden = !done;
   if (done) {
     const src = coverForSong(challenge.song);
     if (src && coverEl.dataset.failedSrc !== src) {
@@ -306,7 +314,10 @@ async function checkedAttempt(text, skip) {
     suggestions.close();
     if (result.closeGuess) notice(`Different version — "${result.closeGuess.text}" is another version of this song. Try again on ${BASE_LENGTHS[level()]}s.`);
   } catch (error) {
-    if (challenge === current) notice(`${error.message} No attempt was used.`);
+    if (challenge === current) {
+      if (error?.status === 409) { busy = false; loadChallenge(); return; }
+      notice(`${error.message} No attempt was used.`);
+    }
   } finally {
     if (challenge === current) { busy = false; render(); }
   }
@@ -423,7 +434,13 @@ addEventListener("storage", event => {
   }
   if (challenge && event.key === storageKey) { stop(); round = readRound(); render(); }
 });
-addEventListener("yeatle:progress-synced", () => { if (challenge && !challenge.checked) { stop(); round = readRound(); render(); } });
+addEventListener("yeatle:progress-synced", () => {
+  if (!challenge) return;
+  if (challenge.checked) { loadChallenge(); return; }
+  stop(); round = readRound(); render();
+});
+addEventListener("pageshow", event => { if (event.persisted) loadChallenge(); });
+addEventListener("yeatle:banned", dispose);
 document.addEventListener("visibilitychange", () => { if (document.hidden) { stop(); render(); } else expired(); });
 addEventListener("pagehide", dispose);
 setInterval(() => {

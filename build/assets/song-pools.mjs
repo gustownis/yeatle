@@ -15,8 +15,14 @@ export function restorePracticeSong(saved, songs) {
   const pack = snapshot?.mode === "stems" && snapshot.folder
     ? songs.find(song => song.mode === "stems" && song.folder === snapshot.folder) : null;
   if (pack && pack.id !== saved.songId) return pack;
-  return current && snapshot?.id === current.id
-    ? { ...snapshot, keys: current.keys, answerKeys: current.answerKeys, versionKeys: current.versionKeys, eraDisplay: current.eraDisplay } : current;
+  if (pack && pack.id !== saved.songId) return pack;
+  if (!current || snapshot?.id !== current.id) return current;
+  const restored = { ...snapshot, keys: current.keys, answerKeys: current.answerKeys, versionKeys: current.versionKeys, eraDisplay: current.eraDisplay };
+  if (typeof restored.audioId === "string" && restored.audioId.startsWith("round-")) {
+    if (current.audioId) restored.audioId = current.audioId;
+    else delete restored.audioId;
+  }
+  return restored;
 }
 
 // A released row and a leak can share an answer while keeping their own

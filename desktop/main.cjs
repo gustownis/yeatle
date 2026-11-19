@@ -28,39 +28,56 @@ let checkedOnLaunch = false;
 let serverUrl;
 let quitting = false;
 let starting = false;
+let quitCleanupDone = false;
+let stoppedChild = null;
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => {
-    if (gameWindow) {
+    if (gameWindow && !gameWindow.isDestroyed()) {
       if (gameWindow.isMinimized()) gameWindow.restore();
       gameWindow.show();
       gameWindow.focus();
+    } else if (!starting && !quitting && serverUrl && serverProcess) {
+      createWindow();
     }
   });
   app.whenReady().then(startGame).catch(failStartup);
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0 && !starting) {
+    if ((!gameWindow || gameWindow.isDestroyed()) && !starting && !quitting) {
       if (serverUrl && serverProcess) createWindow();
-      else startGame().catch(failStartup);
+      else if (BrowserWindow.getAllWindows().length === 0) startGame().catch(failStartup);
     }
   });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-  app.on("before-quit", () => {
+  app.on("before-quit", event => {
     quitting = true;
     // unfinished downloads are removed; nothing half-downloaded is left behind
-    if (stemDownloader) stemDownloader.cancelAll().catch(() => {});
+    if (stemDownloader?.busy && !quitCleanupDone) {
+      event.preventDefault();
+      quitCleanupDone = true;
+      Promise.race([
+        stemDownloader.cancelAll().catch(() => {}),
+        new Promise(resolve => setTimeout(resolve, 2000))
+      ]).finally(() => {
+        if (serverProcess) stopServer(serverProcess);
+        app.quit();
+      });
+      return;
+    }
     if (serverProcess) stopServer(serverProcess);
   });
 }
 
 // Asks first, so the server can save progress; kill() alone gives it no chance on Windows.
 function stopServer(child) {
+  if (!child || stoppedChild === child) return;
+  stoppedChild = child;
   try {
     child.send({ type: "shutdown" });
-    const fallback = setTimeout(() => child.kill(), 2000);
+    const fallback = setTimeout(() => { try { child.kill(); } catch {} }, 2000);
     child.once("exit", () => clearTimeout(fallback));
-  } catch (_) { child.kill(); }
+  } catch (_) { try { child.kill(); } catch {} }
 }
 
 function failStartup(error) {
@@ -97,10 +114,14 @@ async function startGame() {
 
     const logFile = path.join(dataDir, "desktop.log");
     // Keep a bounded previous log instead of letting it grow indefinitely.
-    if (fs.existsSync(logFile) && fs.statSync(logFile).size > 2 * 1024 * 1024) {
-      fs.copyFileSync(logFile, path.join(dataDir, "desktop.previous.log"));
-      fs.writeFileSync(logFile, "");
-    }
+    try {
+      if (fs.existsSync(logFile) && fs.statSync(logFile).size > 2 * 1024 * 1024) {
+        fs.copyFileSync(logFile, path.join(dataDir, "desktop.previous.log"));
+        fs.writeFileSync(logFile, "");
+      }
+    } catch (_) { /* log rotation is optional */ }
+    const logStream = fs.createWriteStream(logFile, { flags: "a" });
+    logStream.on("error", () => {});
     let recentOutput = "";
     const child = spawn(process.execPath, [path.join(PROJECT_DIR, "server.js")], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", YEATLE_DESKTOP: "1", YEATLE_PORT: String(desktopPort), YEATLE_DATA_DIR: dataDir },
@@ -108,9 +129,10 @@ async function startGame() {
       windowsHide: true
     });
     serverProcess = child;
+    stoppedChild = null;
     for (const output of [child.stdout, child.stderr]) output.on("data", chunk => {
       recentOutput = (recentOutput + chunk.toString()).slice(-4000);
-      try { fs.appendFileSync(logFile, chunk); } catch (_) { /* logging is optional */ }
+      if (!logStream.destroyed && logStream.writable) logStream.write(chunk);
     });
     const port = await new Promise((resolve, reject) => {
       let ready = false;
@@ -121,19 +143,35 @@ async function startGame() {
         clearTimeout(timer);
         resolve(message.port);
       });
-      child.on("error", error => { clearTimeout(timer); reject(error); });
+      child.on("error", error => { clearTimeout(timer); logStream.end(); reject(error); });
       child.on("exit", code => {
         clearTimeout(timer);
-        serverProcess = null;
-        serverUrl = null;
+        logStream.end();
+        if (serverProcess === child) {
+          serverProcess = null;
+          serverUrl = null;
+        }
         if (!ready) reject(new Error(recentOutput.trim() || `The local server stopped (exit code ${code}).`));
         else if (!quitting) failStartup(new Error("The local game server stopped. Restart Yeatle to continue."));
       });
     });
+    if (quitting) { stopServer(child); return; }
     serverUrl = `http://127.0.0.1:${port}`;
     updates ||= createUpdateController({ app, dialog, shell, getWindow: () => gameWindow, onStatus: refreshMenu });
     createWindow();
   } finally { starting = false; }
+}
+
+function isSameServerOrigin(url) {
+  try { return new URL(url).origin === serverUrl; } catch { return false; }
+}
+
+function guardNavigation(window) {
+  const check = (event, url) => {
+    if (!isSameServerOrigin(url)) { event.preventDefault(); openExternal(url); }
+  };
+  window.webContents.on("will-navigate", check);
+  window.webContents.on("will-redirect", check);
 }
 
 function createWindow() {
@@ -145,9 +183,7 @@ function createWindow() {
   const window = gameWindow;
   window.once("ready-to-show", () => { if (!window.isDestroyed()) window.show(); });
   window.on("closed", () => { if (gameWindow === window) gameWindow = null; });
-  window.webContents.on("will-navigate", (event, url) => {
-    if (new URL(url).origin !== serverUrl) { event.preventDefault(); openExternal(url); }
-  });
+  guardNavigation(window);
   window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
   // Only karaoke mode's microphone is allowed, and only for the game's own pages.
   installMicrophonePermissions(window.webContents.session, serverUrl);
@@ -168,7 +204,7 @@ function refreshMenu() {
   if (!serverUrl || !updates) return;
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
     platform: process.platform,
-    openBrowser: () => shell.openExternal(serverUrl).catch(failStartup),
+    openBrowser: () => shell.openExternal(serverUrl).catch(err => dialog.showErrorBox("Could not open browser", err.message)),
     openSongs: () => shell.openPath(songsDir()),
     openSettings: () => shell.openPath(app.getPath("userData")),
     openAdmin,
@@ -201,11 +237,12 @@ function openAdmin() {
   window.setMenu(null);
   window.once("ready-to-show", () => { if (!window.isDestroyed()) window.show(); });
   window.on("closed", () => { if (adminWindow === window) adminWindow = null; });
-  window.webContents.on("will-navigate", (event, url) => {
-    if (new URL(url).origin !== serverUrl) { event.preventDefault(); openExternal(url); }
-  });
+  guardNavigation(window);
   window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
-  loadWindowPage(window, `${serverUrl}/admin`, error => dialog.showErrorBox("Admin panel could not open", error.message));
+  loadWindowPage(window, `${serverUrl}/admin`, error => {
+    if (!window.isDestroyed()) window.destroy();
+    if (!quitting) dialog.showErrorBox("Admin panel could not open", error.message);
+  });
 }
 
 function openMicSettings() {
@@ -228,6 +265,7 @@ function openMicSettings() {
 
 ipcMain.handle("yeatle:open-mic-settings", event => {
   if (!gameWindow || gameWindow.isDestroyed() || event.sender !== gameWindow.webContents) return false;
+  if (!isSameServerOrigin(event.senderFrame?.url)) return false;
   openMicSettings();
   return true;
 });
@@ -251,11 +289,19 @@ function rescanServer() {
     const child = serverProcess;
     if (!child || !child.connected) { resolve(null); return; }
     const id = Date.now() + Math.random();
-    const done = message => { clearTimeout(timer); child.off("message", onMessage); resolve(message); };
+    const done = message => {
+      clearTimeout(timer);
+      child.off("message", onMessage);
+      child.off("exit", onExit);
+      resolve(message);
+    };
     const onMessage = message => { if (message?.type === "stems-rescanned" && message.id === id) done(message); };
+    const onExit = () => done(null);
     const timer = setTimeout(() => done(null), 30000);
     child.on("message", onMessage);
-    child.send({ type: "rescan-stems", id });
+    child.once("exit", onExit);
+    try { child.send({ type: "rescan-stems", id }); }
+    catch { done(null); }
   });
 }
 
@@ -309,11 +355,12 @@ function openStemsServer() {
     else stemDownloader.cancelAll().catch(() => {});
   });
   window.on("closed", () => { if (stemsWindow === window) stemsWindow = null; });
-  window.webContents.on("will-navigate", (event, url) => {
-    if (new URL(url).origin !== serverUrl) { event.preventDefault(); openExternal(url); }
-  });
+  guardNavigation(window);
   window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
-  loadWindowPage(window, `${serverUrl}/stems-download.html`, error => dialog.showErrorBox("Download window could not open", error.message));
+  loadWindowPage(window, `${serverUrl}/stems-download.html`, error => {
+    if (!window.isDestroyed()) window.destroy();
+    if (!quitting) dialog.showErrorBox("Download window could not open", error.message);
+  });
 }
 
 function openExternal(url) {

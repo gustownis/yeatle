@@ -719,12 +719,12 @@ function audioCtx() {
 // page's own audio and reopen the microphones on it.
 async function resumeAudio() {
   const ctx = audioCtx();
-  await Promise.race([ctx.resume().catch(() => {}), new Promise(resolve => setTimeout(resolve, 1500))]);
+  await Promise.race([Promise.resolve(ctx.resume?.()).catch(() => {}), new Promise(resolve => setTimeout(resolve, 1500))]);
   if (ctx.state === "running" || !useCleanAudio || audioRealm() === globalThis) return;
   useCleanAudio = false;
-  try { ctx.close(); } catch { /* already closed */ }
+  try { Promise.resolve(ctx.close?.()).catch(() => {}); } catch { /* already closed */ }
   audioContext = null;
-  await audioCtx().resume().catch(() => {});
+  await Promise.resolve(audioCtx().resume?.()).catch(() => {});
   if (mics.allowed) await openAllMics();
 }
 
@@ -777,22 +777,28 @@ async function trackFailures(stream) {
   return failed;
 }
 
-class MicDetector {
+export function micFftSizeForRate(sampleRate) {
+  return sampleRate > 96000 ? 8192 : sampleRate > 48000 ? 4096 : 2048;
+}
+
+export class MicDetector {
   constructor(ctx, stream) {
     this.stream = stream;
     this.source = ctx.createMediaStreamSource(stream);
     this.analyser = ctx.createAnalyser();
-    this.analyser.fftSize = 2048;
+    const rate = ctx.sampleRate || 44100;
+    const fftSize = micFftSizeForRate(rate);
+    this.analyser.fftSize = fftSize;
     this.analyser.smoothingTimeConstant = 0;
     this.sink = ctx.createGain();
     this.sink.gain.value = 0;
     this.source.connect(this.analyser);
     this.analyser.connect(this.sink);
     this.sink.connect(ctx.destination);
-    this.raw = new Float32Array(2048);
-    this.factor = Math.max(1, Math.round(ctx.sampleRate / 11025));
-    this.rate = ctx.sampleRate / this.factor;
-    this.ds = new Float32Array(Math.floor(2048 / this.factor));
+    this.raw = new Float32Array(fftSize);
+    this.factor = Math.max(1, Math.round(rate / 11025));
+    this.rate = rate / this.factor;
+    this.ds = new Float32Array(Math.floor(fftSize / this.factor));
     this.tauMax = Math.floor(this.rate / 70);
     this.scratch = new Float32Array(this.tauMax + 2);
     this.level = 0;
@@ -800,9 +806,10 @@ class MicDetector {
   }
   read(gate) {
     this.analyser.getFloatTimeDomainData(this.raw);
+    const half = this.raw.length >> 1;
     let energy = 0;
-    for (let i = 1024; i < 2048; i++) energy += this.raw[i] * this.raw[i];
-    const rms = Math.sqrt(energy / 1024);
+    for (let i = half; i < this.raw.length; i++) energy += this.raw[i] * this.raw[i];
+    const rms = Math.sqrt(energy / half);
     this.level = Math.max(rms, this.level * 0.92);
     let midi = NaN;
     if (rms > gate) {
@@ -831,23 +838,31 @@ function openMicSettings() {
   else if (/Macintosh|Mac OS X/i.test(ua)) window.location.href = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
 }
 
-async function enableMics() {
+let enableMicsPromise = null;
+function enableMics() {
+  if (!enableMicsPromise) {
+    enableMicsPromise = runEnableMics().finally(() => { enableMicsPromise = null; });
+  }
+  return enableMicsPromise;
+}
+
+async function runEnableMics() {
   if (!mediaDevices()?.getUserMedia) {
     mics.error = window.isSecureContext ? "This browser can't use a microphone." : "Microphones only work on https:// or localhost addresses.";
     renderPlayers();
     return false;
   }
   try {
-    audioCtx().resume();
+    Promise.resolve(audioCtx().resume?.()).catch(() => {});
     let probe;
     try {
       probe = await mediaDevices().getUserMedia({ audio: true });
     } catch (firstErr) {
       if (useCleanAudio && audioRealm() !== globalThis) {
         useCleanAudio = false;
-        try { audioContext?.close(); } catch { /* already closed */ }
+        try { Promise.resolve(audioContext?.close?.()).catch(() => {}); } catch { /* already closed */ }
         audioContext = null;
-        audioCtx().resume();
+        Promise.resolve(audioCtx().resume?.()).catch(() => {});
         probe = await mediaDevices().getUserMedia({ audio: true });
       } else {
         throw firstErr;
@@ -932,7 +947,10 @@ async function openMic(index) {
     }
     const detector = new MicDetector(audioCtx(), stream);
     detector.integrity = await trackFailures(stream);
-    if (mics.requests[index] !== request) { detector.stop(); return; }
+    if (mics.requests[index] !== request || settings.players[index] !== player || player.deviceId !== deviceId || !mics.allowed) {
+      detector.stop();
+      return;
+    }
     mics.detectors[index] = detector;
     mics.error = "";
     renderPlayers();
@@ -1111,8 +1129,11 @@ async function lookUpLyrics(song, duration) {
   const timer = setTimeout(() => request.abort.abort(), 8000);
   state.lyricsPending.set(song.id, request);
   request.promise = findLyrics(song, duration, request.abort.signal).catch(() => ({ lines: [], source: "" })).then(found => {
-    // A saved edit must not be overwritten by an older online lookup.
-    if (state.lyricsPending.get(song.id) === request) state.lyricsCache.set(song.id, found);
+    // A saved edit must not be overwritten by an older online lookup, and empty transient
+    // failures stay uncached so retrying the song can look up lyrics again.
+    if (state.lyricsPending.get(song.id) === request && (found.lines.length || found.plain || song.preview)) {
+      state.lyricsCache.set(song.id, found);
+    }
     return state.lyricsCache.get(song.id) || found;
   }).finally(() => {
     clearTimeout(timer);
@@ -1411,7 +1432,10 @@ function buildOptions() {
   };
   bind("#volume", "volume", v => `${v}%`, applyVolume);
   bind("#guide", "guide", v => (v ? `${v}%` : "Off"), applyVolume);
-  bind("#sensitivity", "sensitivity", v => `${v}%`, renderPlayers);
+  bind("#sensitivity", "sensitivity", v => `${v}%`, () => {
+    const left = `${clamp(micGate() / 0.25, 0, 1) * 100}%`;
+    document.querySelectorAll("#players .meter em").forEach(marker => { marker.style.left = left; });
+  });
   bind("#mic-delay", "micDelay", v => `${v} ms`);
   const audio = $("#audio-delay"), audioOut = $("#audio-delay-out");
   const showAudio = () => {
@@ -1485,10 +1509,11 @@ function openCalibration(kind) {
   const modal = el("div", { class: "modal" }, box);
   document.body.append(modal);
 
-  let run = null, found = null;
+  let run = null, found = null, closed = false, calToken = 0;
   function stopRun() {
     if (!run) return;
     run.stop = true;
+    if (run.raf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(run.raf);
     run.sources.forEach(src => { try { src.stop(); } catch { /* not started */ } src.disconnect(); });
     run.sources = [];
     run = null;
@@ -1500,6 +1525,8 @@ function openCalibration(kind) {
   if (tap) pad.addEventListener("pointerdown", e => { e.preventDefault(); if (run) run.events.push(audioCtx().currentTime); });
   document.addEventListener("keydown", onKey, true);
   function close() {
+    closed = true;
+    calToken++;
     stopRun();
     document.removeEventListener("keydown", onKey, true);
     modal.remove();
@@ -1515,14 +1542,17 @@ function openCalibration(kind) {
   };
 
   startBtn.onclick = async () => {
-    const ctx = audioCtx();
-    await ctx.resume();
+    const token = ++calToken;
     let det = null;
     if (!tap) {
       if (!mics.allowed) await enableMics();
+      if (closed || token !== calToken) return;
       det = mics.detectors.find(Boolean);
       if (!det) { status.textContent = "Turn on a mic first (Singers → Turn on mics)."; return; }
     }
+    const ctx = audioCtx();
+    await Promise.resolve(ctx.resume?.()).catch(() => {});
+    if (closed || token !== calToken) return;
     stopRun();
     found = null;
     useBtn.hidden = true;
@@ -1534,13 +1564,14 @@ function openCalibration(kind) {
     const clicks = [], sources = [];
     for (let i = 0; i < lead + count; i++) { const t = t0 + i * beat; sources.push(beep(ctx, t, i >= lead)); if (i >= lead) clicks.push(t); }
     const before = tap ? 0.3 : 0.1, after = tap ? 0.3 : 0.6;
-    run = { events: [], stop: false, sources };
+    run = { events: [], stop: false, sources, raf: 0 };
     const r = run;
     let lastScan = ctx.currentTime, quietPeak = 0, lastOnset = -1;
     const heardDelay = audioDelaySeconds();
 
     const frame = () => {
-      if (r.stop) return;
+      if (r.stop || closed) return;
+      r.raf = 0;
       const now = ctx.currentTime;
       if (det) {
         // find claps in the samples that arrived since the last frame
@@ -1572,7 +1603,7 @@ function openCalibration(kind) {
       ring.classList.toggle("lead", coming < lead);
       pad.classList.toggle("beat", last >= lead && last < lead + count && into < 0.2);
       Array.from(dots.children).forEach((d, k) => d.classList.toggle("next", k === Math.max(lead, coming) - lead && !d.classList.contains("hit") && !d.classList.contains("miss")));
-      if (now < clicks[clicks.length - 1] + after + 0.1) { requestAnimationFrame(frame); return; }
+      if (now < clicks[clicks.length - 1] + after + 0.1) { r.raf = requestAnimationFrame(frame); return; }
 
       stopRun();
       ring.hidden = true;
@@ -1597,7 +1628,7 @@ function openCalibration(kind) {
       }
       useBtn.hidden = false;
     };
-    requestAnimationFrame(frame);
+    r.raf = requestAnimationFrame(frame);
   };
 }
 
@@ -2019,11 +2050,23 @@ function setPaused(paused) {
   if (!game || game.ended || game.paused === paused) return;
   game.paused = paused;
   $("#pause").hidden = !paused;
-  if (paused) audioCtx().suspend(); else audioCtx().resume();
+  if (paused) {
+    if (game.raf && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(game.raf);
+      game.raf = 0;
+    }
+    Promise.resolve(audioCtx().suspend?.()).catch(() => {});
+  } else {
+    Promise.resolve(audioCtx().resume?.()).catch(() => {});
+    if (!game.raf && typeof requestAnimationFrame === "function") game.raf = requestAnimationFrame(tick);
+  }
 }
 
 function tick() {
-  if (!game || game.ended) return;
+  if (!game || game.ended || game.paused) {
+    if (game) game.raf = 0;
+    return;
+  }
   game.raf = requestAnimationFrame(tick);
   const heard = playbackTime();
   const t = heard - settings.micDelay / 1000;
@@ -2148,18 +2191,22 @@ function buildStage() {
   $("#stage-volume-wave")?.setAttribute?.("d", settings.volume === 0 ? "M11 5.5l3.5 5M14.5 5.5l-3.5 5" : "M11 5.5q1.8 2.5 0 5");
   const cards = $("#cards");
   cards.replaceChildren(...game.players.map(p => {
+    p.scoreEl = el("div", { class: "score", text: "0" });
+    p.multEl = el("span", { class: "mult", text: "x1" });
+    p.meterEl = el("i");
     p.card = el("div", { class: "card", style: `--c:${p.color}` },
-      el("div", { class: "card-top" }, el("b", { text: p.name }), el("span", { class: "mult", text: "x1" })),
-      el("div", { class: "score", text: "0" }),
-      el("div", { class: "phrase-meter" }, el("i")),
+      el("div", { class: "card-top" }, el("b", { text: p.name }), p.multEl),
+      p.scoreEl,
+      el("div", { class: "phrase-meter" }, p.meterEl),
       el("div", { class: "pop" }),
       p.detector ? null : el("small", { class: "muted", text: "no mic" })
     );
     return p.card;
   }));
   stage.dataset.players = String(game.players.length);
-  $("#lyric-now").textContent = "";
-  $("#lyric-next").textContent = game.lyrics.length ? "" : "No synced lyrics for this one. Follow the notes!";
+  game.dom = { lyricNow: $("#lyric-now"), lyricNext: $("#lyric-next"), skip: $("#skip"), progress: $("#progress") };
+  game.dom.lyricNow.textContent = "";
+  game.dom.lyricNext.textContent = game.lyrics.length ? "" : "No synced lyrics for this one. Follow the notes!";
 }
 
 function resizeCanvas() {
@@ -2172,6 +2219,12 @@ function resizeCanvas() {
   game.g = canvas.getContext("2d");
   game.g.setTransform(dpr, 0, 0, dpr, 0, 0);
   game.size = { w, h };
+  const nowX = Math.max(64, w * 0.2);
+  const glow = game.g.createLinearGradient(nowX - 14, 0, nowX + 14, 0);
+  glow.addColorStop(0, "rgba(181,101,224,0)");
+  glow.addColorStop(0.5, "rgba(181,101,224,0.45)");
+  glow.addColorStop(1, "rgba(181,101,224,0)");
+  game.nowGlow = glow;
 }
 
 function pill(g, x, y, w, h) {
@@ -2261,8 +2314,12 @@ function draw(t) {
   }
 
   // now line
-  const glow = g.createLinearGradient(nowX - 14, 0, nowX + 14, 0);
-  glow.addColorStop(0, "rgba(181,101,224,0)"); glow.addColorStop(0.5, "rgba(181,101,224,0.45)"); glow.addColorStop(1, "rgba(181,101,224,0)");
+  let glow = game.nowGlow;
+  if (!glow) {
+    glow = g.createLinearGradient(nowX - 14, 0, nowX + 14, 0);
+    glow.addColorStop(0, "rgba(181,101,224,0)"); glow.addColorStop(0.5, "rgba(181,101,224,0.45)"); glow.addColorStop(1, "rgba(181,101,224,0)");
+    game.nowGlow = glow;
+  }
   g.fillStyle = glow; g.fillRect(nowX - 14, top, 28, bottom - top);
   g.fillStyle = "#fff"; g.fillRect(nowX - 1, top, 2, bottom - top);
 
@@ -2301,7 +2358,7 @@ function updateLyrics(lt) {
   for (let k = started ? i + 1 : i; k < lines.length; k++) if (lines[k].text) { next = k; break; }
   if (current < 0 && next >= 0 && lines[next].t - lt > 6) next = -1;
 
-  const nowEl = $("#lyric-now"), nextEl = $("#lyric-next");
+  const nowEl = game.dom?.lyricNow || $("#lyric-now"), nextEl = game.dom?.lyricNext || $("#lyric-next");
   if (game.shownLine !== current) {
     game.shownLine = current;
     const line = lines[current];
@@ -2349,10 +2406,10 @@ function updateHud(t) {
   const ph = phrases[game.phraseIdx];
   game.players.forEach((p, pi) => {
     const card = p.card;
-    if (p.shown.score !== p.score) { p.shown.score = p.score; card.querySelector(".score").textContent = p.score.toLocaleString(); }
+    if (p.shown.score !== p.score) { p.shown.score = p.score; (p.scoreEl || card.querySelector(".score")).textContent = p.score.toLocaleString(); }
     if (p.shown.mult !== p.mult) {
       p.shown.mult = p.mult;
-      const m = card.querySelector(".mult");
+      const m = p.multEl || card.querySelector(".mult");
       m.textContent = `x${p.mult}`;
       m.dataset.level = String(p.mult);
     }
@@ -2366,13 +2423,13 @@ function updateHud(t) {
       }
       live = elapsed > 0 ? clamp((sung / elapsed) * 1.12, 0, 1) : 0;
     }
-    card.querySelector(".phrase-meter i").style.width = `${live * 100}%`;
+    (p.meterEl || card.querySelector(".phrase-meter i")).style.width = `${live * 100}%`;
   });
 
   // skip long intros, breaks and outros
   const heard = playbackTime();
   const nextPh = phrases[game.phraseIdx];
-  const skip = $("#skip");
+  const skip = game.dom?.skip || $("#skip");
   let target = null, label = "";
   if (heard < 0) { /* counting in */ }
   else if (!nextPh) { if (game.audio.duration - heard > 4) { target = "end"; label = "Finish (S)"; } }
@@ -2380,7 +2437,7 @@ function updateHud(t) {
   game.skipTarget = target;
   skip.hidden = target == null || game.paused;
   if (!skip.hidden && skip.textContent !== label) skip.textContent = label;
-  $("#progress").style.width = `${clamp(heard / game.audio.duration, 0, 1) * 100}%`;
+  (game.dom?.progress || $("#progress")).style.width = `${clamp(heard / game.audio.duration, 0, 1) * 100}%`;
 }
 
 function skipAhead() {
@@ -2426,7 +2483,7 @@ function endGame() {
   stopSources();
   game.instGain.disconnect();
   game.guideGain.disconnect();
-  if (audioCtx().state === "suspended") audioCtx().resume();
+  if (audioCtx().state === "suspended") Promise.resolve(audioCtx().resume?.()).catch(() => {});
   try { game.wakeLock?.release(); } catch { /* fine */ }
   $("#pause").hidden = true;
   $("#countdown").textContent = "";
@@ -2601,6 +2658,14 @@ function init() {
   $("#random-next").addEventListener("click", () => { backToSetup(); if (shuffleSong()) startSong(); });
   renderShuffle();
   window.addEventListener("resize", resizeCanvas);
+  window.addEventListener("pagehide", () => {
+    if (state.job) { state.job.cancel(); state.job = null; }
+    if (game) endGame();
+    for (const det of mics.detectors) det?.stop();
+    mics.detectors = [];
+    try { Promise.resolve(audioContext?.close?.()).catch(() => {}); } catch {}
+    audioContext = null;
+  });
   window.addEventListener("yeatle:banned", () => { if (state.job) state.job.cancel(); if (game) { game.ranked = null; endGame(); } });
   document.addEventListener("visibilitychange", () => { if (document.hidden) setPaused(true); else scheduleMeters(); });
   document.addEventListener("keydown", e => {

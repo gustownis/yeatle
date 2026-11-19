@@ -23,6 +23,7 @@ function createAudioCache({
   const retryAfter = new Map(); // key -> time, for files that couldn't be kept
   let retained = 0;
   let prepared = false;
+  let fileSeq = 0;
 
   const fileFor = key => path.join(dir, crypto.createHash("sha256").update(key).digest("hex"));
 
@@ -59,15 +60,21 @@ function createAudioCache({
       throw new Error(`not cacheable (HTTP ${upstream.statusCode}, ${declared} bytes)`);
     }
     prepare();
-    const file = fileFor(key);
+    const file = `${fileFor(key)}.${++fileSeq}`;
     const temp = `${file}.part`;
     const deadline = setTimeout(() => upstream.destroy(new Error("download timed out")), downloadMs);
     deadline.unref();
-    let size = 0, head = null;
+    let size = 0;
+    const headChunks = [];
+    let headLen = 0;
     try {
       await pipeline(upstream, async function* (source) {
         for await (const chunk of source) {
-          head ||= chunk;
+          if (headLen < 32) {
+            const slice = chunk.subarray(0, 32 - headLen);
+            headChunks.push(slice);
+            headLen += slice.length;
+          }
           size += chunk.length;
           if (size > maxFileBytes) throw new Error("file is too large to cache");
           yield chunk;
@@ -81,6 +88,7 @@ function createAudioCache({
     } finally {
       clearTimeout(deadline);
     }
+    const head = headChunks.length ? Buffer.concat(headChunks, headLen) : null;
     const type = detectType(head) || (/^(audio|video)\//i.test(contentType) ? contentType : "audio/mpeg");
     remove(key);
     entries.set(key, { file, size, type, expires: now() + ttlMs });
@@ -90,7 +98,12 @@ function createAudioCache({
 
   // Starts keeping a copy in the background. open() resolves to the host's full response.
   function fill(key, open) {
-    if (entries.has(key) || downloads.has(key) || downloads.size >= maxDownloads) return downloads.get(key) || null;
+    const existing = entries.get(key);
+    if (existing) {
+      if (existing.expires > now()) return null;
+      remove(key);
+    }
+    if (downloads.has(key) || downloads.size >= maxDownloads) return downloads.get(key) || null;
     if (retryAfter.get(key) > now()) return null;
     retryAfter.delete(key);
     const job = download(key, open).catch(error => {

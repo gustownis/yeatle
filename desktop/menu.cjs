@@ -7,6 +7,7 @@ function menuTemplate({ platform, openBrowser, openSongs, openSettings, openAdmi
       { label: "Open Settings and Logs Folder", click: openSettings },
       { type: "separator" }, { role: "quit" }
     ] },
+    ...(platform === "darwin" ? [{ role: "editMenu" }] : []),
     { label: "View", submenu: [
       { role: "reload" }, { role: "forceReload" }, { type: "separator" },
       { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" },

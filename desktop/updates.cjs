@@ -4,19 +4,26 @@ const { checkRelease, installMode, selectAsset, downloadAsset, RELEASES_URL } = 
 
 function createUpdateController({ app, dialog, shell, getWindow, onStatus = () => {} }) {
   let busy = false;
+  let installing = false;
   let status = "Check for Updates";
   let readyUpdater;
   let updateVersion;
   const mode = installMode(process.platform, process.env, app.isPackaged);
-  const setStatus = text => { status = text; onStatus(); };
+  const setStatus = text => { if (text === status) return; status = text; onStatus(); };
   const message = options => {
     const window = getWindow();
     return window && !window.isDestroyed() ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options);
   };
 
   async function installReady() {
-    const { response } = await message({ type: "info", title: "Yeatle update ready", message: `Yeatle ${updateVersion} is ready to install.`, detail: "Yeatle will close, apply the update, and restart. Your settings, songs, and progress are kept.", buttons: ["Install and Restart", "Later"], defaultId: 0, cancelId: 1 });
-    if (response === 0) readyUpdater.quitAndInstall(true, true);
+    if (installing || !readyUpdater) return;
+    installing = true;
+    try {
+      const { response } = await message({ type: "info", title: "Yeatle update ready", message: `Yeatle ${updateVersion} is ready to install.`, detail: "Yeatle will close, apply the update, and restart. Your settings, songs, and progress are kept.", buttons: ["Install and Restart", "Later"], defaultId: 0, cancelId: 1 });
+      if (response === 0 && readyUpdater) readyUpdater.quitAndInstall(true, true);
+    } finally {
+      installing = false;
+    }
   }
 
   async function nativeUpdate(release, asset) {

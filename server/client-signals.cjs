@@ -61,22 +61,39 @@ function createSignalHasher(secret) {
 
 // Sliding-window counters kept in memory. A restart forgets them, which only ever
 // loosens a limit for a moment.
-function createRateLimiter() {
+function createRateLimiter({ maxEntries = 50000 } = {}) {
   const hits = new Map();
   let sweeps = 0;
+  function prune(now) {
+    for (const [k, entry] of hits) {
+      const list = entry.list;
+      if (!list.length || list[list.length - 1] <= now - entry.windowMs) hits.delete(k);
+    }
+  }
   function take(bucket, key, limit, windowMs, now = Date.now()) {
     if (!key) return true;
     const id = `${bucket}\n${key}`;
-    const list = (hits.get(id) || []).filter(at => at > now - windowMs);
-    if (list.length >= limit) { hits.set(id, list); return false; }
-    list.push(now);
-    hits.set(id, list);
-    if (++sweeps % 1000 === 0) {
-      for (const [k, v] of hits) if (!v.length || v[v.length - 1] < now - 86400000) hits.delete(k);
+    const prev = hits.get(id);
+    const list = (prev ? prev.list : []).filter(at => at > now - windowMs);
+    const keepWindow = prev ? Math.max(prev.windowMs, windowMs) : windowMs;
+    if (++sweeps % 500 === 0) prune(now);
+    const saveEntry = nextList => {
+      if (!hits.has(id) && hits.size >= maxEntries) {
+        prune(now);
+        while (hits.size >= maxEntries) hits.delete(hits.keys().next().value);
+      }
+      hits.delete(id);
+      hits.set(id, { list: nextList, windowMs: keepWindow });
+    };
+    if (list.length >= limit) {
+      if (list.length) saveEntry(list); else hits.delete(id);
+      return false;
     }
+    list.push(now);
+    saveEntry(list);
     return true;
   }
-  return { take };
+  return { take, get size() { return hits.size; } };
 }
 
 module.exports = { DEVICE_HEADER, cleanDeviceId, clientIp, normalIp, loadSecret, createSignalHasher, createRateLimiter };

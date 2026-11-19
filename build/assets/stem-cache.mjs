@@ -20,16 +20,38 @@ export function canCacheStems(context) {
 
 function open() {
   if (!globalThis.indexedDB) return Promise.resolve(null);
-  return database || (database = new Promise(resolve => {
+  if (database) return database;
+  const promise = new Promise(resolve => {
+    let settled = false;
+    const finish = db => {
+      if (settled) return false;
+      settled = true;
+      resolve(db);
+      return true;
+    };
+    const reset = () => { if (database === promise) database = null; };
     const request = indexedDB.open(DB_NAME, 1);
     request.onupgradeneeded = () => {
       request.result.createObjectStore("entries", { keyPath: "key" });
       const chunks = request.result.createObjectStore("chunks", { keyPath: "id" });
       chunks.createIndex("owner", "owner");
     };
-    request.onsuccess = () => { const db = request.result; db.onversionchange = () => { db.close(); database = null; }; resolve(db); };
-    request.onerror = request.onblocked = () => { database = null; resolve(null); };
-  }));
+    request.onsuccess = () => {
+      const db = request.result;
+      if (!finish(db)) {
+        try { db.close(); } catch {}
+        return;
+      }
+      db.onversionchange = () => { reset(); try { db.close(); } catch {} };
+      db.onclose = reset;
+    };
+    request.onerror = request.onblocked = () => {
+      reset();
+      finish(null);
+    };
+  });
+  database = promise;
+  return promise;
 }
 
 function transaction(db, stores, mode, execute) {
@@ -115,10 +137,12 @@ export async function loadStems(key, buffers, total, isCancelled = () => false) 
     if (status === "invalid") return discard(db, key);
     if (status !== "hit" || isCancelled()) return false;
     buffers = null;
-    await transaction(db, ["entries"], "readwrite", tx => {
-      const store = tx.objectStore("entries"), request = store.get(key);
-      request.onsuccess = () => { if (request.result?.complete) store.put({ ...request.result, lastUsed: Date.now() }); };
-    });
+    try {
+      await transaction(db, ["entries"], "readwrite", tx => {
+        const store = tx.objectStore("entries"), request = store.get(key);
+        request.onsuccess = () => { if (request.result?.complete) store.put({ ...request.result, lastUsed: Date.now() }); };
+      });
+    } catch (_) {}
     return true;
   } catch (_) { return false; }
 }
@@ -126,7 +150,7 @@ export async function loadStems(key, buffers, total, isCancelled = () => false) 
 export async function saveStems(key, buffers, total, isCancelled = () => false) {
   const bytes = total * STEMS.length * 4;
   if (!key || !total || bytes > MAX_ENTRY_BYTES || isCancelled()) return false;
-  let db;
+  let db, reserved = false;
   try {
     db = await open();
     if (!db || isCancelled()) return false;
@@ -151,6 +175,7 @@ export async function saveStems(key, buffers, total, isCancelled = () => false) 
     });
     if (reservation === "exists") return true;
     if (!reservation) return false;
+    reserved = true;
     // Each transaction copies at most 6 MiB, avoiding a second whole-song copy.
     const chunkCount = Math.ceil(total / CHUNK_SAMPLES);
     for (let index = 0; index < chunkCount; index++) {
@@ -165,7 +190,7 @@ export async function saveStems(key, buffers, total, isCancelled = () => false) 
     return true;
   } catch (_) {
     buffers = null;
-    if (db) try { await transaction(db, ["entries", "chunks"], "readwrite", tx => erase(tx, key)); } catch (_) {}
+    if (db && reserved) try { await transaction(db, ["entries", "chunks"], "readwrite", tx => erase(tx, key)); } catch (_) {}
     return false;
   }
 }

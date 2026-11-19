@@ -124,19 +124,55 @@ async function sameFiles(dir, files) {
   } catch { return false; }
 }
 
-const wait = (ms, signal) => new Promise((resolve, reject) => {
-  const timer = setTimeout(resolve, ms);
-  signal?.addEventListener("abort", () => { clearTimeout(timer); reject(abortError()); }, { once: true });
-});
+const wait = (ms, signal) => {
+  if (signal?.aborted) return Promise.reject(abortError());
+  return new Promise((resolve, reject) => {
+    const onAbort = () => { clearTimeout(timer); reject(abortError()); };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+};
 const abortError = () => Object.assign(new Error("cancelled"), { name: "AbortError" });
+
+function closeStream(out, destroy = false) {
+  return new Promise((resolve, reject) => {
+    if (out.closed || out.destroyed) { resolve(); return; }
+    let settled = false;
+    const finish = err => {
+      if (settled) return;
+      settled = true;
+      out.off("close", onClose);
+      out.off("error", onError);
+      if (err && !destroy) reject(err);
+      else resolve();
+    };
+    const onClose = () => finish();
+    const onError = err => finish(err);
+    out.once("close", onClose);
+    out.once("error", onError);
+    if (destroy) out.destroy();
+    else out.end();
+  });
+}
 
 function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, localSongs = async () => new Map(), rescan = async () => {}, concurrency = 2, retries = 4, retryDelay = 1500, timeout = 30000 }) {
   const items = new Map();
   let catalog = { songs: [], skipped: 0, pending: 0, error: "", loading: false, loaded: false };
-  let active = 0, changeTimer = null;
+  let active = 0, changeTimer = null, cleanupPromise = null;
   const queue = [];
   const controllers = new Map();
+  const idLocks = new Map();
   const tempRoot = path.join(songsDir, TEMP);
+
+  const withIdLock = (id, fn) => {
+    const prev = idLocks.get(id) || Promise.resolve();
+    const next = prev.then(fn, fn).finally(() => { if (idLocks.get(id) === next) idLocks.delete(id); });
+    idLocks.set(id, next);
+    return next;
+  };
 
   const changed = () => {
     if (changeTimer) return;
@@ -151,18 +187,35 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
 
   // Anything left in the temporary folder is from an earlier run that never finished.
   async function cleanupStale() {
-    if (active) return;
-    await fsp.rm(tempRoot, { recursive: true, force: true }).catch(() => {});
+    if (active || controllers.size) return;
+    if (!cleanupPromise) {
+      cleanupPromise = fsp.rm(tempRoot, { recursive: true, force: true }).catch(() => {}).finally(() => { cleanupPromise = null; });
+    }
+    await cleanupPromise;
   }
 
   async function request(url, signal) {
+    if (signal?.aborted) throw abortError();
     const ctrl = new AbortController();
     const stop = () => ctrl.abort();
+    let timer;
+    const touch = () => { clearTimeout(timer); timer = setTimeout(stop, timeout); };
     signal?.addEventListener("abort", stop, { once: true });
-    const timer = setTimeout(stop, timeout);
-    try { return await fetch(url, { signal: ctrl.signal, headers: { accept: "*/*" } }); }
-    catch (err) { if (signal?.aborted) throw abortError(); throw new Error(ctrl.signal.aborted ? "the server took too long to answer" : `couldn't reach the server (${err.cause?.code || err.message})`); }
-    finally { clearTimeout(timer); signal?.removeEventListener("abort", stop); }
+    touch();
+    try {
+      const res = await fetch(url, { signal: ctrl.signal, headers: { accept: "*/*" } });
+      return {
+        res,
+        ctrl,
+        touch,
+        done: () => { clearTimeout(timer); signal?.removeEventListener("abort", stop); }
+      };
+    } catch (err) {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", stop);
+      if (signal?.aborted) throw abortError();
+      throw new Error(ctrl.signal.aborted ? "the server took too long to answer" : `couldn't reach the server (${err.cause?.code || err.message})`);
+    }
   }
 
   async function refreshInstalled() {
@@ -183,16 +236,20 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
   async function loadCatalog() {
     catalog = { ...catalog, loading: true, error: "" };
     changed();
+    let req;
     try {
-      const res = await request(`${host}/api/stems/catalog`);
+      req = await request(`${host}/api/stems/catalog`);
+      const { res } = req;
       if (res.status === 404) throw new Error("This server doesn't offer HQ stem downloads.");
       if (!res.ok) throw new Error(`the server answered ${res.status}`);
       const data = validateCatalog(await res.json());
+      req.done();
+      req = null;
       catalog = { ...data, error: "", loading: false, loaded: true };
       await refreshInstalled();
     } catch (err) {
       catalog = { ...catalog, loading: false, error: err.message.startsWith("This server") ? err.message : `Couldn't load the song list: ${err.message}.` };
-    }
+    } finally { req?.done(); }
     changed();
     return snapshot();
   }
@@ -221,23 +278,27 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
   async function fetchFile(song, file, dir, signal, progress) {
     const url = `${host}/api/stems/file?id=${encodeURIComponent(song.id)}&name=${encodeURIComponent(file.name)}`;
     for (let attempt = 0; ; attempt++) {
-      let res;
-      try { res = await request(url, signal); }
+      let req;
+      try { req = await request(url, signal); }
       catch (err) { if (err.name === "AbortError" || attempt >= retries) throw err; await wait(retryDelay * (attempt + 1), signal); continue; }
+      const { res, ctrl, touch, done } = req;
       if (res.status === 503 && attempt < retries) {
         const after = Number(res.headers.get("retry-after"));
         await res.body?.cancel?.().catch(() => {});
+        done();
         await wait(Number.isFinite(after) && after > 0 ? Math.min(after, 30) * 1000 : retryDelay * (attempt + 1), signal);
         continue;
       }
       const discardBody = () => res.body?.cancel?.().catch(() => {});
       if (!res.ok) {
         await discardBody();
+        done();
         throw new Error(res.status === 409 ? "a file changed on the server; reload the list and retry" : `the server answered ${res.status} for ${file.name}`);
       }
       const declared = Number(res.headers.get("content-length"));
       if (Number.isFinite(declared) && declared > 0 && declared !== file.size) {
         await discardBody();
+        done();
         throw new Error(`${file.name} has the wrong size on the server`);
       }
       const part = path.join(dir, `${file.name}.part`);
@@ -248,6 +309,7 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
       let bytes = 0, head = Buffer.alloc(0);
       try {
         for await (const chunk of res.body) {
+          touch();
           if (signal.aborted) throw abortError();
           if (writeError) throw writeError;
           const buf = Buffer.from(chunk);
@@ -256,20 +318,25 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
           if (head.length < 3) head = Buffer.concat([head, buf.subarray(0, 3)]).subarray(0, 3);
           hash.update(buf);
           if (!out.write(buf)) await new Promise((resolve, reject) => {
-            out.once("drain", resolve);
-            out.once("error", reject);
+            const onDrain = () => { out.off("error", onErr); resolve(); };
+            const onErr = err => { out.off("drain", onDrain); reject(err); };
+            out.once("drain", onDrain);
+            out.once("error", onErr);
           });
           progress(buf.length);
         }
-        await new Promise((resolve, reject) => out.end(err => (err ? reject(err) : resolve())));
+        await closeStream(out);
         if (writeError) throw writeError;
       } catch (err) {
-        out.destroy();
+        await closeStream(out, true);
         progress(-bytes);
-        if (err.name === "AbortError" || signal.aborted) throw abortError();
-        if (/bigger than/.test(err.message) || attempt >= retries) throw err;
+        if (signal.aborted) throw abortError();
+        const cause = err.name === "AbortError" && ctrl.signal.aborted ? new Error("the server took too long to answer") : err;
+        if (/bigger than/.test(cause.message) || attempt >= retries) throw cause;
         await wait(retryDelay * (attempt + 1), signal);
         continue;
+      } finally {
+        done();
       }
       const ok = bytes === file.size && hash.digest("hex") === file.sha256 && (!file.name.endsWith(".mp3") || isMp3Head(head));
       if (!ok) {
@@ -284,13 +351,19 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
   }
 
   async function run(id) {
-    const song = catalog.songs.find(s => s.id === id);
     const ctrl = new AbortController();
     controllers.set(id, ctrl);
     const dir = path.join(tempRoot, `${crypto.randomBytes(6).toString("hex")}`);
     let received = 0;
-    set(id, { status: "downloading", received: 0, total: song.size, error: "", note: "", temp: null });
     try {
+      const song = catalog.songs.find(s => s.id === id);
+      if (!song) {
+        set(id, { status: "idle", received: 0, error: "", note: "", temp: null });
+        return;
+      }
+      set(id, { status: "downloading", received: 0, total: song.size, error: "", note: "", temp: null });
+      if (cleanupPromise) await cleanupPromise;
+      if (ctrl.signal.aborted) throw abortError();
       await fsp.mkdir(dir, { recursive: true });
       // stems first, the small extras last
       const ordered = song.files.slice().sort((a, b) => Number(!a.name.endsWith(".mp3")) - Number(!b.name.endsWith(".mp3")));
@@ -342,34 +415,41 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
   }
 
   async function replace(id) {
-    const item = items.get(id), song = catalog.songs.find(s => s.id === id);
-    if (!song || item?.status !== "conflict" || !item.temp) return snapshot();
-    const existing = findLocalFolder(songsDir, song.folder);
-    try {
-      if (existing) {
-        const aside = path.join(songsDir, REPLACED, `${existing.name} (${new Date().toISOString().replace(/[:.]/g, "-")})`);
-        await fsp.mkdir(path.dirname(aside), { recursive: true });
-        await fsp.rename(existing.dir, aside);
+    return withIdLock(id, async () => {
+      const item = items.get(id), song = catalog.songs.find(s => s.id === id);
+      if (!song || item?.status !== "conflict" || !item.temp) return snapshot();
+      const existing = findLocalFolder(songsDir, song.folder);
+      let movedOld = null;
+      try {
+        if (existing) {
+          const aside = path.join(songsDir, REPLACED, `${existing.name} (${new Date().toISOString().replace(/[:.]/g, "-")})`);
+          await fsp.mkdir(path.dirname(aside), { recursive: true });
+          await fsp.rename(existing.dir, aside);
+          movedOld = aside;
+        }
+        await fsp.rename(item.temp, path.join(songsDir, song.folder));
+        set(id, { status: "installed", temp: null, note: existing ? `Your old folder was moved to ${REPLACED} in your Songs folder.` : "" });
+        await finishInstall(id);
+      } catch (err) {
+        if (movedOld && existing) await fsp.rename(movedOld, existing.dir).catch(() => {});
+        set(id, { error: `Couldn't replace it (${err.code || err.message}).` });
       }
-      await fsp.rename(item.temp, path.join(songsDir, song.folder));
-      set(id, { status: "installed", temp: null, note: existing ? `Your old folder was moved to ${REPLACED} in your Songs folder.` : "" });
-      await finishInstall(id);
-    } catch (err) {
-      set(id, { error: `Couldn't replace it (${err.code || err.message}).` });
-    }
-    return snapshot();
+      return snapshot();
+    });
   }
 
   async function cancel(id) {
-    const item = items.get(id);
-    if (!item) return snapshot();
-    if (item.status === "queued") { const i = queue.indexOf(id); if (i >= 0) queue.splice(i, 1); set(id, { status: "cancelled", received: 0 }); }
-    else if (controllers.has(id)) controllers.get(id).abort();
-    else if (item.status === "conflict") {
-      if (item.temp) await fsp.rm(item.temp, { recursive: true, force: true }).catch(() => {});
-      set(id, { status: "idle", temp: null, note: "Kept your folder." });
-    }
-    return snapshot();
+    return withIdLock(id, async () => {
+      const item = items.get(id);
+      if (!item) return snapshot();
+      if (item.status === "queued") { const i = queue.indexOf(id); if (i >= 0) queue.splice(i, 1); set(id, { status: "cancelled", received: 0 }); }
+      else if (controllers.has(id)) controllers.get(id).abort();
+      else if (item.status === "conflict") {
+        if (item.temp) await fsp.rm(item.temp, { recursive: true, force: true }).catch(() => {});
+        set(id, { status: "idle", temp: null, note: "Kept your folder." });
+      }
+      return snapshot();
+    });
   }
 
   async function cancelAll() {

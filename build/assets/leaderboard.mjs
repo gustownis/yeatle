@@ -302,8 +302,10 @@ export const snippetRounds = {
   async act(song, kind, text = "") {
     if (roundBusy) return null;
     roundBusy = true;
+    const ticket = roundTicket;
     try {
-      return await requestJson("api/account/round/act", { method: "POST", body: { roundId: song.roundId, kind, text } });
+      const res = await requestJson("api/account/round/act", { method: "POST", body: { roundId: song.roundId, kind, text } });
+      return roundTicket === ticket ? res : null;
     } finally {
       roundBusy = false;
     }
@@ -314,6 +316,8 @@ export const snippetRounds = {
     Object.assign(song, result.hints || {});
     if (!result.song) return;
     Object.assign(song, result.song);
+    if (result.song.audioId) song.audioId = result.song.audioId;
+    else if (typeof song.audioId === "string" && song.audioId.startsWith("round-")) delete song.audioId;
     if (result.song.folder) delete song.stemBase;
     delete song.roundId;
     if (recent) recent.current = [song.id, ...recent.current.filter(id => id !== song.id)].slice(0, 20);
@@ -536,11 +540,14 @@ function defaultBoardForPage() {
 function initLeaderboardUI() {
   if (typeof document === "undefined" || !document.body) return;
 
-  const originalSetItem = Storage.prototype.setItem;
-  const rawSetItem = originalSetItem.bind(localStorage);
+  let storage = null;
+  try { storage = window.localStorage; } catch {}
+  const originalSetItem = storage ? Storage.prototype.setItem : null;
+  const rawSetItem = originalSetItem && storage ? originalSetItem.bind(storage) : () => {};
   // Earlier versions saved the per-window song list here by mistake; it belongs in sessionStorage.
-  try { localStorage.removeItem("yeatle:song-list"); } catch {}
-  let accountState = safeJsonParse(localStorage.getItem(ACCOUNT_KEY), null);
+  try { storage?.removeItem("yeatle:song-list"); } catch {}
+  let accountState = storage ? safeJsonParse(storage.getItem(ACCOUNT_KEY), null) : null;
+  let authEpoch = 0;
   let activeBoard = defaultBoardForPage();
   let leaderboardData = null;
   let isOpen = false;
@@ -583,8 +590,8 @@ function initLeaderboardUI() {
   function saveAccountState(next) {
     accountState = next;
     try {
-      if (next) rawSetItem(ACCOUNT_KEY, JSON.stringify(next));
-      else localStorage.removeItem(ACCOUNT_KEY);
+      if (storage && next) rawSetItem(ACCOUNT_KEY, JSON.stringify(next));
+      else storage?.removeItem(ACCOUNT_KEY);
     } catch {}
     renderTriggerButton();
   }
@@ -594,7 +601,7 @@ function initLeaderboardUI() {
     // accountState is refreshed by every sync, login and leaderboard load, so it is never
     // older than the cached leaderboard (which is only reloaded when the popup opens).
     if (accountState?.token) return accountState.dailyStreak || 0;
-    return computeLocalDailyStreak(localStorage);
+    return computeLocalDailyStreak(storage);
   }
 
   // Trigger button mounted in header
@@ -694,28 +701,44 @@ function initLeaderboardUI() {
   }
 
   window.addEventListener("yeatle:banned", () => {
+    authEpoch++;
     accountState = null;
     clearTimeout(syncTimer);
     closeModal();
     triggerBtn.remove();
   });
 
+  window.addEventListener("storage", e => {
+    if (e.key !== ACCOUNT_KEY) return;
+    authEpoch++;
+    clearTimeout(syncTimer);
+    accountState = safeJsonParse(e.newValue, null);
+    renaming = false;
+    blockedNoticeShown = false;
+    renderTriggerButton();
+    if (isOpen) renderModal();
+  });
+
   async function refreshLeaderboard(syncFirst = false) {
+    const epoch = authEpoch;
     try {
       if (syncFirst && accountState?.token) {
         await syncNow(true);
+        if (epoch !== authEpoch) return;
       }
       const data = await apiCall("api/leaderboard", "GET");
+      if (epoch !== authEpoch) return;
       leaderboardData = data;
       if (data.viewer) {
         rememberAccount(data.viewer);
-        if (applyServerProgress(data.viewer.progress, localStorage, rawSetItem)) {
+        if (storage && applyServerProgress(data.viewer.progress, storage, rawSetItem)) {
           window.dispatchEvent(new CustomEvent("yeatle:progress-synced"));
         }
       }
       if (isOpen) renderModal();
       renderTriggerButton();
     } catch (err) {
+      if (epoch !== authEpoch) return;
       if (isOpen) {
         statusError = true;
         statusMessage = err.message || "Couldn't load leaderboard.";
@@ -725,13 +748,16 @@ function initLeaderboardUI() {
   }
 
   async function syncNow(silent = false) {
-    if (!accountState?.token) return;
+    const token = accountState?.token;
+    if (!token || !storage) return;
+    const epoch = authEpoch;
     try {
-      const progress = collectLocalProgress(localStorage);
-      const res = await apiCall("api/account/sync", "POST", { progress });
+      const progress = collectLocalProgress(storage);
+      const res = await requestJson("api/account/sync", { method: "POST", body: { progress }, token });
+      if (epoch !== authEpoch) return;
       if (res.account) {
         rememberAccount(res.account);
-        if (applyServerProgress(res.account.progress, localStorage, rawSetItem)) {
+        if (applyServerProgress(res.account.progress, storage, rawSetItem)) {
           window.dispatchEvent(new CustomEvent("yeatle:progress-synced"));
         }
       }
@@ -741,7 +767,9 @@ function initLeaderboardUI() {
         await refreshLeaderboard(false);
       }
     } catch (err) {
+      if (epoch !== authEpoch) return;
       if (err.message && /expired|log in/i.test(err.message)) {
+        authEpoch++;
         saveAccountState(null);
       }
       if (!silent) {
@@ -755,16 +783,20 @@ function initLeaderboardUI() {
   async function handleAuth(kind, username, password) {
     if (busyAuth) return;
     busyAuth = true;
+    const epoch = ++authEpoch;
+    clearTimeout(syncTimer);
     statusMessage = "";
     statusError = false;
     renderModal();
     try {
-      const progress = collectLocalProgress(localStorage);
+      const progress = storage ? collectLocalProgress(storage) : { completed: {}, stats: {}, prestige: 0, daily: {}, karaoke: {} };
       const endpoint = kind === "register" ? "api/account/register" : "api/account/login";
-      const res = await apiCall(endpoint, "POST", { username, password, progress });
+      const res = await requestJson(endpoint, { method: "POST", body: { username, password, progress }, token: "" });
+      if (epoch !== authEpoch) return;
+      authEpoch++;
       accountState = null;
       rememberAccount(res.account, { token: res.token });
-      if (applyServerProgress(res.account.progress, localStorage, rawSetItem)) {
+      if (storage && applyServerProgress(res.account.progress, storage, rawSetItem)) {
         window.dispatchEvent(new CustomEvent("yeatle:progress-synced"));
       }
       statusError = false;
@@ -773,6 +805,7 @@ function initLeaderboardUI() {
         : `Welcome back, ${res.account.username}! Progress synced.`;
       await refreshLeaderboard(false);
     } catch (err) {
+      if (epoch !== authEpoch) return;
       statusError = true;
       statusMessage = err.message || "Authentication failed.";
     } finally {
@@ -785,17 +818,23 @@ function initLeaderboardUI() {
   async function handleRename(username) {
     if (busyAuth) return;
     busyAuth = true;
+    const epoch = authEpoch;
     statusMessage = "";
     statusError = false;
     renderModal();
     try {
       const res = await apiCall("api/account/rename", "POST", { username });
+      if (epoch !== authEpoch) return;
       renaming = false;
       rememberAccount(res.account);
       statusMessage = `Username changed to ${res.account.username}.`;
       await refreshLeaderboard(false);
     } catch (err) {
-      if (err.message && /expired|log in/i.test(err.message)) saveAccountState(null);
+      if (epoch !== authEpoch) return;
+      if (err.message && /expired|log in/i.test(err.message)) {
+        authEpoch++;
+        saveAccountState(null);
+      }
       statusError = true;
       statusMessage = err.message || "Couldn't change your username.";
     } finally {
@@ -805,15 +844,25 @@ function initLeaderboardUI() {
   }
 
   async function handleLogout() {
-    try {
-      if (accountState?.token) await apiCall("api/account/logout", "POST", {});
-    } catch {}
+    if (busyAuth) return;
+    busyAuth = true;
+    authEpoch++;
+    clearTimeout(syncTimer);
+    const oldToken = accountState?.token || "";
     saveAccountState(null);
     renaming = false;
     blockedNoticeShown = false;
     statusError = false;
     statusMessage = "Logged out on this device.";
-    await refreshLeaderboard(false);
+    if (isOpen) renderModal();
+    try {
+      if (oldToken) await requestJson("api/account/logout", { method: "POST", body: {}, token: oldToken }).catch(() => {});
+      await refreshLeaderboard(false);
+    } finally {
+      busyAuth = false;
+      if (isOpen) renderModal();
+      renderTriggerButton();
+    }
   }
 
   function renderModal() {
@@ -1122,23 +1171,32 @@ function initLeaderboardUI() {
   // Intercept localStorage writes so progress syncs automatically when a round finishes.
   // Write to the storage that was called: sessionStorage shares this prototype, and
   // sending its writes to localStorage lost the game's saved song list between pages.
-  Storage.prototype.setItem = function (key, value) {
-    // Stems and Snippets rounds are announced as they're saved, so Wrapped (wrapped.mjs)
-    // can note each finished round without patching anything else.
-    const roundKey = this === localStorage && typeof key === "string" && key.startsWith("yeatle:round:");
-    const before = roundKey ? this.getItem(key) : null;
-    originalSetItem.call(this, key, value);
-    if (roundKey) {
-      try { window.dispatchEvent(new CustomEvent("yeatle:round-saved", { detail: { key, before, value: String(value) } })); } catch { /* Wrapped is optional */ }
-    }
-    if (this === localStorage && typeof key === "string" && (key.startsWith("yeatle:completed") || key.startsWith("yeatle:stats") || key === "yeatle:prestige" || key.startsWith("yeatle:daily:") || key.startsWith("yeatle-karaoke-best:"))) {
-      renderTriggerButton();
-      if (accountState?.token && !bannedShown) {
-        clearTimeout(syncTimer);
-        syncTimer = setTimeout(() => syncNow(true), 800);
+  if (storage && originalSetItem) {
+    Storage.prototype.setItem = function (key, value) {
+      // Stems and Snippets rounds are announced as they're saved, so Wrapped (wrapped.mjs)
+      // can note each finished round without patching anything else.
+      const tracked = this === storage && typeof key === "string";
+      const roundKey = tracked && key.startsWith("yeatle:round:");
+      const progressKey = tracked && (key.startsWith("yeatle:completed") || key.startsWith("yeatle:stats") || key === "yeatle:prestige" || key.startsWith("yeatle:daily:") || key.startsWith("yeatle-karaoke-best:"));
+      let before = null;
+      if (roundKey || progressKey) {
+        try { before = this.getItem(key); } catch {}
       }
-    }
-  };
+      const nextStr = String(value);
+      originalSetItem.call(this, key, value);
+      if (before === nextStr) return;
+      if (roundKey) {
+        try { window.dispatchEvent(new CustomEvent("yeatle:round-saved", { detail: { key, before, value: nextStr } })); } catch { /* Wrapped is optional */ }
+      }
+      if (progressKey) {
+        renderTriggerButton();
+        if (accountState?.token && !bannedShown) {
+          clearTimeout(syncTimer);
+          syncTimer = setTimeout(() => syncNow(true), 800);
+        }
+      }
+    };
+  }
 
   renderTriggerButton();
   ensureTriggerMounted();
@@ -1162,6 +1220,7 @@ function initLeaderboardUI() {
   setInterval(async () => {
     if (bannedShown || liveBusy || document.hidden || busyAuth) return;
     liveBusy = true;
+    const epoch = authEpoch;
     try {
       const typing = isOpen && modal.contains(document.activeElement) && document.activeElement.tagName === "INPUT";
       if (isOpen && !typing) {
@@ -1170,7 +1229,7 @@ function initLeaderboardUI() {
       } else if (!isOpen && accountState?.token && Date.now() - lastAccountCheck >= ACCOUNT_CHECK_MS) {
         lastAccountCheck = Date.now();
         const res = await apiCall("api/account/me", "GET");
-        if (res.account) rememberAccount(res.account);
+        if (epoch === authEpoch && res.account) rememberAccount(res.account);
       }
     } catch {
       // A missed check is retried on the next tick.

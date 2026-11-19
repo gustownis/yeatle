@@ -15,28 +15,36 @@ const FILES = {
 
 const read = file => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const own = (obj, key) => Boolean(obj && Object.prototype.hasOwnProperty.call(obj, key));
 const resolveRead = (dir, name) => {
   const inData = path.join(dir, "data", name);
   return fs.existsSync(inData) ? inData : path.join(dir, name);
 };
 const resolveTarget = (dir, name) => {
   const dataDir = path.join(dir, "data");
-  return fs.existsSync(dataDir) && !fs.existsSync(path.join(dir, name))
-    ? path.join(dataDir, name)
-    : path.join(dir, name);
+  return fs.existsSync(dataDir) ? path.join(dataDir, name) : path.join(dir, name);
 };
 
 function mergeMaps(base, local, upstream) {
-  const result = { ...upstream };
-  for (const [key, value] of Object.entries(local)) if (!same(value, base[key])) result[key] = value;
-  for (const key of Object.keys(base)) if (!(key in local)) delete result[key];
-  return result;
+  const result = Object.create(null);
+  for (const [key, value] of Object.entries(upstream || {})) result[key] = value;
+  for (const [key, value] of Object.entries(local || {})) {
+    if (!own(base, key) || !same(value, base[key])) result[key] = value;
+  }
+  for (const key of Object.keys(base || {})) if (!own(local, key)) delete result[key];
+  return Object.fromEntries(Object.entries(result));
 }
 
 function mergeLists(base, local, upstream, key) {
-  const map = list => new Map(list.filter(entry => key(entry)).map(entry => [key(entry), entry]));
-  const merged = mergeMaps(Object.fromEntries(map(base)), Object.fromEntries(map(local)), Object.fromEntries(map(upstream)));
-  return Object.values(merged);
+  const toMap = list => new Map(list.filter(entry => key(entry)).map(entry => [key(entry), entry]));
+  const baseMap = toMap(base);
+  const localMap = toMap(local);
+  const result = toMap(upstream);
+  for (const [k, value] of localMap) {
+    if (!baseMap.has(k) || !same(value, baseMap.get(k))) result.set(k, value);
+  }
+  for (const k of baseMap.keys()) if (!localMap.has(k)) result.delete(k);
+  return [...result.values()];
 }
 
 function mergeCuration(baseDir, localDir, targetDir) {

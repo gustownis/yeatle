@@ -415,10 +415,29 @@ function readJsonFile(file, fallback) {
   }
 }
 
+function writeTextFile(file, text) {
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(temp, text);
+    fs.renameSync(temp, file);
+  } catch (err) {
+    try { fs.rmSync(temp, { force: true }); } catch {}
+    throw err;
+  }
+}
+
 function writeJsonFile(file, value) {
-  const temp = `${file}.tmp`;
-  fs.writeFileSync(temp, JSON.stringify(value));
-  fs.renameSync(temp, file);
+  writeTextFile(file, JSON.stringify(value));
+}
+
+const own = (obj, key) => Boolean(obj && Object.prototype.hasOwnProperty.call(obj, key));
+
+function toNullMap(obj) {
+  const out = Object.create(null);
+  if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+    for (const [key, value] of Object.entries(obj)) out[key] = value;
+  }
+  return out;
 }
 
 const SAVE_DELAY_MS = 1200;
@@ -462,7 +481,7 @@ function createStateSaver(file, snapshot, delayMs) {
     dirty = false;
     const body = JSON.stringify(snapshot());
     const mine = ++generation;
-    const temp = `${file}.tmp`;
+    const temp = `${file}.${mine}.tmp`;
     inFlight++;
     queue = queue.then(async () => {
       if (mine !== generation) return;
@@ -471,6 +490,7 @@ function createStateSaver(file, snapshot, delayMs) {
       if (mine !== generation) return void await fs.promises.rm(temp, { force: true });
       await fs.promises.rename(temp, file);
     }).catch(err => {
+      fs.promises.rm(temp, { force: true }).catch(() => {});
       if (folderGone(err) || mine !== generation) return;
       console.warn(`[leaderboard] Could not save ${path.basename(file)}: ${err.message}`);
       dirty = true;
@@ -489,12 +509,13 @@ function createStateSaver(file, snapshot, delayMs) {
       if (timer) { clearTimeout(timer); timer = null; }
       if (!dirty && !inFlight) return settle();
       generation++;
-      const temp = `${file}.flush.tmp`;
+      const temp = `${file}.flush.${process.pid}.tmp`;
       try {
         fs.writeFileSync(temp, JSON.stringify(snapshot()));
         fs.renameSync(temp, file);
         dirty = false;
       } catch (err) {
+        try { fs.rmSync(temp, { force: true }); } catch {}
         if (folderGone(err)) dirty = false;
         else console.warn(`[leaderboard] Could not save ${path.basename(file)}: ${err.message}`);
       }
@@ -538,10 +559,10 @@ function createLeaderboardStore(file, {
   const strikePolicy = { ...STAND_IN_JUDGE.strikePolicy, ...judge.strikePolicy };
   const rankedMinCandidates = judge.rankedMinCandidates || RANKED_MIN_CANDIDATES;
   const asList = value => (Array.isArray(value) ? value.filter(r => typeof r === "string" && r).map(r => r.slice(0, 200)).slice(0, 10) : []);
-  let state = { users: {} };
+  let state = { users: toNullMap(null) };
   const parsed = readJsonFile(file, null);
   if (parsed && typeof parsed === "object" && parsed.users && typeof parsed.users === "object" && !Array.isArray(parsed.users)) {
-    state = parsed;
+    state = { ...parsed, users: toNullMap(parsed.users) };
   }
   const savedFilters = readJsonFile(filtersFile, {});
   let usernameFilters = Array.isArray(savedFilters?.filters)
@@ -549,11 +570,11 @@ function createLeaderboardStore(file, {
     : [];
   const savedBans = readJsonFile(bansFile, {});
   const moderation = {
-    bans: savedBans?.bans && typeof savedBans.bans === "object" ? savedBans.bans : {},
-    ipBlocks: savedBans?.ipBlocks && typeof savedBans.ipBlocks === "object" ? savedBans.ipBlocks : {},
-    deviceBlocks: savedBans?.deviceBlocks && typeof savedBans.deviceBlocks === "object" ? savedBans.deviceBlocks : {},
+    bans: toNullMap(savedBans?.bans),
+    ipBlocks: toNullMap(savedBans?.ipBlocks),
+    deviceBlocks: toNullMap(savedBans?.deviceBlocks),
     flags: Array.isArray(savedBans?.flags) ? savedBans.flags : [],
-    strikes: savedBans?.strikes && typeof savedBans.strikes === "object" ? savedBans.strikes : {},
+    strikes: toNullMap(savedBans?.strikes),
     evidence: Array.isArray(savedBans?.evidence) ? savedBans.evidence : []
   };
 
@@ -610,13 +631,14 @@ function createLeaderboardStore(file, {
   const loginFailures = new Map(); // username key + address -> { count, lockedUntil }
   const karaokeRuns = new Map(); // run id -> run
   const snippetRounds = new Map(); // round id -> round
+  const ownerRounds = new Map(); // owner -> Set<roundId>
   const dummySalt = crypto.randomBytes(16).toString("hex");
 
   function checkNotFiltered(username) {
     if (usernameMatchesFilters(username, usernameFilters)) throw httpError(BLOCKED_USERNAME_MESSAGE, 400);
   }
 
-  const isBanned = user => Boolean(user && moderation.bans[user.id]);
+  const isBanned = user => Boolean(user && own(moderation.bans, user.id));
 
   // Checked live, so adding or removing a filter applies at once. A name an admin set is
   // never blocked by a filter; the player loses that exemption by renaming themselves.
@@ -624,10 +646,10 @@ function createLeaderboardStore(file, {
 
   // ctx carries this request's keyed address and device hashes (either may be empty).
   function checkDevice(ctx) {
-    if (ctx?.deviceHash && moderation.deviceBlocks[ctx.deviceHash]) throw bannedError();
+    if (ctx?.deviceHash && own(moderation.deviceBlocks, ctx.deviceHash)) throw bannedError();
   }
   function checkNetwork(ctx, now) {
-    if (ctx?.ipHash && moderation.ipBlocks[ctx.ipHash]?.until > now) throw networkBlockedError();
+    if (ctx?.ipHash && own(moderation.ipBlocks, ctx.ipHash) && moderation.ipBlocks[ctx.ipHash]?.until > now) throw networkBlockedError();
   }
 
   function recordSeen(user, ctx, now) {
@@ -744,11 +766,11 @@ function createLeaderboardStore(file, {
     const { username: cleanName, key } = validateUsername(username);
     checkNotFiltered(cleanName);
     const cleanPass = validatePassword(password);
-    if (state.users[key]) throw httpError("That username is already taken. Log in if it is yours, or pick another name.", 409);
+    if (own(state.users, key)) throw httpError("That username is already taken. Log in if it is yours, or pick another name.", 409);
     const salt = crypto.randomBytes(16).toString("hex");
     const hash = (await scrypt(cleanPass, salt, 64)).toString("hex");
     // Re-check after the asynchronous hash so two simultaneous sign-ups cannot share a name.
-    if (state.users[key]) throw httpError("That username is already taken. Log in if it is yours, or pick another name.", 409);
+    if (own(state.users, key)) throw httpError("That username is already taken. Log in if it is yours, or pick another name.", 409);
     const user = {
       id: crypto.randomBytes(12).toString("hex"), username: cleanName, key, salt, hash, tokens: [], tokenUsed: {},
       createdAt: now, updatedAt: now, progress: merge(emptyProgress(), progress, now), ranked: freshRanked(now)
@@ -773,7 +795,7 @@ function createLeaderboardStore(file, {
     if (failures && failures.lockedUntil > now) {
       throw httpError(`Too many wrong passwords. Wait ${Math.ceil((failures.lockedUntil - now) / 1000)} seconds.`, 429);
     }
-    const user = state.users[key];
+    const user = own(state.users, key) ? state.users[key] : null;
     // Unknown names cost the same scrypt as known ones, so timing doesn't reveal accounts.
     const ok = user ? await verifyPassword(user, cleanPass) : (await scrypt(cleanPass, dummySalt, 64), false);
     if (!ok) {
@@ -808,7 +830,7 @@ function createLeaderboardStore(file, {
     const { user } = authUser(token, ctx, now);
     const { username: cleanName, key } = validateUsername(newUsername);
     checkNotFiltered(cleanName);
-    if (key !== user.key && state.users[key]) throw httpError("That username is already taken. Pick another name.", 409);
+    if (key !== user.key && own(state.users, key)) throw httpError("That username is already taken. Pick another name.", 409);
     delete state.users[user.key];
     user.username = cleanName;
     user.key = key;
@@ -821,10 +843,11 @@ function createLeaderboardStore(file, {
   // Admins can give any account any valid name, filtered or not. The player stays signed in
   // and sees the new name the next time their game checks in.
   function adminRename(currentUsername, newUsername, now = Date.now()) {
-    const user = state.users[String(currentUsername || "").trim().toLowerCase()];
+    const oldKey = String(currentUsername || "").trim().toLowerCase();
+    const user = oldKey && own(state.users, oldKey) ? state.users[oldKey] : null;
     if (!user) throw httpError(`No account is called "${String(currentUsername || "").trim().slice(0, 40)}".`, 404);
     const { username: cleanName, key } = validateUsername(newUsername);
-    if (key !== user.key && state.users[key]) throw httpError(`${cleanName} is already taken. Pick another name.`, 409);
+    if (key !== user.key && own(state.users, key)) throw httpError(`${cleanName} is already taken. Pick another name.`, 409);
     delete state.users[user.key];
     user.username = cleanName;
     user.key = key;
@@ -863,7 +886,7 @@ function createLeaderboardStore(file, {
     const user = token && typeof token === "string" ? tokenIndex.get(token) : null;
     if (user) {
       dropToken(user, token);
-      save();
+      persist();
     }
     return { ok: true };
   }
@@ -1036,7 +1059,7 @@ function createLeaderboardStore(file, {
   // old progress is kept in the ban record so an accidental ban can be undone.
   function banUser(username, reason = "", now = Date.now()) {
     const key = String(username || "").trim().toLowerCase();
-    const user = key ? state.users[key] : null;
+    const user = key && own(state.users, key) ? state.users[key] : null;
     if (!user) throw httpError(`No account is called "${String(username || "").trim().slice(0, 40)}".`, 404);
     if (isBanned(user)) throw httpError(`${user.username} is already banned.`, 409);
     applyBan(user, { reason: String(reason || "").trim().slice(0, MAX_BAN_REASON), auto: false }, now);
@@ -1066,7 +1089,7 @@ function createLeaderboardStore(file, {
     user.ranked = freshRanked(now);
     delete user.legacyKaraoke;
     for (const [id, run] of karaokeRuns) if (run.accountId === user.id) karaokeRuns.delete(id);
-    for (const [id, round] of snippetRounds) if (round.accountId === user.id) snippetRounds.delete(id);
+    for (const [id, round] of snippetRounds) if (round.accountId === user.id) deleteSnippetRound(id);
     save();
   }
 
@@ -1082,7 +1105,8 @@ function createLeaderboardStore(file, {
   }
 
   function confirmBan(accountId, now = Date.now()) {
-    const ban = moderation.bans[String(accountId || "")];
+    const id = String(accountId || "");
+    const ban = own(moderation.bans, id) ? moderation.bans[id] : null;
     if (!ban) throw httpError("That account isn't banned.", 404);
     if (!ban.auto || ban.confirmed) throw httpError("That ban doesn't need confirming.", 409);
     ban.confirmed = true;
@@ -1114,7 +1138,8 @@ function createLeaderboardStore(file, {
 
   // Adds weighted strikes and bans once they reach the judge's total within its window.
   function addStrike(user, weight, reason, now) {
-    const list = (moderation.strikes[user.id] || []).filter(s => s.at > now - strikePolicy.windowDays * DAY_MS);
+    const existing = own(moderation.strikes, user.id) ? moderation.strikes[user.id] : [];
+    const list = (existing || []).filter(s => s.at > now - strikePolicy.windowDays * DAY_MS);
     list.push({ at: now, weight, reason: String(reason).slice(0, 200) });
     moderation.strikes[user.id] = list.slice(-50);
     const total = list.reduce((sum, s) => sum + s.weight, 0);
@@ -1124,9 +1149,22 @@ function createLeaderboardStore(file, {
 
   /* ---------- verified Snippets rounds ---------- */
 
+  function deleteSnippetRound(id) {
+    const round = snippetRounds.get(id);
+    if (!round) return;
+    snippetRounds.delete(id);
+    if (round.owner) {
+      const set = ownerRounds.get(round.owner);
+      if (set) {
+        set.delete(id);
+        if (!set.size) ownerRounds.delete(round.owner);
+      }
+    }
+  }
+
   function sweepRounds(now) {
-    for (const [id, round] of snippetRounds) if (round.expiresAt <= now) snippetRounds.delete(id);
-    while (snippetRounds.size > MAX_SNIPPET_ROUNDS) snippetRounds.delete(snippetRounds.keys().next().value);
+    for (const [id, round] of snippetRounds) if (round.expiresAt <= now) deleteSnippetRound(id);
+    while (snippetRounds.size > MAX_SNIPPET_ROUNDS) deleteSnippetRound(snippetRounds.keys().next().value);
   }
 
   function hintsFor(round) {
@@ -1171,8 +1209,8 @@ function createLeaderboardStore(file, {
     sweepRounds(now);
     const owner = user ? `a:${user.id}` : ctx.deviceHash ? `d:${ctx.deviceHash}` : "";
     if (owner) {
-      const mine = [...snippetRounds.entries()].filter(([, r]) => r.owner === owner);
-      for (const [id] of mine.slice(0, Math.max(0, mine.length - SNIPPET_ROUNDS_PER_PLAYER + 1))) snippetRounds.delete(id);
+      const owned = ownerRounds.get(owner);
+      while (owned && owned.size >= SNIPPET_ROUNDS_PER_PLAYER) deleteSnippetRound(owned.values().next().value);
     }
     const songId = playable[crypto.randomInt(playable.length)];
     const round = {
@@ -1180,6 +1218,11 @@ function createLeaderboardStore(file, {
       attempts: [], status: "playing", startedAt: now, audioAt: 0, expiresAt: now + SNIPPET_ROUND_MS
     };
     snippetRounds.set(round.id, round);
+    if (owner) {
+      let set = ownerRounds.get(owner);
+      if (!set) { set = new Set(); ownerRounds.set(owner, set); }
+      set.add(round.id);
+    }
     return { roundId: round.id, tries, stems: Boolean(snippetSong(songId, pool).stems), ranked };
   }
 
@@ -1262,6 +1305,7 @@ function createLeaderboardStore(file, {
   // page never gets the answer until the round is over; a signed-in round is the
   // account's own record and can't be reported by the page.
   const dailyRounds = new Map(); // "date|owner" -> round, for signed-out players
+  let lastDailySweepDate = "";
   function dailyRoundAct(token, body, now = Date.now(), ctx = {}) {
     const daily = dailyToday(now);
     if (!daily) throw httpError("Not found", 404);
@@ -1292,7 +1336,11 @@ function createLeaderboardStore(file, {
         const right = daily.matches(text);
         if (!right && daily.matchesVersion?.(text)) {
           closeGuess = { level: round.attempts.length, text };
-          round.close = [...(round.close || []), closeGuess];
+          const list = round.close || [];
+          const low = text.toLowerCase();
+          if (list.length < 20 && !list.some(c => c.level === closeGuess.level && String(c.text || "").toLowerCase() === low)) {
+            round.close = [...list, closeGuess];
+          }
         } else {
           round.attempts.push({ kind: right ? "right" : "wrong", text });
           if (right) round.status = "won";
@@ -1305,8 +1353,11 @@ function createLeaderboardStore(file, {
         user.progress.daily[daily.date] = round.status === "playing" ? round : { ...round, verified: true };
         user.updatedAt = now;
       } else {
+        if (lastDailySweepDate !== daily.date) {
+          lastDailySweepDate = daily.date;
+          for (const k of dailyRounds.keys()) if (!k.startsWith(`${daily.date}|`)) dailyRounds.delete(k);
+        }
         dailyRounds.set(key, round);
-        for (const k of dailyRounds.keys()) if (!k.startsWith(`${daily.date}|`)) dailyRounds.delete(k);
         while (dailyRounds.size > 200000) dailyRounds.delete(dailyRounds.keys().next().value);
       }
     }
@@ -1341,16 +1392,17 @@ function createLeaderboardStore(file, {
     const recent = moderation.evidence.filter(e => e.accountId === user.id && e.at > now - DAY_MS).length;
     if (recent >= EVIDENCE_PER_ACCOUNT_PER_DAY && !tools.length) return "";
     const json = JSON.stringify({ username: user.username, receivedAt: new Date(now).toISOString(), evidence: raw });
-    if (Buffer.byteLength(json) > MAX_EVIDENCE_BYTES) return "";
+    const bytes = Buffer.byteLength(json);
+    if (bytes > MAX_EVIDENCE_BYTES) return "";
     const list = key => (Array.isArray(raw[key]) ? raw[key] : []);
     const id = crypto.randomBytes(8).toString("hex");
     fs.mkdirSync(evidenceDir, { recursive: true });
-    writeJsonFile(path.join(evidenceDir, `${id}.json`), JSON.parse(json));
+    writeTextFile(path.join(evidenceDir, `${id}.json`), json);
     moderation.evidence.unshift({
       id, accountId: user.id, username: user.username, at: now, tools, page: String(raw.page || "").slice(0, 60),
       functions: list("functions").map(f => String(f?.name || "").slice(0, 60)).slice(0, 20),
       scripts: list("scripts").length, panels: list("panels").length,
-      storage: list("storage").map(s => String(s?.key || "").slice(0, 60)).slice(0, 20), bytes: Buffer.byteLength(json)
+      storage: list("storage").map(s => String(s?.key || "").slice(0, 60)).slice(0, 20), bytes
     });
     for (const old of moderation.evidence.splice(MAX_EVIDENCE)) fs.rmSync(path.join(evidenceDir, `${old.id}.json`), { force: true });
     saveModeration(now);
@@ -1360,7 +1412,12 @@ function createLeaderboardStore(file, {
   function readEvidence(id) {
     const entry = moderation.evidence.find(e => e.id === String(id || ""));
     if (!entry) throw httpError("That capture is no longer kept.", 404);
-    return { entry, json: fs.readFileSync(path.join(evidenceDir, `${entry.id}.json`), "utf8") };
+    try {
+      return { entry, json: fs.readFileSync(path.join(evidenceDir, `${entry.id}.json`), "utf8") };
+    } catch (err) {
+      if (err.code === "ENOENT") throw httpError("That capture is no longer kept.", 404);
+      throw err;
+    }
   }
 
   function deleteEvidence(id, now = Date.now()) {
@@ -1389,7 +1446,8 @@ function createLeaderboardStore(file, {
   }
 
   function unbanUser(accountId, { restore = false } = {}, now = Date.now()) {
-    const ban = moderation.bans[String(accountId || "")];
+    const id = String(accountId || "");
+    const ban = own(moderation.bans, id) ? moderation.bans[id] : null;
     if (!ban) throw httpError("That account isn't banned.", 404);
     delete moderation.bans[ban.accountId];
     for (const [hash, block] of Object.entries(moderation.ipBlocks)) if (block.accountId === ban.accountId) delete moderation.ipBlocks[hash];
@@ -1418,9 +1476,9 @@ function createLeaderboardStore(file, {
     }).sort((a, b) => b.bannedAt - a.bannedAt);
     const flags = moderation.flags.map(f => ({
       id: f.id, accountId: f.accountId, username: byId.get(f.accountId)?.username || f.username, songId: f.songId, difficulty: f.difficulty,
-      white: Boolean(f.white), score: f.score, reasons: f.reasons, at: f.at, banned: Boolean(moderation.bans[f.accountId])
+      white: Boolean(f.white), score: f.score, reasons: f.reasons, at: f.at, banned: own(moderation.bans, f.accountId)
     }));
-    const evidence = moderation.evidence.map(e => ({ ...e, banned: Boolean(moderation.bans[e.accountId]) }));
+    const evidence = moderation.evidence.map(e => ({ ...e, banned: own(moderation.bans, e.accountId) }));
     return { bans, flags, evidence };
   }
 

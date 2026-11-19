@@ -128,11 +128,17 @@ const saveYear = rec => write(KEY.year(rec.year), rec);
 
 let songIndex = null;
 let songIndexPromise = null;
+let closeAnnounce = null;
+let closeViewer = null;
 function loadSongIndex() {
   if (!songIndexPromise) {
     songIndexPromise = fetch("api/songs").then(r => (r.ok ? r.json() : null)).catch(() => null).then(list => {
+      if (!list || (!Array.isArray(list.songs) && !Array.isArray(list.retiredSongs))) {
+        songIndexPromise = null;
+        return null;
+      }
       songIndex = new Map();
-      for (const song of [...(list?.songs || []), ...(list?.retiredSongs || [])]) if (song?.id) songIndex.set(song.id, song);
+      for (const song of [...(list.songs || []), ...(list.retiredSongs || [])]) if (song?.id) songIndex.set(song.id, song);
       return songIndex;
     });
   }
@@ -175,7 +181,11 @@ function recordRound(mode, round) {
   const year = new Date(when).getFullYear();
   const rec = loadYear(year, true);
   const won = round.status === "won";
-  const tries = Array.isArray(round.attempts) ? round.attempts.length : 0;
+  const attempts = Array.isArray(round.attempts) ? round.attempts : [];
+  const hasRight = attempts.some(a => a?.kind === "right");
+  const tries = won
+    ? (Number.isInteger(round.solvedLevel) ? round.solvedLevel + 1 : hasRight ? attempts.length : attempts.length + 1)
+    : attempts.length;
   stamp(rec, when);
   const m = rec.modes[mode] || (rec.modes[mode] = { p: 0, w: 0, l: 0, ft: 0, s: 0 });
   m.p++;
@@ -413,7 +423,11 @@ function summarize(year, now = new Date()) {
     const redeemed = new Set(prev.lost || []);
     summary.prev = prev;
     summary.redemptions = songs.filter(s => redeemed.has(s.id) && s.w > 0 && s.t).map(s => s.t).slice(0, 3);
-    summary.yearsPlayed = 1 + Object.keys(localStorageKeys()).filter(k => /^yeatle:wrapped:archive:\d{4}$/.test(k)).length;
+    const priorArchives = Object.keys(localStorageKeys()).filter(k => {
+      const m = /^yeatle:wrapped:archive:(\d{4})$/.exec(k);
+      return m && Number(m[1]) < year;
+    }).length;
+    summary.yearsPlayed = 1 + priorArchives;
   }
   return summary;
 }
@@ -881,7 +895,9 @@ export async function openWrapped(year) {
     overlay.remove();
     removeEventListener("keydown", onKey, true);
     viewer = null;
+    if (closeViewer === shut) closeViewer = null;
   };
+  closeViewer = shut;
   // While Wrapped is open, keys belong to it: the game's shortcuts (Space, S, Enter) wait.
   const onKey = e => {
     if (e.key === "Tab") return;
@@ -924,7 +940,12 @@ function announce(year) {
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); shut(); }
   };
-  const shut = () => { overlay.remove(); removeEventListener("keydown", onKey, true); };
+  const shut = () => {
+    overlay.remove();
+    removeEventListener("keydown", onKey, true);
+    if (closeAnnounce === shut) closeAnnounce = null;
+  };
+  closeAnnounce = shut;
   later.addEventListener("click", shut);
   go.addEventListener("click", () => { shut(); openWrapped(year); });
   overlay.addEventListener("mousedown", e => { if (e.target === overlay) shut(); });
@@ -966,10 +987,17 @@ function start() {
     } catch { /* never break the game */ }
   });
   addEventListener("yeatle:progress-synced", () => { try { refresh(); } catch {} });
+  addEventListener("yeatle:banned", () => {
+    try { closeAnnounce?.(); } catch {}
+    try { closeViewer?.(); } catch {}
+    document.querySelector(".yeatle-wrapped-chip")?.remove();
+  });
   addEventListener("pagehide", () => [...pending.keys()].forEach(commitPending));
   // Archive a finished year once the song list is in, so its top eras are complete.
   try {
-    if (pastYears().some(year => !read(KEY.archive(year), null)?.final)) loadSongIndex().then(() => { try { archiveFinishedYears(); } catch {} });
+    if (pastYears().some(year => !read(KEY.archive(year), null)?.final)) {
+      loadSongIndex().then(index => { if (index) try { archiveFinishedYears(); } catch {} });
+    }
   } catch { /* ignore */ }
 
   const preview = previewRequested();

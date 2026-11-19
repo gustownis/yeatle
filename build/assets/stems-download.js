@@ -40,6 +40,11 @@ function shownSongs(query = norm($("#search").value)) {
     (!query || (song._searchHay ??= norm(`${song.display} ${song.title} ${song.era} ${song.year || ""} ${song.features.join(" ")}`)).includes(query)));
 }
 
+const runIpc = promise => Promise.resolve(promise).then(next => { if (next) update(next); }).catch(err => {
+  const s = $("#status");
+  if (s) s.textContent = err?.message || "Something went wrong. Try again.";
+});
+
 function rowFor(song) {
   const item = statusOf(song.id);
   const installed = item.status === "installed";
@@ -55,22 +60,22 @@ function rowFor(song) {
   let note = item.note || "";
   let noteErr = false;
   if (installed) act.append(el("span", { class: "tag ok", text: "Installed" }));
-  else if (item.status === "queued") act.append(el("span", { class: "tag", text: "Waiting" }), el("button", { class: "btn small", text: "Cancel", onclick: () => api.cancel(song.id) }));
+  else if (item.status === "queued") act.append(el("span", { class: "tag", text: "Waiting" }), el("button", { class: "btn small", text: "Cancel", onclick: () => runIpc(api.cancel(song.id)) }));
   else if (item.status === "downloading" || item.status === "installing") {
     const bar = el("div", { class: "bar" }, el("i"));
     bar.style.setProperty("--p", `${Math.round(((item.received || 0) / (item.total || song.size)) * 100)}%`);
-    act.append(item.status === "installing" ? el("span", { class: "tag", text: "Installing" }) : bar, el("button", { class: "btn small", text: "Cancel", onclick: () => api.cancel(song.id) }));
+    act.append(item.status === "installing" ? el("span", { class: "tag", text: "Installing" }) : bar, el("button", { class: "btn small", text: "Cancel", onclick: () => runIpc(api.cancel(song.id)) }));
     if (item.status === "downloading") note = `${mb(item.received || 0)} of ${mb(item.total || song.size)}`;
   } else if (item.status === "failed") {
-    act.append(el("span", { class: "tag bad", text: "Failed" }), el("button", { class: "btn small", text: "Retry", onclick: () => api.download([song.id]) }));
+    act.append(el("span", { class: "tag bad", text: "Failed" }), el("button", { class: "btn small", text: "Retry", onclick: () => runIpc(api.download([song.id])) }));
     note = `Didn't install: ${item.error}. Nothing was added to your Songs folder.`;
     noteErr = true;
   } else if (item.status === "cancelled") {
-    act.append(el("span", { class: "tag", text: "Cancelled" }), el("button", { class: "btn small", text: "Retry", onclick: () => api.download([song.id]) }));
+    act.append(el("span", { class: "tag", text: "Cancelled" }), el("button", { class: "btn small", text: "Retry", onclick: () => runIpc(api.download([song.id])) }));
   } else if (item.status === "conflict") {
-    act.append(el("button", { class: "btn small", text: "Replace mine", onclick: () => api.replace(song.id) }), el("button", { class: "btn small", text: "Keep mine", onclick: () => api.cancel(song.id) }));
+    act.append(el("button", { class: "btn small", text: "Replace mine", onclick: () => runIpc(api.replace(song.id)) }), el("button", { class: "btn small", text: "Keep mine", onclick: () => runIpc(api.cancel(song.id)) }));
     noteErr = true;
-  } else act.append(el("button", { class: "btn small primary", text: "Download", onclick: () => api.download([song.id]) }));
+  } else act.append(el("button", { class: "btn small primary", text: "Download", onclick: () => runIpc(api.download([song.id])) }));
   if (item.error && item.status !== "failed") { note = item.error; noteErr = true; }
 
   return el("div", { class: "dl-row" + (picked.has(song.id) ? " on" : ""), "data-id": song.id },
@@ -97,7 +102,9 @@ function render() {
   let shown;
   if (catalog.loading && !catalog.loaded) { status.textContent = "Loading the list of songs…"; list.replaceChildren(); }
   else if (catalog.error) {
-    status.replaceChildren(catalog.error + " ", el("button", { class: "linkish", text: "Try again", onclick: () => api.refresh() }));
+    status.replaceChildren(catalog.error + " ", el("button", { class: "linkish", text: "Try again", onclick: () => runIpc(api.refresh()) }));
+    list.replaceChildren();
+    rowCache.clear();
   } else {
     const query = norm($("#search").value);
     shown = shownSongs(query);
@@ -138,7 +145,7 @@ function render() {
 }
 
 let frame = 0;
-const update = next => { state = next; if (!frame) frame = requestAnimationFrame(() => { frame = 0; render(); }); };
+const update = next => { if (!next) return; state = next; if (!frame) frame = requestAnimationFrame(() => { frame = 0; render(); }); };
 
 if (!api) {
   $("#status").textContent = "This page works in the Yeatle desktop app: Help → Optional HQ Stems → Download from server.";
@@ -153,7 +160,10 @@ if (!api) {
     render();
   });
   $("#clear").addEventListener("click", () => { picked.clear(); render(); });
-  $("#get-picked").addEventListener("click", () => { const ids = [...picked]; picked.clear(); api.download(ids).then(update); });
-  $("#open-folder").addEventListener("click", () => api.openFolder());
-  api.state().then(s => { update(s); return api.refresh(); }).then(update);
+  $("#get-picked").addEventListener("click", () => { const ids = [...picked]; picked.clear(); runIpc(api.download(ids)); });
+  $("#open-folder").addEventListener("click", () => runIpc(api.openFolder()));
+  Promise.resolve(api.state()).then(s => { update(s); return api.refresh(); }).then(update).catch(err => {
+    const s = $("#status");
+    if (s) s.textContent = err?.message || "Couldn't reach the song list.";
+  });
 }
