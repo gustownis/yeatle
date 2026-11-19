@@ -62,10 +62,15 @@ function rowFor(song) {
   if (installed) act.append(el("span", { class: "tag ok", text: "Installed" }));
   else if (item.status === "queued") act.append(el("span", { class: "tag", text: "Waiting" }), el("button", { class: "btn small", text: "Cancel", onclick: () => runIpc(api.cancel(song.id)) }));
   else if (item.status === "downloading" || item.status === "installing") {
-    const bar = el("div", { class: "bar" }, el("i"));
-    bar.style.setProperty("--p", `${Math.round(((item.received || 0) / (item.total || song.size)) * 100)}%`);
-    act.append(item.status === "installing" ? el("span", { class: "tag", text: "Installing" }) : bar, el("button", { class: "btn small", text: "Cancel", onclick: () => runIpc(api.cancel(song.id)) }));
-    if (item.status === "downloading") note = `${mb(item.received || 0)} of ${mb(item.total || song.size)}`;
+    let lead;
+    if (item.status === "installing") {
+      lead = el("span", { class: "tag", text: "Installing" });
+    } else {
+      lead = el("div", { class: "bar" }, el("i"));
+      lead.style.setProperty("--p", `${Math.round(((item.received || 0) / (item.total || song.size)) * 100)}%`);
+      note = `${mb(item.received || 0)} of ${mb(item.total || song.size)}`;
+    }
+    act.append(lead, el("button", { class: "btn small", text: "Cancel", onclick: () => runIpc(api.cancel(song.id)) }));
   } else if (item.status === "failed") {
     act.append(el("span", { class: "tag bad", text: "Failed" }), el("button", { class: "btn small", text: "Retry", onclick: () => runIpc(api.download([song.id])) }));
     note = `Didn't install: ${item.error}. Nothing was added to your Songs folder.`;

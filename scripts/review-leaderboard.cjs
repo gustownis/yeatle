@@ -16,15 +16,13 @@ try { songs = JSON.parse(fs.readFileSync(path.join(dir, "songs-cache.json"), "ut
 const index = new Map();
 for (const song of songs) for (const id of [song.id, ...(song.formerIds || []), ...(song.equivalentIds || [])]) index.set(id, song);
 const canonical = songs.length ? id => { const s = index.get(id); return s ? (s.equivalentIds?.length ? [s.id, ...s.equivalentIds].sort()[0] : s.id) : null; } : null;
-let bans = {};
-try { bans = JSON.parse(fs.readFileSync(path.join(dir, "leaderboard-bans.json"), "utf8")).bans || {}; } catch { /* none yet */ }
 
 const rows = users.map(u => {
   const old = computeMetrics(u.progress, Date.now(), canonical);
   const verified = u.ranked?.karaoke || {};
   const now = computeMetrics(u.progress, Date.now(), canonical, { karaoke: verified });
   return {
-    username: u.username, banned: Boolean(u.id && bans[u.id]),
+    username: u.username,
     karaoke: [old.karaokeTotalScore, now.karaokeTotalScore], karaokeSongs: old.karaokeSongs,
     stems: old.stemsSolved, snippet: old.snippetSolved, prestige: old.prestige,
     leavesStemsBoard: old.stemsSolved === 0 && old.prestige > 0, leavesSnippetBoard: old.snippetSolved === 0 && old.prestige > 0

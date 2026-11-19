@@ -3196,7 +3196,7 @@ function baseKey(title) {
 }
 
 function markDuplicates() {
-  var counts = {};
+  var counts = Object.create(null);
   state.songs.forEach(function (song) {
     song.key = baseKey(song.title);
     if (song.key) counts[song.key] = (counts[song.key] || 0) + 1;
@@ -3250,7 +3250,7 @@ function load() {
 }
 
 function eras() {
-  var seen = {};
+  var seen = Object.create(null);
   var list = [];
   state.songs.forEach(function (song) {
     var name = song.era || "(no era)";

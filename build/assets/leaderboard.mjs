@@ -332,14 +332,16 @@ export const dailyRounds = {
 // Cheat tools recognised by their own on-screen text or element ids. None of these phrases
 // can appear in the game: usernames have no spaces and song titles never use them.
 const CHEAT_TOOL_SIGNS = [
-  ["yeatle-cracked", node => /Yeatle Cracked|Captured Song Answer/.test(node.textContent || "")],
-  ["snippets-solver", node => /Snippets Solver|Snippet Song Solver/i.test(node.textContent || "")],
-  ["stem-injector", () => Boolean(document.querySelector('[id^="yksi-"]')) || /Yeatle Stem Deck|Stem Injector/.test(document.body.textContent || "")]
+  ["yeatle-cracked", (_node, text) => /Yeatle Cracked|Captured Song Answer/.test(text)],
+  ["snippets-solver", (_node, text) => /Snippets Solver|Snippet Song Solver/i.test(text)],
+  ["stem-injector", (node, text) => (typeof node.querySelector === "function" ? Boolean(node.querySelector('[id^="yksi-"]')) : (typeof document !== "undefined" && Boolean(document.querySelector?.('[id^="yksi-"]')))) || /Yeatle Stem Deck|Stem Injector/.test(text)]
 ];
 
 export function findCheatTools(root = document.body) {
   if (!root) return [];
-  return CHEAT_TOOL_SIGNS.filter(([, test]) => { try { return test(root); } catch { return false; } }).map(([name]) => name);
+  let text = "";
+  try { text = root.textContent || ""; } catch {}
+  return CHEAT_TOOL_SIGNS.filter(([, test]) => { try { return test(root, text); } catch { return false; } }).map(([name]) => name);
 }
 
 // Evidence for the admins when something has been injected into the game. The game loads
@@ -448,18 +450,22 @@ async function collectEvidence(tools) {
 }
 
 function watchForCheatTools() {
-  let reported = false;
+  let reported = false, timer = 0;
+  const stop = () => { if (timer) { clearInterval(timer); timer = 0; } };
   const check = async () => {
-    if (reported || bannedShown || document.hidden || !savedToken()) return;
+    if (reported || bannedShown) { stop(); return; }
+    if (document.hidden || !savedToken()) return;
     const tools = findCheatTools();
     // Without a known tool, a page sends evidence only when something is actually
     // injected; the server keeps it for review and bans nobody for it.
     if (!tools.length && !modifiedFunctions().length && !foreignScripts().length && !foreignStorage().length) return;
     reported = true;
+    stop();
     try { await requestJson("api/account/report", { method: "POST", body: { tools, evidence: await collectEvidence(tools) } }); } catch {}
   };
-  setInterval(check, 4000);
+  timer = setInterval(check, 4000);
   setTimeout(check, 1500);
+  window.addEventListener("yeatle:banned", stop, { once: true });
 }
 
 // A full-page screen over the app. It never blocks closing the tab or window, the back
@@ -555,10 +561,14 @@ function initLeaderboardUI() {
   let renaming = false;
   let renameDraft = "";
   let focusRename = false;
+  let loginUserDraft = "";
+  let loginPassDraft = "";
   let statusMessage = "";
   let statusError = false;
   let syncTimer = null;
   let blockedNoticeShown = false;
+  let triggerObserver = null;
+  let liveTimer = 0;
   const pageOpenedAt = Date.now();
 
   // The server's view of this account: its current name (an admin may have changed it) and
@@ -703,7 +713,11 @@ function initLeaderboardUI() {
   window.addEventListener("yeatle:banned", () => {
     authEpoch++;
     accountState = null;
+    loginUserDraft = "";
+    loginPassDraft = "";
     clearTimeout(syncTimer);
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = 0; }
+    triggerObserver?.disconnect();
     closeModal();
     triggerBtn.remove();
   });
@@ -795,6 +809,8 @@ function initLeaderboardUI() {
       if (epoch !== authEpoch) return;
       authEpoch++;
       accountState = null;
+      loginUserDraft = "";
+      loginPassDraft = "";
       rememberAccount(res.account, { token: res.token });
       if (storage && applyServerProgress(res.account.progress, storage, rawSetItem)) {
         window.dispatchEvent(new CustomEvent("yeatle:progress-synced"));
@@ -1008,6 +1024,8 @@ function initLeaderboardUI() {
       userIn.maxLength = 20;
       userIn.autocomplete = "username";
       userIn.required = true;
+      userIn.value = loginUserDraft;
+      userIn.addEventListener("input", () => { loginUserDraft = userIn.value; });
 
       const passIn = document.createElement("input");
       passIn.type = "password";
@@ -1015,6 +1033,8 @@ function initLeaderboardUI() {
       passIn.maxLength = 128;
       passIn.autocomplete = "current-password";
       passIn.required = true;
+      passIn.value = loginPassDraft;
+      passIn.addEventListener("input", () => { loginPassDraft = passIn.value; });
 
       const btns = document.createElement("div");
       btns.className = "yeatle-lb-auth-btns";
@@ -1202,9 +1222,10 @@ function initLeaderboardUI() {
   ensureTriggerMounted();
   window.addEventListener("DOMContentLoaded", ensureTriggerMounted);
   window.addEventListener("pagereveal", ensureTriggerMounted, true);
-  new MutationObserver(() => {
-    if (!triggerBtn.isConnected) ensureTriggerMounted();
-  }).observe(document.body, { childList: true, subtree: true });
+  triggerObserver = new MutationObserver(() => {
+    if (!bannedShown && !triggerBtn.isConnected) ensureTriggerMounted();
+  });
+  triggerObserver.observe(document.body, { childList: true, subtree: true });
 
   watchForCheatTools();
 
@@ -1217,7 +1238,7 @@ function initLeaderboardUI() {
   // player learns about an admin rename or a blocked name without reopening anything.
   let lastAccountCheck = Date.now();
   let liveBusy = false;
-  setInterval(async () => {
+  liveTimer = setInterval(async () => {
     if (bannedShown || liveBusy || document.hidden || busyAuth) return;
     liveBusy = true;
     const epoch = authEpoch;

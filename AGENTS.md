@@ -1,7 +1,5 @@
 # Shared instructions for coding assistants
 
-> **Temporary note:** An incremental code audit is in progress; see [AUDIT_PROGRESS.md](AUDIT_PROGRESS.md) for completed fixes and remaining open items. Remove this note and `AUDIT_PROGRESS.md` once the audit finishes.
-
 This file is tracked in Git and shared by contributors using Codex, Claude,
 and other coding assistants on Windows, Linux, and macOS. Keep it focused on
 durable project guidance. `CLAUDE.md` imports this file so the instructions

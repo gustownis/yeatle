@@ -806,7 +806,11 @@ function summarySlide(s, notify) {
   const save = el("button", { class: "btn", type: "button", text: "Save image" });
   const share = el("button", { class: "btn", type: "button", text: "Share image", hidden: true });
   let blob = null;
-  const getBlob = async () => blob || (blob = await renderCard(s));
+  const getBlob = async () => {
+    if (!blob) blob = await renderCard(s);
+    if (!blob) throw new Error("Couldn't render Wrapped card");
+    return blob;
+  };
   const fileName = `yeatle-wrapped-${s.year}.png`;
 
   try {

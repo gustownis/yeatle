@@ -48,6 +48,7 @@ const child = spawn(executable, [desktop ? root : path.join(root, "server.js")],
     YEATLE_PORT: "3193", YEATLE_STEMS_DIR: process.env.YEATLE_STEMS_DIR || path.join(root, "build", "Songs") }
 });
 child.once("error", error => { console.error(error.message); process.exitCode = 1; });
-child.once("exit", code => { process.exitCode = code || 0; });
+child.once("exit", (code, signal) => { process.exitCode = code ?? (signal ? 1 : 0); });
+process.on("exit", () => { try { if (!child.killed) child.kill(); } catch {} });
 process.on("SIGINT", () => child.kill());
 process.on("SIGTERM", () => child.kill());

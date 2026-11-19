@@ -10,7 +10,7 @@
 //
 // YEATLE_TEST_STEMS: a folder with drums/bass/other/vocals.mp3 (default build/Songs/Lyfe stealer)
 // YEATLE_TEST_APP_ROOT: a packaged app's resources/app.asar (or unpacked app) to test instead
-const { app, dialog, Menu, BrowserWindow, shell } = require("electron");
+const { app, dialog, Menu, shell } = require("electron");
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -28,6 +28,7 @@ app.commandLine.appendSwitch("disable-background-timer-throttling");
 const result = { platform: process.platform, versions: { electron: process.versions.electron, node: process.versions.node }, target, output, checks: {} };
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 let game, picker, hostServer, done = false;
+process.on("exit", () => { try { hostServer?.kill(); } catch {} });
 
 async function until(win, code, label, timeout = 20000) {
   const started = Date.now();

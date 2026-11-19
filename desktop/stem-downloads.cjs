@@ -161,7 +161,7 @@ function closeStream(out, destroy = false) {
 function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, localSongs = async () => new Map(), rescan = async () => {}, concurrency = 2, retries = 4, retryDelay = 1500, timeout = 30000 }) {
   const items = new Map();
   let catalog = { songs: [], skipped: 0, pending: 0, error: "", loading: false, loaded: false };
-  let active = 0, changeTimer = null, cleanupPromise = null;
+  let active = 0, changeTimer = null, cleanupPromise = null, catalogEpoch = 0;
   const queue = [];
   const controllers = new Map();
   const idLocks = new Map();
@@ -204,6 +204,12 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
     touch();
     try {
       const res = await fetch(url, { signal: ctrl.signal, headers: { accept: "*/*" } });
+      if (String(url).startsWith("https://") && typeof res.url === "string" && res.url && !res.url.startsWith("https://")) {
+        await res.body?.cancel?.().catch(() => {});
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", stop);
+        throw new Error("the server redirected to an insecure address");
+      }
       return {
         res,
         ctrl,
@@ -214,6 +220,7 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
       clearTimeout(timer);
       signal?.removeEventListener("abort", stop);
       if (signal?.aborted) throw abortError();
+      if (err.message === "the server redirected to an insecure address") throw err;
       throw new Error(ctrl.signal.aborted ? "the server took too long to answer" : `couldn't reach the server (${err.cause?.code || err.message})`);
     }
   }
@@ -224,7 +231,7 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
     const folderIndex = catalog.songs.length ? indexLocalFolders(songsDir) : new Map();
     for (const song of catalog.songs) {
       const item = items.get(song.id);
-      if (item && ["queued", "downloading", "verifying", "installing", "conflict"].includes(item.status)) continue;
+      if (item && ["queued", "downloading", "installing", "conflict"].includes(item.status)) continue;
       const folder = findLocalFolder(songsDir, song.folder, folderIndex);
       const mine = local.get(song.id);
       if (folder && folder.complete) set(song.id, { status: "installed", note: folder.name !== song.folder ? `In your Songs folder as "${folder.name}"` : "", error: "" });
@@ -234,6 +241,7 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
   }
 
   async function loadCatalog() {
+    const epoch = ++catalogEpoch;
     catalog = { ...catalog, loading: true, error: "" };
     changed();
     let req;
@@ -245,9 +253,11 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
       const data = validateCatalog(await res.json());
       req.done();
       req = null;
+      if (epoch !== catalogEpoch) return snapshot();
       catalog = { ...data, error: "", loading: false, loaded: true };
       await refreshInstalled();
     } catch (err) {
+      if (epoch !== catalogEpoch) return snapshot();
       catalog = { ...catalog, loading: false, error: err.message.startsWith("This server") ? err.message : `Couldn't load the song list: ${err.message}.` };
     } finally { req?.done(); }
     changed();
@@ -258,7 +268,7 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
     for (const id of new Set(ids)) {
       const song = catalog.songs.find(s => s.id === id);
       const item = items.get(id);
-      if (!song || (item && ["queued", "downloading", "verifying", "installing", "installed", "conflict"].includes(item.status))) continue;
+      if (!song || (item && ["queued", "downloading", "installing", "installed", "conflict"].includes(item.status))) continue;
       set(id, { status: "queued", received: 0, total: song.size, error: "", note: "" });
       queue.push(id);
     }
@@ -301,12 +311,16 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
         done();
         throw new Error(`${file.name} has the wrong size on the server`);
       }
+      if (!res.body) {
+        done();
+        throw new Error(`the server sent an empty response for ${file.name}`);
+      }
       const part = path.join(dir, `${file.name}.part`);
       const out = fs.createWriteStream(part, { flags: "w" });
       let writeError = null;
       out.on("error", err => { writeError = err; });
       const hash = crypto.createHash("sha256");
-      let bytes = 0, head = Buffer.alloc(0);
+      let bytes = 0, reported = 0, head = Buffer.alloc(0);
       try {
         for await (const chunk of res.body) {
           touch();
@@ -323,13 +337,14 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
             out.once("drain", onDrain);
             out.once("error", onErr);
           });
+          reported += buf.length;
           progress(buf.length);
         }
         await closeStream(out);
         if (writeError) throw writeError;
       } catch (err) {
         await closeStream(out, true);
-        progress(-bytes);
+        if (reported) { progress(-reported); reported = 0; }
         if (signal.aborted) throw abortError();
         const cause = err.name === "AbortError" && ctrl.signal.aborted ? new Error("the server took too long to answer") : err;
         if (/bigger than/.test(cause.message) || attempt >= retries) throw cause;
@@ -340,7 +355,7 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
       }
       const ok = bytes === file.size && hash.digest("hex") === file.sha256 && (!file.name.endsWith(".mp3") || isMp3Head(head));
       if (!ok) {
-        progress(-bytes);
+        if (reported) { progress(-reported); reported = 0; }
         if (attempt >= retries) throw new Error(`${file.name} didn't download correctly (it didn't match the server's checksum)`);
         await wait(retryDelay * (attempt + 1), signal);
         continue;
@@ -368,7 +383,7 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
       // stems first, the small extras last
       const ordered = song.files.slice().sort((a, b) => Number(!a.name.endsWith(".mp3")) - Number(!b.name.endsWith(".mp3")));
       for (const file of ordered) {
-        await fetchFile(song, file, dir, ctrl.signal, n => { received += n; set(id, { received }); });
+        await fetchFile(song, file, dir, ctrl.signal, n => { received = Math.max(0, received + n); set(id, { received }); });
       }
       set(id, { status: "installing" });
       await promote(song, dir);

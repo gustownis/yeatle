@@ -115,6 +115,7 @@ function createStemCatalog({ stemsDir, cacheFile, getSongs, maxActive = 4, saveD
     const songs = [];
     let pending = 0;
     const seen = new Set();
+    const liveKeys = new Set();
     let rootReal;
     for (const song of getSongs()) {
       if (song.mode !== "stems" || !song.folder || seen.has(song.folder)) continue;
@@ -125,6 +126,7 @@ function createStemCatalog({ stemsDir, cacheFile, getSongs, maxActive = 4, saveD
       if (!rootReal) continue;
       const set = scanFolder(stemsDir, song.folder, rootReal);
       if (!set) continue;
+      for (const f of set.files) liveKeys.add(key(f));
       const missing = set.files.filter(f => !hashes.has(key(f)));
       if (missing.length) {
         pending++;
@@ -143,6 +145,16 @@ function createStemCatalog({ stemsDir, cacheFile, getSongs, maxActive = 4, saveD
         artist: song.artist || "", artistRole: song.artistRole || "", tab: song.tab || "Unknown",
         folder: set.folder, size: files.reduce((sum, f) => sum + f.size, 0), files
       });
+    }
+    if (seen.size > 0 && rootReal) {
+      let pruned = false;
+      for (const k of hashes.keys()) {
+        if (!liveKeys.has(k)) {
+          hashes.delete(k);
+          pruned = true;
+        }
+      }
+      if (pruned) save();
     }
     if (queue.length) drain();
     songs.sort((a, b) => a.display.localeCompare(b.display));

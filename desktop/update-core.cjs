@@ -46,12 +46,12 @@ function installMode(platform, env, packaged) {
 }
 
 function assetName(version, platform, arch, mode) {
-  versionParts(version);
+  const v = versionParts(version).join(".");
   if (!["x64", "arm64"].includes(arch)) throw new Error("No update is available for this computer's architecture.");
-  if (platform === "win32" && mode === "nsis") return `Yeatle-Setup-${version}-windows-${arch}.exe`;
-  if (platform === "win32" && mode === "portable") return `Yeatle-${version}-windows-${arch}-portable.exe`;
-  if (platform === "darwin") return `Yeatle-${version}-mac-${arch}.dmg`;
-  if (platform === "linux") return `Yeatle-${version}-linux-${arch}.${mode === "appimage" ? "AppImage" : "deb"}`;
+  if (platform === "win32" && mode === "nsis") return `Yeatle-Setup-${v}-windows-${arch}.exe`;
+  if (platform === "win32" && mode === "portable") return `Yeatle-${v}-windows-${arch}-portable.exe`;
+  if (platform === "darwin") return `Yeatle-${v}-mac-${arch}.dmg`;
+  if (platform === "linux") return `Yeatle-${v}-linux-${arch}.${mode === "appimage" ? "AppImage" : "deb"}`;
   throw new Error("Updates are not supported on this operating system.");
 }
 
@@ -67,7 +67,7 @@ function selectAsset(release, platform, arch, mode) {
 }
 
 async function downloadAsset(asset, folder, onProgress = () => {}, fetchImpl = fetch) {
-  if (path.basename(asset.name) !== asset.name || !/^sha256:[a-f0-9]{64}$/.test(asset.digest || "")) {
+  if (!asset || typeof asset.name !== "string" || !asset.name || asset.name === "." || asset.name === ".." || /[\\/]/.test(asset.name) || path.basename(asset.name) !== asset.name || !/^sha256:[a-f0-9]{64}$/.test(asset.digest || "")) {
     throw new Error("GitHub has not provided a valid checksum for this download. Try again later.");
   }
   fs.mkdirSync(folder, { recursive: true });

@@ -11,13 +11,13 @@ function filesIn(folder) {
 }
 
 async function prepareRelease(version, input, output) {
-  versionParts(version);
+  const cleanVersion = versionParts(version).join(".");
   const files = filesIn(input).filter(file => /\.(exe|dmg|zip|AppImage|deb)$/.test(file));
   const expected = [
-    assetName(version, "win32", "x64", "nsis"), assetName(version, "win32", "x64", "portable"),
+    assetName(cleanVersion, "win32", "x64", "nsis"), assetName(cleanVersion, "win32", "x64", "portable"),
     ...["x64", "arm64"].flatMap(arch => [
-      assetName(version, "darwin", arch, "dmg"), `Yeatle-${version}-mac-${arch}.zip`,
-      assetName(version, "linux", arch, "appimage"), assetName(version, "linux", arch, "deb")
+      assetName(cleanVersion, "darwin", arch, "dmg"), `Yeatle-${cleanVersion}-mac-${arch}.zip`,
+      assetName(cleanVersion, "linux", arch, "appimage"), assetName(cleanVersion, "linux", arch, "deb")
     ])
   ];
   const records = new Map();
@@ -40,13 +40,13 @@ async function prepareRelease(version, input, output) {
   }
   fs.writeFileSync(path.join(output, "SHA256SUMS.txt"), [...records].map(([name, record]) => `${record.sha256}  ${name}`).join("\n") + "\n");
   const feeds = [
-    ["latest.yml", assetName(version, "win32", "x64", "nsis")],
-    ["latest-linux.yml", assetName(version, "linux", "x64", "appimage")],
-    ["latest-linux-arm64.yml", assetName(version, "linux", "arm64", "appimage")]
+    ["latest.yml", assetName(cleanVersion, "win32", "x64", "nsis")],
+    ["latest-linux.yml", assetName(cleanVersion, "linux", "x64", "appimage")],
+    ["latest-linux-arm64.yml", assetName(cleanVersion, "linux", "arm64", "appimage")]
   ];
   for (const [feed, name] of feeds) {
     const record = records.get(name);
-    fs.writeFileSync(path.join(output, feed), `version: ${version}\nfiles:\n  - url: ${name}\n    sha512: ${record.sha512}\n    size: ${record.size}\npath: ${name}\nsha512: ${record.sha512}\nreleaseDate: '${new Date().toISOString()}'\n`);
+    fs.writeFileSync(path.join(output, feed), `version: ${cleanVersion}\nfiles:\n  - url: ${name}\n    sha512: ${record.sha512}\n    size: ${record.size}\npath: ${name}\nsha512: ${record.sha512}\nreleaseDate: '${new Date().toISOString()}'\n`);
   }
   return [...records.keys()];
 }

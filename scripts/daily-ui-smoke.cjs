@@ -8,7 +8,9 @@ const output = path.resolve(__dirname, "..", ".tmp", `daily-ui-smoke-${Date.now(
 fs.mkdirSync(output, { recursive: true });
 const result = { version: require("../package.json").version, platform: process.platform, output, checks: {}, errors: [] };
 let browser, page;
-async function load(context, daily, songs) {
+const watchdog = setTimeout(() => { console.error("Daily UI smoke watchdog"); process.exit(1); }, 120000);
+watchdog.unref();
+async function load(context, songs) {
   await context.addInitScript(() => {
     window.uiAudit = { copied: "", shareCalls: 0 };
     Object.defineProperty(navigator, "share", { configurable: true, value: async () => { uiAudit.shareCalls++; } });
@@ -31,7 +33,7 @@ async function load(context, daily, songs) {
   browser = await chromium.launch({ executablePath: process.env.YEATLE_TEST_BROWSER, headless: true, args: ["--mute-audio"] });
   result.browser = await browser.version();
   const context = await browser.newContext({ viewport: { width: 1280, height: 950 } });
-  page = await load(context, daily, songs);
+  page = await load(context, songs);
   const input = page.locator("#guess"), list = page.locator("#song-suggestions");
   assert.equal(await input.getAttribute("list"), null);
   await input.fill("liv lik");
@@ -124,7 +126,7 @@ async function load(context, daily, songs) {
   assert.equal(await list.isVisible(), false);
   result.checks.savedResult = true;
   const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-  const touchPage = await load(touch, daily, songs);
+  const touchPage = await load(touch, songs);
   await touchPage.locator("#guess").fill("liv lik");
   await touchPage.getByRole("option", { name: /Liv Likë Dis/ }).tap();
   assert.equal(await touchPage.locator("#guess").inputValue(), "Liv Likë Dis");
@@ -139,6 +141,7 @@ async function load(context, daily, songs) {
   process.exitCode = 1;
   await page?.screenshot({ path: path.join(output, "failure.png") }).catch(() => {});
 }).finally(async () => {
+  clearTimeout(watchdog);
   await browser?.close();
   fs.writeFileSync(path.join(output, "result.json"), JSON.stringify(result, null, 2));
   console.log(JSON.stringify({ passed: result.passed, output, failure: result.failure }));

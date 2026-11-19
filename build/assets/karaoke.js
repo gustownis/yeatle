@@ -331,14 +331,13 @@ export function buildChart(analysis) {
   // lone blips (a quick ad-lib in a gap) aren't worth a phrase rating
   const kept = groupPhrases(clean).filter(ph => ph.dur >= 0.3).flatMap(ph => ph.notes);
   const phrases = groupPhrases(kept);
-  phrases.forEach((ph, index) => ph.notes.forEach(note => { note.phrase = index; }));
 
   const tones = kept.map(note => note.midi).sort((a, b) => a - b);
   let lo = tones.length ? tones[Math.floor(tones.length * 0.03)] - 2 : 45;
   let hi = tones.length ? tones[Math.max(0, Math.ceil(tones.length * 0.97) - 1)] + 2 : 60;
   if (hi - lo < 12) { const mid = (hi + lo) / 2; lo = mid - 6; hi = mid + 6; }
 
-  return { notes: kept, phrases, lo, hi, totalDur: phrases.reduce((sum, ph) => sum + ph.dur, 0), active, hop, offset };
+  return { notes: kept, phrases, lo, hi, active, hop, offset };
 }
 
 /* ---------- lyrics ---------- */
@@ -356,10 +355,14 @@ export function parseLrc(text) {
     let body = raw.replace(stampRe, "");
     let words = null;
     if (/<\d+:\d+/.test(body)) {
-      words = [...body.matchAll(/<(\d+):(\d+(?:\.\d+)?)>\s*([^<]*)/g)]
+      const firstTag = body.search(/<\d+:\d+/);
+      const lead = firstTag > 0 ? body.slice(0, firstTag).trim() : "";
+      words = [...body.matchAll(/<(\d+):(\d+(?:[.:]\d+)?)>\s*([^<]*)/g)]
         .map(m => ({ t: secs(m[1], m[2]), text: m[3].trim() }))
         .filter(w => w.text);
-      body = words.map(w => w.text).join(" ");
+      if (lead && words.length) words.unshift({ t: secs(stamps[0][1], stamps[0][2]), text: lead });
+      else if (lead && !words.length) words = null;
+      if (words && words.length) body = words.map(w => w.text).join(" ");
     }
     body = body.replace(/\s+/g, " ").trim();
     stamps.forEach(s => lines.push({ t: secs(s[1], s[2]), text: body, words: words ? words.map(w => ({ ...w })) : null }));
@@ -459,8 +462,8 @@ export function countSkipWords(lines) {
 // Joins skip windows that touch or overlap, so overlapping skips never count twice.
 export function mergeSkips(list) {
   const sorted = list
-    .filter(s => s && Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start)
-    .map(s => ({ start: Math.max(0, s.start), end: s.end, exact: Boolean(s.exact), mine: Boolean(s.mine), words: s.words ? [...s.words] : [s.word || ""] }))
+    .filter(s => s && Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start && s.end > 0)
+    .map(s => ({ start: Math.max(0, s.start), end: Math.max(0, s.end), exact: Boolean(s.exact), mine: Boolean(s.mine), words: s.words ? [...s.words] : [s.word || ""] }))
     .sort((a, b) => a.start - b.start);
   const out = [];
   for (const s of sorted) {
@@ -1829,6 +1832,7 @@ async function loadSplitSong(song, job) {
     else hash = await cache.hashAudio(bytes);
   } catch { cache = null; }
 
+  job.check();
   job.status("Decoding the song…", null);
   const mix = await decode(bytes);
   job.check();
@@ -2087,7 +2091,7 @@ function tick() {
   updateCountdown(heard);
   updateLyrics(heard + game.lyricShift);
   updateHud(t);
-  if (heard >= game.audio.duration + 0.3) showResults();
+  if (Math.min(heard, t) >= game.audio.duration + 0.3) showResults();
 }
 
 function finishPhrase(index) {
@@ -2155,16 +2159,21 @@ export function tracePhrase(g, index, result) {
 async function submitRankedRun(g, note) {
   const p = g.players[0];
   const run = await g.ranked;
+  if (game !== g) return;
   if (!run || run.error || !run.runId) { note.textContent = run?.error ? `Not ranked: ${run.error}` : ""; return; }
   const failed = [...environmentFailures(), ...(p.detector?.integrity || [])];
   note.textContent = "Checking your run for the leaderboard…";
   try {
-    const res = await (await ranking()).submit({
+    const ranked = await ranking();
+    if (game !== g) return;
+    const res = await ranked.submit({
       runId: run.runId, score: p.score, duration: g.audio.duration, phrases: g.trace.phrases,
       integrity: { ok: failed.length === 0, failed }
     });
+    if (game !== g) return;
     note.textContent = res.ranked ? `Ranked on the leaderboard · your verified best here is ${res.best.toLocaleString()}` : res.message || "This run wasn't ranked.";
   } catch (err) {
+    if (game !== g) return;
     note.textContent = `Not ranked: ${err.message}`;
   }
 }
@@ -2180,7 +2189,6 @@ function popRating(p, rating, points) {
 /* ---------- drawing ---------- */
 
 function buildStage() {
-  const stage = $("#stage");
   $("#stage-title").textContent = game.song.display;
   $("#stage-diff").textContent = DIFFICULTIES[game.difficulty].label + (game.whiteMode
     ? ` · White people mode · ${game.skips.length ? `${game.skips.length} skip${game.skips.length === 1 ? "" : "s"}${game.skipsEstimated ? " (≈ estimated)" : ""}` : "no skips found"}`
@@ -2203,7 +2211,6 @@ function buildStage() {
     );
     return p.card;
   }));
-  stage.dataset.players = String(game.players.length);
   game.dom = { lyricNow: $("#lyric-now"), lyricNext: $("#lyric-next"), skip: $("#skip"), progress: $("#progress") };
   game.dom.lyricNow.textContent = "";
   game.dom.lyricNext.textContent = game.lyrics.length ? "" : "No synced lyrics for this one. Follow the notes!";
@@ -2212,6 +2219,7 @@ function buildStage() {
 function resizeCanvas() {
   if (!game) return;
   const canvas = $("#lane");
+  game.canvas = canvas;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = canvas.clientWidth, h = canvas.clientHeight;
   canvas.width = Math.round(w * dpr);
@@ -2359,8 +2367,10 @@ function updateLyrics(lt) {
   if (current < 0 && next >= 0 && lines[next].t - lt > 6) next = -1;
 
   const nowEl = game.dom?.lyricNow || $("#lyric-now"), nextEl = game.dom?.lyricNext || $("#lyric-next");
+  let changed = false;
   if (game.shownLine !== current) {
     game.shownLine = current;
+    changed = true;
     const line = lines[current];
     if (!line) nowEl.replaceChildren();
     else if (line.words) nowEl.replaceChildren(...line.words.map(w => el("span", { class: "w" + (game.whiteMode && skipTokens(w.text).some(x => x.skip) ? " skip" : ""), text: w.text + " " })));
@@ -2378,7 +2388,8 @@ function updateLyrics(lt) {
     else nowEl.replaceChildren(el("span", { class: "sweep", text: line.text }));
   }
   const nextText = next >= 0 ? lines[next].text : "";
-  if (nextEl.textContent !== nextText) nextEl.textContent = nextText;
+  if (nextEl.textContent !== nextText) { nextEl.textContent = nextText; changed = true; }
+  if (changed && game.canvas && (game.canvas.clientWidth !== game.size.w || game.canvas.clientHeight !== game.size.h)) resizeCanvas();
 
   const line = lines[current];
   if (!line) return;
@@ -2604,6 +2615,7 @@ async function loadSongs() {
       fetch("api/songs"),
       import("./song-pools.mjs?v=1.14.1")
     ]);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     state.songs = songsForPool(data.songs || []).slice().sort((a, b) => a.display.localeCompare(b.display));
     carryFormerIds(state.songs);

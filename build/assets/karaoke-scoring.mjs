@@ -12,7 +12,6 @@
 export const POINTS_PER_SECOND = 250;   // points for one second of perfectly sung notes, before the multiplier
 export const STREAK_MIN = 0.6;          // phrase accuracy that keeps the multiplier going
 export const MAX_MULT = 4;
-export const MAX_TRACE_PHRASES = 1500;
 
 // Points for one finished phrase, and the singer's streak and multiplier afterwards.
 // acc === null is a skipped phrase: full points, streak and multiplier unchanged.

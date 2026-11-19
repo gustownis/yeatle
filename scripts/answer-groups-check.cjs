@@ -10,7 +10,9 @@ const base = (process.argv[2] || "http://127.0.0.1:3093").replace(/\/$/, "");
 
 (async () => {
   const { matchesSong, matchesVersion } = await import(pathToFileURL(path.join(__dirname, "..", "build", "assets", "snippet-rules.mjs")).href);
-  const list = await (await fetch(`${base}/api/songs`)).json();
+  const res = await fetch(`${base}/api/songs`, { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status} from ${base}/api/songs`);
+  const list = await res.json();
   const byId = new Map([...list.songs, ...list.retiredSongs || []].map(song => [song.id, song]));
   const failures = [];
   const missing = [];

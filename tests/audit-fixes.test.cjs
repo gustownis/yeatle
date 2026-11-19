@@ -812,3 +812,70 @@ test("yeatle.js Phase 2 regression checks for reroll, round ticket, SSE deps, an
   assert.ok(bundle.includes("YeatleAlRef=w.useRef(al),YeatleSongsRef=w.useRef(e);YeatleAlRef.current=al,YeatleSongsRef.current=e;"));
   assert.ok(bundle.includes("const stop=YeatleWatchSong(handle,{enabled:YeatleLiveControl,poll});return()=>{live=!1;stop()}},[YeatleLiveControl])"));
 });
+
+
+/* ---------- Phase 3 (L1–L6, L8–L10): low-priority edge cases & hygiene ---------- */
+
+test("stem-catalog prunes stale hashes, update-core normalizes v-prefixed versions, and stem-downloader blocks HTTPS downgrades", async t => {
+  const dir = makeTempDir(t);
+  const stemsDir = path.join(dir, "Songs");
+  const cacheFile = path.join(dir, "stems-hashes.json");
+  const songFolder = path.join(stemsDir, "KeepMe");
+  fs.mkdirSync(songFolder, { recursive: true });
+  const mp3Payload = Buffer.concat([Buffer.from("ID3"), Buffer.alloc(17000, 1)]);
+  for (const s of ["drums", "bass", "other", "vocals"]) {
+    fs.writeFileSync(path.join(songFolder, `${s}.mp3`), mp3Payload);
+  }
+  fs.writeFileSync(cacheFile, JSON.stringify({ "DeletedSong/drums.mp3|17003|1000": "deadbeef".repeat(8) }));
+
+  const { createStemCatalog } = require("../server/stem-catalog.cjs");
+  const cat = createStemCatalog({
+    stemsDir,
+    cacheFile,
+    saveDelay: 10,
+    getSongs: () => [{ id: "keep-me", title: "KeepMe", display: "KeepMe", mode: "stems", folder: "KeepMe" }]
+  });
+  cat.catalog();
+  await new Promise(r => setTimeout(r, 120));
+  const savedHashes = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+  assert.equal(Object.hasOwn(savedHashes, "DeletedSong/drums.mp3|17003|1000"), false);
+  assert.equal(Object.keys(savedHashes).length, 4);
+
+  // L4: assetName normalizes leading 'v' and downloadAsset rejects path separators.
+  const { assetName, downloadAsset } = require("../desktop/update-core.cjs");
+  assert.equal(assetName("v1.14.1", "win32", "x64", "nsis"), "Yeatle-Setup-1.14.1-windows-x64.exe");
+  await assert.rejects(
+    downloadAsset({ name: "..", digest: `sha256:${"a".repeat(64)}`, size: 10, url: "https://example.test/a" }, dir),
+    /valid checksum/
+  );
+
+  // L3: stem-downloader blocks HTTPS -> HTTP downgrade and keeps latest concurrent loadCatalog().
+  const dl = createStemDownloader({
+    songsDir: stemsDir,
+    host: "https://stems.example.test",
+    fetch: async () => ({ ok: true, status: 200, url: "http://insecure.example.test/api/stems/catalog", json: async () => ({ songs: [] }) })
+  });
+  const snap = await dl.loadCatalog();
+  assert.match(snap.catalog.error, /insecure address/);
+});
+
+test("karaoke parseLrc preserves leading text before word tags, supports <mm:ss:cc>, and mergeSkips drops negative-end windows", async () => {
+  const { parseLrc, mergeSkips } = await import(pathToFileURL(path.join(root, "build/assets/karaoke.js")).href);
+  const lines = parseLrc("[00:10.00] Yeah <00:10:50> we <00:11.25> back");
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].text, "Yeah we back");
+  assert.deepEqual(lines[0].words, [
+    { t: 10, text: "Yeah" },
+    { t: 10.5, text: "we" },
+    { t: 11.25, text: "back" }
+  ]);
+
+  const skips = mergeSkips([
+    { start: -2.0, end: -0.5, word: "before" },
+    { start: -0.4, end: 0.6, word: "cross" },
+    { start: 1.0, end: 1.5, word: "after" }
+  ]);
+  assert.equal(skips.length, 2);
+  assert.deepEqual([skips[0].start, skips[0].end], [0, 0.6]);
+  assert.deepEqual([skips[1].start, skips[1].end], [1.0, 1.5]);
+});

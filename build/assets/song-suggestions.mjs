@@ -140,6 +140,8 @@ export function attachSongSuggestions(input, list) {
   }
 
   list.addEventListener?.("pointerdown", () => { interacting = true; });
+  list.addEventListener?.("pointerup", () => { setTimeout(() => { if (!down) interacting = false; }, 0); });
+  list.addEventListener?.("pointercancel", () => { interacting = false; down = null; });
   list.addEventListener?.("mousedown", event => event.preventDefault());
   document.addEventListener?.("pointerdown", event => {
     if (!list.hidden && event.target !== input && !list.contains?.(event.target)) close();

@@ -12,7 +12,7 @@ function coverForSong(song) {
   if (!song) return "";
   let cover = song.cover || "";
   if (!cover) {
-    const match = catalogSongs.find(item => (song.id && item.id === song.id) || (song.era && item.era === song.era && item.cover))
+    const match = catalogSongs.find(item => (song.id && item.id === song.id && item.cover) || (song.era && item.era === song.era && item.cover))
       || catalogEras.find(item => item.name === song.era && item.cover);
     cover = match?.cover || "";
   }
@@ -94,8 +94,11 @@ function dispose() {
   ctx = master = null;
 }
 function readRound() {
-  try { return restoreRound(JSON.parse(localStorage.getItem(storageKey)), challenge.id); }
+  let raw = null;
+  try { raw = localStorage.getItem(storageKey); }
   catch { storageAvailable = false; return restoreRound(null, challenge.id); }
+  try { return restoreRound(raw ? JSON.parse(raw) : null, challenge.id); }
+  catch { return restoreRound(null, challenge.id); }
 }
 function save() {
   try { localStorage.setItem(storageKey, JSON.stringify(round)); }
@@ -367,7 +370,7 @@ async function loadChallenge() {
   $("#retry").hidden = true;
   $("#share-text").hidden = true;
   notice("Loading today's challenge…");
-  const songsPromise = fetch("api/songs").then(r => r.json()).catch(() => null);
+  const songsPromise = fetch("api/songs").then(r => (r.ok ? r.json() : null)).catch(() => null);
   try {
     const response = await fetch("api/daily", { cache: "no-store" });
     const body = await response.json();
@@ -444,7 +447,7 @@ addEventListener("yeatle:banned", dispose);
 document.addEventListener("visibilitychange", () => { if (document.hidden) { stop(); render(); } else expired(); });
 addEventListener("pagehide", dispose);
 setInterval(() => {
-  if (!challenge || loading || expired()) return;
+  if (document.hidden || !challenge || loading || expired()) return;
   const seconds = Math.max(0, Math.ceil((challenge.resetsAt - serverNow()) / 1000));
   $("#reset").textContent = `Next song in ${Math.floor(seconds / 3600)}h ${Math.floor(seconds / 60) % 60}m ${seconds % 60}s · 12am EST (6am CET/CEST)`;
 }, 1000);
