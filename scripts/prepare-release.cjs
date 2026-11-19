@@ -51,10 +51,83 @@ async function prepareRelease(version, input, output) {
   return [...records.keys()];
 }
 
-if (require.main === module) {
-  const [version, input, output] = process.argv.slice(2);
-  if (!version || !input || !output) { console.error("Usage: npm run prepare:release -- VERSION DOWNLOADED_ARTIFACTS OUTPUT_FOLDER"); process.exitCode = 1; }
-  else prepareRelease(version, path.resolve(input), path.resolve(output)).then(names => console.log(`Prepared ${names.length} installers, checksums, and updater feeds in ${output}.`)).catch(error => { console.error(error.message); process.exitCode = 1; });
+function replaceFileIfChanged(file, transform) {
+  if (!fs.existsSync(file)) return false;
+  const before = fs.readFileSync(file, "utf8");
+  const after = transform(before);
+  if (after === before) return false;
+  fs.writeFileSync(file, after);
+  return true;
 }
 
-module.exports = { prepareRelease };
+function bumpReleaseVersion(version, rootDir = path.resolve(__dirname, "..")) {
+  const cleanVersion = versionParts(version).join(".");
+  const shortVersion = cleanVersion.replace(/\.0$/, "");
+  const updated = [];
+
+  const track = (file, transform) => {
+    if (replaceFileIfChanged(file, transform)) updated.push(path.relative(rootDir, file).replaceAll("\\", "/"));
+  };
+
+  track(path.join(rootDir, "package.json"), text =>
+    text.replace(/^(\s*"version":\s*)"[^"]+"/m, `$1"${cleanVersion}"`)
+  );
+
+  track(path.join(rootDir, "package-lock.json"), text =>
+    text
+      .replace(/^(\{\s*"name":\s*"[^"]+",\s*"version":\s*)"[^"]+"/m, `$1"${cleanVersion}"`)
+      .replace(/("packages":\s*\{\s*"":\s*\{\s*"name":\s*"[^"]+",\s*"version":\s*)"[^"]+"/m, `$1"${cleanVersion}"`)
+  );
+
+  const buildDir = path.join(rootDir, "build");
+  if (fs.existsSync(buildDir)) {
+    for (const entry of fs.readdirSync(buildDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".html")) {
+        track(path.join(buildDir, entry.name), text => text.replace(/(\?v=)\d+\.\d+\.\d+/g, `$1${cleanVersion}`));
+      }
+    }
+    const assetsDir = path.join(buildDir, "assets");
+    if (fs.existsSync(assetsDir)) {
+      for (const entry of fs.readdirSync(assetsDir, { withFileTypes: true })) {
+        if (entry.isFile() && /\.(?:js|mjs|css)$/.test(entry.name)) {
+          track(path.join(assetsDir, entry.name), text => text.replace(/(\?v=)\d+\.\d+\.\d+/g, `$1${cleanVersion}`));
+        }
+      }
+    }
+  }
+
+  track(path.join(rootDir, "README.md"), text =>
+    text
+      .replace(/^(### Desktop downloads \(v)\d+\.\d+(?:\.\d+)?(\))$/m, `$1${shortVersion}$2`)
+      .replace(/(releases\/download\/v)\d+\.\d+\.\d+(\/Yeatle(?:-Setup)?-)\d+\.\d+\.\d+(-)/g, `$1${cleanVersion}$2${cleanVersion}$3`)
+      .replace(/(releases\/download\/v)\d+\.\d+\.\d+(\/SHA256SUMS\.txt)/g, `$1${cleanVersion}$2`)
+  );
+
+  track(path.join(rootDir, "docs", "setup.md"), text =>
+    text.replace(/(Yeatle(?:-Setup)?-)\d+\.\d+\.\d+(-(?:windows-x64(?:-portable)?\.exe|linux-x64\.deb))/g, `$1${cleanVersion}$2`)
+  );
+
+  return { version: cleanVersion, shortVersion, updated };
+}
+
+if (require.main === module) {
+  const [version, input, output] = process.argv.slice(2);
+  if (!version || (input && !output)) {
+    console.error("Usage:\n  npm run prepare:release -- VERSION\n  npm run prepare:release -- VERSION DOWNLOADED_ARTIFACTS OUTPUT_FOLDER");
+    process.exitCode = 1;
+  } else if (!input) {
+    try {
+      const res = bumpReleaseVersion(version);
+      console.log(`Bumped version and ?v= asset strings to ${res.version} across ${res.updated.length} files.`);
+    } catch (error) {
+      console.error(error.message);
+      process.exitCode = 1;
+    }
+  } else {
+    prepareRelease(version, path.resolve(input), path.resolve(output))
+      .then(names => console.log(`Prepared ${names.length} installers, checksums, and updater feeds in ${output}.`))
+      .catch(error => { console.error(error.message); process.exitCode = 1; });
+  }
+}
+
+module.exports = { prepareRelease, bumpReleaseVersion };

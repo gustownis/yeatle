@@ -12,17 +12,17 @@ The original game was vibecoded by its creator in the [Yeat Hub Discord communit
 - **Desktop app:** download the build for your computer below. Node.js is bundled inside the app.
 - **Local browser server:** [download the repository ZIP](https://github.com/gustownis/yeatle/archive/refs/heads/main.zip) or clone it, install [Node.js 24 LTS](https://nodejs.org/en/download), and run `node server.js` (no `npm install` needed).
 
-### Desktop downloads (v1.14.1)
+### Desktop downloads (v1.14.2)
 
 | Computer | Downloads |
 | --- | --- |
-| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.14.1/Yeatle-Setup-1.14.1-windows-x64.exe) · [Portable](https://github.com/gustownis/yeatle/releases/download/v1.14.1/Yeatle-1.14.1-windows-x64-portable.exe) |
-| macOS, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.14.1/Yeatle-1.14.1-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.14.1/Yeatle-1.14.1-mac-arm64.zip) |
-| macOS, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.14.1/Yeatle-1.14.1-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.14.1/Yeatle-1.14.1-mac-x64.zip) |
-| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.14.1/Yeatle-1.14.1-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.14.1/Yeatle-1.14.1-linux-x64.deb) |
-| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.14.1/Yeatle-1.14.1-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.14.1/Yeatle-1.14.1-linux-arm64.deb) |
+| Windows, Intel/AMD (x64) | [Installer](https://github.com/gustownis/yeatle/releases/download/v1.14.2/Yeatle-Setup-1.14.2-windows-x64.exe) · [Portable](https://github.com/gustownis/yeatle/releases/download/v1.14.2/Yeatle-1.14.2-windows-x64-portable.exe) |
+| macOS, Apple Silicon (ARM64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.14.2/Yeatle-1.14.2-mac-arm64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.14.2/Yeatle-1.14.2-mac-arm64.zip) |
+| macOS, Intel (x64) | [DMG](https://github.com/gustownis/yeatle/releases/download/v1.14.2/Yeatle-1.14.2-mac-x64.dmg) · [ZIP](https://github.com/gustownis/yeatle/releases/download/v1.14.2/Yeatle-1.14.2-mac-x64.zip) |
+| Linux, Intel/AMD (x64) | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.14.2/Yeatle-1.14.2-linux-x64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.14.2/Yeatle-1.14.2-linux-x64.deb) |
+| Linux, ARM64 | [AppImage](https://github.com/gustownis/yeatle/releases/download/v1.14.2/Yeatle-1.14.2-linux-arm64.AppImage) · [DEB](https://github.com/gustownis/yeatle/releases/download/v1.14.2/Yeatle-1.14.2-linux-arm64.deb) |
 
-Checksums for all downloads are in [SHA256SUMS.txt](https://github.com/gustownis/yeatle/releases/download/v1.14.1/SHA256SUMS.txt). Desktop apps check for newer releases on launch and through **Help → Check for Updates**.
+Checksums for all downloads are in [SHA256SUMS.txt](https://github.com/gustownis/yeatle/releases/download/v1.14.2/SHA256SUMS.txt). Desktop apps check for newer releases on launch and through **Help → Check for Updates**.
 
 ### Quick start (local browser version)
 

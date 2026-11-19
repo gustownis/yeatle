@@ -6,7 +6,7 @@ const os = require("node:os");
 const crypto = require("node:crypto");
 const { checkRelease, isNewer, installMode, assetName, selectAsset, downloadAsset, API_URL } = require("../desktop/update-core.cjs");
 const { menuTemplate } = require("../desktop/menu.cjs");
-const { prepareRelease } = require("../scripts/prepare-release.cjs");
+const { prepareRelease, bumpReleaseVersion } = require("../scripts/prepare-release.cjs");
 
 function folder(t) {
   const result = fs.mkdtempSync(path.join(os.tmpdir(), "yeatle-update-test-"));
@@ -143,4 +143,30 @@ test("installers are built with the names installed apps' updaters look for", ()
     assert.ok(fs.existsSync(path.join(root, "data", file)), `missing data/${file}`);
     assert.ok(isPackaged(`data/${file}`), `data/${file} is missing from package.json build.files`);
   }
+});
+
+
+test("bumpReleaseVersion updates package files, build ?v= cache-busting strings, and download links in one step", t => {
+  const dir = folder(t);
+  fs.mkdirSync(path.join(dir, "build", "assets"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "package.json"), '{\n  "name": "yeatle-desktop",\n  "version": "1.14.1"\n}\n');
+  fs.writeFileSync(path.join(dir, "package-lock.json"), '{\n  "name": "yeatle-desktop",\n  "version": "1.14.1",\n  "packages": {\n    "": {\n      "name": "yeatle-desktop",\n      "version": "1.14.1"\n    }\n  }\n}\n');
+  fs.writeFileSync(path.join(dir, "build", "index.html"), '<link rel="modulepreload" href="./assets/navigation.mjs?v=1.10.3"><script type="module" src="./assets/yeatle.js?v=1.14.1"></script>');
+  fs.writeFileSync(path.join(dir, "build", "assets", "yeatle.js"), 'import "./navigation.mjs?v=1.10.3"; const w = "separator.worker.js?v=1.14.1";');
+  fs.writeFileSync(path.join(dir, "README.md"), "### Desktop downloads (v1.14.1)\nhttps://github.com/gustownis/yeatle/releases/download/v1.14.1/Yeatle-Setup-1.14.1-windows-x64.exe\nhttps://github.com/gustownis/yeatle/releases/download/v1.14.1/SHA256SUMS.txt\n");
+  fs.writeFileSync(path.join(dir, "docs", "setup.md"), "download `Yeatle-Setup-1.14.1-windows-x64.exe` or `Yeatle-1.14.1-linux-x64.deb`\n");
+
+  const res = bumpReleaseVersion("v1.14.2", dir);
+  assert.equal(res.version, "1.14.2");
+  assert.equal(res.shortVersion, "1.14.2");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).version, "1.14.2");
+  const lock = JSON.parse(fs.readFileSync(path.join(dir, "package-lock.json"), "utf8"));
+  assert.equal(lock.version, "1.14.2");
+  assert.equal(lock.packages[""].version, "1.14.2");
+  assert.equal(fs.readFileSync(path.join(dir, "build", "index.html"), "utf8"), '<link rel="modulepreload" href="./assets/navigation.mjs?v=1.14.2"><script type="module" src="./assets/yeatle.js?v=1.14.2"></script>');
+  assert.equal(fs.readFileSync(path.join(dir, "build", "assets", "yeatle.js"), "utf8"), 'import "./navigation.mjs?v=1.14.2"; const w = "separator.worker.js?v=1.14.2";');
+  assert.match(fs.readFileSync(path.join(dir, "README.md"), "utf8"), /### Desktop downloads \(v1\.14\.2\)/);
+  assert.match(fs.readFileSync(path.join(dir, "README.md"), "utf8"), /v1\.14\.2\/Yeatle-Setup-1\.14\.2-windows-x64\.exe/);
+  assert.match(fs.readFileSync(path.join(dir, "docs", "setup.md"), "utf8"), /Yeatle-1\.14\.2-linux-x64\.deb/);
 });

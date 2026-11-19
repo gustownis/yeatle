@@ -1,7 +1,7 @@
-import{inSongPool as YeatleInPool,songsForPool as YeatlePoolSongs,eraCounts as YeatleEraCounts,restorePracticeSong as YeatleRestorePractice}from"./song-pools.mjs?v=1.14.1";
-import{BASE_LENGTHS as YeatleBaseLengths,matchesSong as YeatleMatchesSong,matchesVersion as YeatleMatchesVersion}from"./snippet-rules.mjs?v=1.14.1";
+import{inSongPool as YeatleInPool,songsForPool as YeatlePoolSongs,eraCounts as YeatleEraCounts,restorePracticeSong as YeatleRestorePractice}from"./song-pools.mjs?v=1.14.2";
+import{BASE_LENGTHS as YeatleBaseLengths,matchesSong as YeatleMatchesSong,matchesVersion as YeatleMatchesVersion}from"./snippet-rules.mjs?v=1.14.2";
 // Snippets rounds are picked and checked by the server, so the answer never reaches this page early.
-import{snippetRounds as YeatleRounds}from"./leaderboard.mjs?v=1.14.1";
+import{snippetRounds as YeatleRounds}from"./leaderboard.mjs?v=1.14.2";
 // The last song list, kept for this window's session so returning from Daily or Karaoke
 // draws the full game in its first frame instead of an empty list that fills in later.
 // The game panel's last height for each mode, kept for this window's session. Snippets rounds
@@ -17,8 +17,8 @@ function YeatleSavedList(){try{const v=JSON.parse(sessionStorage.getItem("yeatle
 function YeatleSaveList(v){try{sessionStorage.setItem("yeatle:song-list",JSON.stringify({songs:v.songs,retiredSongs:v.retiredSongs||[],eras:v.eras,updated:v.updated,source:v.source,error:v.error,liveControl:v.liveControl}))}catch{}}
 // Songs the tracker lists under two names became one entry; keep completed songs saved under an old id.
 function YeatleCarryFormerIds(songs,setCompleted){const moved=new Map;songs.forEach(song=>[...song.formerIds||[],...song.equivalentIds||[]].forEach(id=>moved.set(id,song.id)));if(!moved.size)return;setCompleted(all=>{let changed=!1;const next={};for(const mode in all){const ids=new Set(all[mode]);ids.forEach(id=>{moved.has(id)&&!ids.has(moved.get(id))&&(ids.add(moved.get(id)),changed=!0)});next[mode]=ids}return changed?next:all})}
-import{changeMode as YeatleChangeMode}from"./navigation.mjs?v=1.10.3";
-import{audioPerformancePolicy as YeatlePerf,audioCacheKey as YeatleAudioKey,trimAudioCache as YeatleTrim,createWaveformGate as YeatleWaveGate,startVisiblePolling as YeatlePoll,watchActiveSong as YeatleWatchSong,disposeAudioGraph as YeatleDisposeGraph}from"./performance.mjs?v=1.13.6";
+import{changeMode as YeatleChangeMode}from"./navigation.mjs?v=1.14.2";
+import{audioPerformancePolicy as YeatlePerf,audioCacheKey as YeatleAudioKey,trimAudioCache as YeatleTrim,createWaveformGate as YeatleWaveGate,startVisiblePolling as YeatlePoll,watchActiveSong as YeatleWatchSong,disposeAudioGraph as YeatleDisposeGraph}from"./performance.mjs?v=1.14.2";
 (function(){const t=document.createElement("link").relList;if(t&&t.supports&&t.supports("modulepreload"))return;for(const l of document.querySelectorAll('link[rel="modulepreload"]'))r(l);new MutationObserver(l=>{for(const i of l)if(i.type==="childList")for(const s of i.addedNodes)s.tagName==="LINK"&&s.rel==="modulepreload"&&r(s)}).observe(document,{childList:!0,subtree:!0});function n(l){const i={};return l.integrity&&(i.integrity=l.integrity),l.referrerPolicy&&(i.referrerPolicy=l.referrerPolicy),l.crossOrigin==="use-credentials"?i.credentials="include":l.crossOrigin==="anonymous"?i.credentials="omit":i.credentials="same-origin",i}function r(l){if(l.ep)return;l.ep=!0;const i=n(l);fetch(l.href,i)}})();function Qd(e){return e&&e.__esModule&&Object.prototype.hasOwnProperty.call(e,"default")?e.default:e}var rc={exports:{}},pi={},lc={exports:{}},F={};/**
  * @license React
  * react.production.min.js
@@ -79,7 +79,7 @@ function YeatleScheduleWorkerIdle(){
 function gd(){
   clearTimeout(YeatleWorkerIdleTimer);
   if(zt)return zt;
-  const worker=new Worker(new URL("separator.worker.js?v=1.14.1",import.meta.url),{type:"module"});zt=worker;
+  const worker=new Worker(new URL("separator.worker.js?v=1.14.2",import.meta.url),{type:"module"});zt=worker;
   worker.onmessage=event=>{
     if(zt!==worker)return;
     const message=event.data;
@@ -100,7 +100,7 @@ function gd(){
   return worker;
 }
 let YeatleStemCacheModule;
-function YeatleGetStemCache(){return YeatleStemCacheModule||(YeatleStemCacheModule=import("./stem-cache.mjs?v=1.14.1").catch(()=>null))}
+function YeatleGetStemCache(){return YeatleStemCacheModule||(YeatleStemCacheModule=import("./stem-cache.mjs?v=1.14.2").catch(()=>null))}
 async function YeatleModelRevision(){try{return(await(await fetch("api/separator-revision",{cache:"no-store"})).json()).revision||null}catch{return null}}
 async function YeatleCacheInputs(job,bytes){const cache=await YeatleGetStemCache();if(!cache||typeof cache.canCacheStems!=="function"||!cache.canCacheStems(job.ctx))return;job.cacheModule=cache;job.audioHash=await cache.hashAudio(bytes).catch(()=>null);const revision=Vl.revision||await YeatleModelRevision();job.cacheKey=cache.stemCacheKey(job.audioHash,revision,bt)}
 async function YeatleCacheCompleted(job){const cache=job.cacheModule,buffers=job.buffers;if(!cache||!buffers||!job.audioHash)return;const revision=Vl.revision||await YeatleModelRevision();const key=cache.stemCacheKey(job.audioHash,revision,bt);if(key)await cache.saveStems(key,buffers,job.total,()=>job.cancelled)}

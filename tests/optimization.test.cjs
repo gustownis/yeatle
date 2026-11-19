@@ -450,10 +450,11 @@ test('AudioContext suspends when idle, reuses across rounds, and closes on non-p
 });
 
 test('yeatle.js indexes song suggestions consistently with song-suggestions.mjs and keeps worker/cache ?v= current',async t=>{
+ const {version}=require('../package.json');
  const bundle=fs.readFileSync(path.join(__dirname,'../build/assets/yeatle.js'),'utf8');
  assert.equal(bundle.includes('?v=1.10.0'),false,'expected no stale ?v=1.10.0 URLs in yeatle.js');
- assert.ok(bundle.includes('separator.worker.js?v=1.14.1'));
- assert.ok(bundle.includes('./stem-cache.mjs?v=1.14.1'));
+ assert.ok(bundle.includes(`separator.worker.js?v=${version}`));
+ assert.ok(bundle.includes(`./stem-cache.mjs?v=${version}`));
 
  const {songsForPool}=await import(pathToFileURL(path.join(__dirname,'../build/assets/song-pools.mjs')).href);
  const {attachSongSuggestions}=await import(pathToFileURL(path.join(__dirname,'../build/assets/song-suggestions.mjs')).href);

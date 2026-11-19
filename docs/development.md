@@ -45,7 +45,7 @@ In GitHub, **Actions → Desktop builds → Run workflow** builds all five targe
 
 ## Publishing a release
 
-1. Bump the three-part semver in `package.json`, `package-lock.json`, and `?v=` asset query strings in `build/`.
+1. Run `npm run prepare:release -- X.Y.Z` to bump the three-part semver in `package.json`, `package-lock.json`, all `?v=` asset query strings in `build/`, and the download links in `README.md` and `docs/setup.md`.
 2. Add release notes at `docs/releases/X.Y.md` using a two-part heading (`# Yeatle X.Y`, omitting `.0` for `.0` releases). Keep paragraphs on single lines so GitHub renders them without forced breaks.
 3. Run the **Desktop builds** GitHub workflow with **release** ticked. It runs `npm test`, builds all five targets, runs `scripts/prepare-release.cjs` to generate `SHA256SUMS.txt` and `latest*.yml` updater feeds, and creates a draft release tagged `vX.Y.Z` with all 14 assets.
 4. Run **Desktop builds** again with **publish** ticked to promote the draft to Latest, then update the download links in [README.md](../README.md).

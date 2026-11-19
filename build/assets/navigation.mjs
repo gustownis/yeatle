@@ -1,4 +1,4 @@
-import { interfaceMotionAllowed } from "./interface-motion.mjs?v=1.10.3";
+import { interfaceMotionAllowed } from "./interface-motion.mjs?v=1.14.2";
 
 let activeTransition = null;
 let selection = 0;
