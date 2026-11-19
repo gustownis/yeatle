@@ -18,7 +18,7 @@ Tracking the full repository audit (`H1–H15`, `M1–M16`, `L1–L11`) across p
 - [x] ~~**H12** (`build/assets/leaderboard.mjs`, `build/assets/song-pools.mjs`): Replace temporary `round-*` `audioId`s with real song `audioId || id` in `snippetRounds.reveal()` and clear stale `round-*` values on restore.~~
 - [x] ~~**H13** (`build/assets/karaoke.js`): Scale `MicDetector`'s power-of-two `fftSize` from `ctx.sampleRate` (`2048`/`4096`/`8192`) and size `this.buf` to match.~~
 - [x] ~~**H14** (`build/assets/karaoke.js`): Add cancellation tokens across `openCalibration()` awaits, read `ctx` after `enableMics()` + `resumeAudio()`, and ensure full timer/loop cleanup on close.~~
-- [ ] **H15** (`build/assets/yeatle.js`): Handle `NotAllowedError` in `Lm.resyncStems`, `Lm.playSnippet`, and `Lm.play` without triggering `this.onError()`, and pass `{ next: !0 }` in `Md` ("Only instrumental" reroll).
+- [x] ~~**H15** (`build/assets/yeatle.js`): Handle `NotAllowedError` in `Lm.resyncStems`, `Lm.playSnippet`, and `Lm.play` without triggering `this.onError()`, and pass `{ next: !0 }` in `Md` ("Only instrumental" reroll).~~
 
 ## Medium Priority — Performance, Memory & Robustness
 
@@ -36,7 +36,7 @@ Tracking the full repository audit (`H1–H15`, `M1–M16`, `L1–L11`) across p
 - [x] ~~**M12** (`build/assets/separator.worker.js`): Add a cancelled flag so timed-out 20s WebGPU `ch()` probes immediately release late sessions (without changing STFT math).~~
 - [x] ~~**M13** (`build/assets/stems-download.js`): Guard `update(null)`, clear stale `#list` on `catalog.error` with retry, and catch button IPC rejections.~~
 - [x] ~~**M14 (leaderboard.mjs)** (`build/assets/leaderboard.mjs`): Guard `localStorage` access against blocked storage, short-circuit unchanged values in `Storage.prototype.setItem`, and check `roundTicket` on round actions.~~
-- [ ] **M14 (yeatle.js)** (`build/assets/yeatle.js`): Invalidate `YeatleRounds.ticket()` at the start of `al()` and defer `YeatleRetry` until the song commits, stabilize `active-song` SSE `useEffect` dependencies via refs, clamp short-track `snipTimer` end times to `lead.duration`/`lead.ended`, and hide failed Eras modal `<img>` via `style.visibility="hidden"` instead of `.replaceWith()`.
+- [x] ~~**M14 (yeatle.js)** (`build/assets/yeatle.js`): Invalidate `YeatleRounds.ticket()` at the start of `al()` and defer `YeatleRetry` until the song commits, stabilize `active-song` SSE `useEffect` dependencies via refs, clamp short-track `snipTimer` end times to `lead.duration`/`lead.ended`, and hide failed Eras modal `<img>` via `style.visibility="hidden"` instead of `.replaceWith()`.~~
 - [x] ~~**M15** (`build/assets/wrapped.mjs`): Clear failed `api/songs` promises so retries work, skip finalizing archives without song metadata, and fix the Jan 1–7 `yearsPlayed` year boundary.~~
 - [x] ~~**M16** (`build/assets/daily.mjs`, `build/assets/leaderboard.mjs`, `build/assets/wrapped.mjs`): Re-init Daily on persisted `pageshow`, reload Daily on HTTP 409, and wire `yeatle:banned` teardown for active audio and Wrapped overlays/listeners.~~
 
@@ -57,3 +57,4 @@ Tracking the full repository audit (`H1–H15`, `M1–M16`, `L1–L11`) across p
 ## Verification
 
 - **Phase 1 (Windows, Node.js `v24.15.0`):** `node --test tests/*.test.cjs` -> 276 tests, 273 passed, 0 failed, 3 skipped (POSIX-gated `SIGTERM`, symlink, and `/proc` FD checks); `node --test tests/separation.test.cjs tests/playback.test.cjs tests/optimization.test.cjs tests/interface-motion.test.cjs` -> 25/25 passed; `.\node_modules\.bin\electron.cmd scripts/desktop-smoke.cjs` -> passed (`{"passed":true,...}`); `.\node_modules\.bin\electron.cmd scripts/desktop-stems-smoke.cjs` -> passed (`{"passed":true,...}`); `.\node_modules\.bin\electron.cmd scripts/daily-smoke.cjs` -> passed prior to the `#players .meter em` sensitivity tweak in `build/assets/karaoke.js`. Not run locally: `scripts/catalog-smoke.cjs` and `scripts/snippet-rounds-smoke.cjs` (`playwright` / `playwright-core` not installed).
+- **Phase 2 (Windows, Node.js `v24.15.0`):** `build/assets/yeatle.js` ESM syntax check passed; `node --test tests/*.test.cjs` -> 278 tests, 275 passed, 0 failed, 3 skipped (POSIX-gated); `.\node_modules\.bin\electron.cmd scripts/desktop-smoke.cjs` -> passed (`{"passed":true,"output":"D:\\yeatle\\.tmp\\desktop-smoke-1795102510378"}`).

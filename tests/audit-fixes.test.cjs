@@ -692,3 +692,123 @@ test("stem-cache resets database handle onclose and avoids unreserved erase", as
     globalThis.indexedDB = prevIdb;
   }
 });
+
+
+/* ---------- Phase 2 (H15, M14 yeatle.js): playback, short snippet clamp, round races & Eras UI ---------- */
+
+test("Lm handles NotAllowedError without triggering onError and clamps short-track playSnippet", async () => {
+  const bundle = fs.readFileSync(path.join(root, "build/assets/yeatle.js"), "utf8");
+  const lmSlice = bundle.slice(bundle.indexOf("class Lm{"), bundle.indexOf("const Sd=")) + ";Lm";
+  let nextTimerId = 1;
+  const intervals = new Map();
+  const cleared = [];
+  const ctx = vm.createContext({
+    Promise, Math, Number, Error, isFinite,
+    rt: () => ({ connect() {}, gain: { value: 0, setValueAtTime() {}, cancelScheduledValues() {}, linearRampToValueAtTime() {} } }),
+    setInterval: fn => { const id = nextTimerId++; intervals.set(id, fn); return id; },
+    clearInterval: id => { intervals.delete(id); cleared.push(id); },
+    setTimeout, clearTimeout,
+    YeatleDisposeGraph() {},
+    YeatleMediaRegistry: { register() {} }
+  });
+  const Lm = vm.runInContext(lmSlice, ctx);
+
+  const errs = [], ends = [];
+  let pauses = 0;
+  const makePlayer = (errName, lead) => ({
+    destroyed: false,
+    playing: true,
+    syncing: false,
+    clipStart: 2,
+    clipReady: true,
+    syncToken: 0,
+    snipTimer: null,
+    ctx: { state: "running", currentTime: 0 },
+    fade: { gain: { value: 1, cancelScheduledValues() {}, setValueAtTime() {}, linearRampToValueAtTime() {} } },
+    lead,
+    elements: [{
+      currentTime: 2,
+      readyState: 4,
+      seeking: false,
+      playbackRate: 1,
+      pause() {},
+      play: () => errName
+        ? Promise.reject(Object.assign(new Error(errName), { name: errName }))
+        : Promise.resolve()
+    }],
+    onTime() {},
+    tickStemSync() {},
+    prepareClip: async () => {},
+    pause() { this.playing = false; pauses++; },
+    onSnippetEnd(t) { ends.push(t); },
+    onError(e) { errs.push(e && e.name); }
+  });
+
+  // NotAllowedError in play, resyncStems, and playSnippet pauses cleanly without onError.
+  const lead = { currentTime: 2, duration: 100, ended: false };
+  const pPlay = makePlayer("NotAllowedError", lead);
+  await Lm.prototype.play.call(pPlay, false);
+  assert.deepEqual(errs, []);
+  assert.equal(pPlay.playing, false);
+  assert.equal(pauses, 1);
+  assert.deepEqual(ends, [2]);
+
+  const pSync = makePlayer("NotAllowedError", lead);
+  pSync.elements.push({ ...pSync.elements[0] });
+  pauses = 0; ends.length = 0;
+  await Lm.prototype.resyncStems.call(pSync, 2);
+  assert.deepEqual(errs, []);
+  assert.equal(pSync.playing, false);
+  assert.ok(pauses >= 1);
+  assert.ok(ends.includes(2));
+
+  const pSnip = makePlayer("NotAllowedError", lead);
+  pauses = 0; ends.length = 0;
+  await Lm.prototype.playSnippet.call(pSnip, 5);
+  clearInterval(pSnip.snipTimer);
+  assert.deepEqual(errs, []);
+  assert.equal(pSnip.playing, false);
+  assert.equal(pauses, 1);
+  assert.deepEqual(ends, [2]);
+  cleared.length = 0;
+  ends.length = 0;
+
+  // Non-NotAllowedError/AbortError still delegates to onError.
+  const pFail = makePlayer("NotSupportedError", lead);
+  await Lm.prototype.play.call(pFail, false);
+  assert.deepEqual(errs, ["NotSupportedError"]);
+
+  // Short track duration clamps snipTimer r = Math.min(n + t, duration).
+  const pShort = makePlayer(null, { currentTime: 5, duration: 5, ended: false });
+  pShort.clipStart = 0;
+  pShort.elements[0].currentTime = 0;
+  await Lm.prototype.playSnippet.call(pShort, 15);
+  const timerId1 = pShort.snipTimer;
+  assert.ok(intervals.has(timerId1));
+  intervals.get(timerId1)();
+  assert.deepEqual(ends, [5]);
+  assert.equal(pShort.playing, false);
+  assert.ok(cleared.includes(timerId1));
+
+  // Unknown duration still stops when lead.ended flips true.
+  ends.length = 0;
+  const pEnded = makePlayer(null, { currentTime: 4.2, duration: NaN, ended: true });
+  pEnded.clipStart = 0;
+  pEnded.elements[0].currentTime = 0;
+  await Lm.prototype.playSnippet.call(pEnded, 15);
+  const timerId2 = pEnded.snipTimer;
+  intervals.get(timerId2)();
+  assert.deepEqual(ends, [4.2]);
+  assert.ok(cleared.includes(timerId2));
+});
+
+test("yeatle.js Phase 2 regression checks for reroll, round ticket, SSE deps, and Eras image onError", () => {
+  const bundle = fs.readFileSync(path.join(root, "build/assets/yeatle.js"), "utf8");
+  assert.ok(bundle.includes('Md=()=>{!_||$!=="playing"||xn.left<=0||(D(c=>({...c,uses:[...c.uses,c.done]})),Nt(!1),Vi("New song. That one didn\'t count"),al(_.id,{next:!0}))}'));
+  assert.equal(bundle.includes("al(_.id))}"), false);
+  assert.ok(bundle.includes('onError:C=>{C.currentTarget.style.visibility="hidden"}'));
+  assert.equal(bundle.includes("C.currentTarget.replaceWith("), false);
+  assert.ok(bundle.includes("al=w.useCallback((c,y={})=>{const YeatleTicket=YeatleRounds.ticket();Hi(),ol.current=null;"));
+  assert.ok(bundle.includes("YeatleAlRef=w.useRef(al),YeatleSongsRef=w.useRef(e);YeatleAlRef.current=al,YeatleSongsRef.current=e;"));
+  assert.ok(bundle.includes("const stop=YeatleWatchSong(handle,{enabled:YeatleLiveControl,poll});return()=>{live=!1;stop()}},[YeatleLiveControl])"));
+});
