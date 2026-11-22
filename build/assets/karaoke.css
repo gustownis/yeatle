@@ -48,8 +48,8 @@ h2:first-child { margin-top: 0; }
 .song.picked { background: rgba(181, 101, 224, 0.2); border-color: var(--accent); }
 .song img, .song .nocover { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex: none; background: rgba(255, 255, 255, 0.08); }
 .song-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.song-text b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.song-text small { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-text b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; padding-bottom: 2px; margin-bottom: -2px; }
+.song-text small { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; padding-bottom: 2px; margin-bottom: -2px; }
 .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; flex: none; border: 1px solid var(--line); color: var(--muted); }
 .tag.hq { color: #7ff0a4; border-color: rgba(127, 240, 164, 0.4); }
 .tag.preview { color: #ffc46b; border-color: rgba(255, 196, 107, 0.4); }
@@ -113,7 +113,7 @@ h2:first-child { margin-top: 0; }
 #stage { display: grid; grid-template-rows: auto minmax(160px, 1fr) auto auto; height: 100vh; height: 100dvh; padding: 10px 14px 14px; gap: 10px; }
 .stage-top { position: relative; display: flex; align-items: center; gap: 12px; padding-bottom: 8px; }
 .stage-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.stage-info b { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stage-info b { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; padding-bottom: 2px; margin-bottom: -2px; }
 .stage-info small { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; }
 .progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; overflow: hidden; }
 .progress i { display: block; height: 100%; width: 0; background: var(--accent); }
@@ -139,7 +139,7 @@ h2:first-child { margin-top: 0; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .card { position: relative; background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--c); border-radius: 12px; padding: 8px 12px; }
 .card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.card-top b { color: var(--c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-top b { color: var(--c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; padding-bottom: 2px; margin-bottom: -2px; }
 .mult { font-weight: 800; font-size: 14px; padding: 1px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); }
 .mult[data-level="2"] { background: #3a6cf0; }
 .mult[data-level="3"] { background: #e0a020; }

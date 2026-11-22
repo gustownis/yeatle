@@ -642,3 +642,31 @@ test("the public API shares leaderboards and yesterday's Daily answer, never tod
   assert.equal((await fetch(`${hostUrl}/api/v1/accounts`)).status, 404);
   for (const text of [JSON.stringify(board), dailyText]) assert.ok(!/token|hash|progress|"id"/.test(text), "nothing private");
 });
+
+test("computeLocalDailyStreak ignores non-daily keys and modal keyboard isolation blocks leakage into games", async () => {
+  const { computeLocalDailyStreak } = await frontendModule;
+  const entries = new Map([
+    ["yeatle:completed:stems", JSON.stringify(["song1", "song2"])],
+    ["yeatle:stats:stems", JSON.stringify({ songsAttempted: 2 })],
+    ["yeatle-karaoke-best:song1:easy", JSON.stringify({ score: 9999 })],
+    [`yeatle:daily:${day(-1)}`, JSON.stringify(won(day(-1)))],
+    [`yeatle:daily:${day(0)}`, JSON.stringify(won(day(0)))]
+  ]);
+  const nonDailyReads = [];
+  const fakeStorage = {
+    get length() { return entries.size; },
+    key(i) { return [...entries.keys()][i] ?? null; },
+    getItem(k) {
+      if (!k.startsWith("yeatle:daily:")) nonDailyReads.push(k);
+      return entries.get(k) ?? null;
+    }
+  };
+  assert.equal(computeLocalDailyStreak(fakeStorage, NOW), 2);
+  assert.deepEqual(nonDailyReads, []);
+
+  // Verify overlay/capture keyboard isolation in leaderboard.mjs stops Escape/S/Space/Enter from reaching game listeners
+  const source = fs.readFileSync(path.join(root, "build/assets/leaderboard.mjs"), "utf8");
+  assert.match(source, /overlay\.addEventListener\("keydown", e => \{\s*if \(isOpen\) e\.stopPropagation\(\);/s);
+  assert.match(source, /overlay\.addEventListener\("keyup", e => \{\s*if \(isOpen && e\.code === "Space"\) e\.stopPropagation\(\);/s);
+  assert.match(source, /window\.addEventListener\("keydown", e => \{[\s\S]*?if \(!overlay\.contains\(e\.target\)\) e\.stopPropagation\(\);\s*\}, true\);/);
+});

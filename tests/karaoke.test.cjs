@@ -160,3 +160,51 @@ test("karaoke time-sliced analysis preserves synchronous downsample math and cha
   assert.deepEqual(chart.notes, refChart.notes);
   assert.deepEqual(chart.phrases, refChart.phrases);
 });
+
+test("karaoke yin early-exit matches full-scan reference bit-for-bit and search indexes aliases and years", async () => {
+  const { yin } = await load();
+  const fs = require("node:fs");
+  const rate = SR / 4, n = 384, tauMax = Math.floor(rate / 70), tauMin = Math.max(2, Math.floor(rate / 1000));
+  const refYin = (buf) => {
+    const d = new Float32Array(tauMax + 1);
+    d[0] = 1;
+    let running = 0;
+    for (let tau = 1; tau <= tauMax; tau++) {
+      let sum = 0;
+      for (let j = 0; j < n; j++) { const diff = buf[j] - buf[j + tau]; sum += diff * diff; }
+      running += sum;
+      d[tau] = running > 0 ? (sum * tau) / running : 1;
+    }
+    let best = -1;
+    for (let tau = tauMin; tau <= tauMax; tau++) {
+      if (d[tau] < 0.15) {
+        while (tau + 1 <= tauMax && d[tau + 1] < d[tau]) tau++;
+        best = tau;
+        break;
+      }
+    }
+    if (best < 0) {
+      let low = Infinity;
+      for (let tau = tauMin; tau <= tauMax; tau++) if (d[tau] < low) { low = d[tau]; best = tau; }
+    }
+    let t = best;
+    if (best > 1 && best < tauMax) {
+      const a = d[best - 1], b = d[best], c = d[best + 1], den = a + c - 2 * b;
+      if (den > 0) t = best + (a - c) / (2 * den);
+    }
+    return { freq: rate / t, conf: Math.min(1, Math.max(0, 1 - d[best])) };
+  };
+
+  // Test across multiple pitches, unvoiced noise (no dip < 0.15), and monotonic edge cases
+  const buf = new Float32Array(n + tauMax + 16);
+  for (const freq of [110, 220, 440, 750]) {
+    for (let i = 0; i < buf.length; i++) buf[i] = 0.4 * Math.sin((2 * Math.PI * freq * i) / rate) + 0.1 * Math.sin((4 * Math.PI * freq * i) / rate);
+    assert.deepEqual(yin(buf, n, rate, 70, 1000), refYin(buf), `exact match at ${freq}Hz`);
+  }
+  let seed = 42;
+  for (let i = 0; i < buf.length; i++) { seed = (seed * 16807) % 2147483647; buf[i] = (seed / 2147483647) * 2 - 1; }
+  assert.deepEqual(yin(buf, n, rate, 70, 1000), refYin(buf), "exact match on unvoiced noise");
+
+  const src = fs.readFileSync(path.join(__dirname, "..", "build", "assets", "karaoke.js"), "utf8");
+  assert.match(src, /song\.title[\s\S]*song\.aliases[\s\S]*song\.eraYear \|\| song\.year/);
+});

@@ -21,8 +21,10 @@ function coverForSong(song) {
   if (pick === undefined) coverRolls.set(song, pick = Math.random() < 0.5);
   return pick ? ALIVE_WHITE_COVER : cover;
 }
-let ctx, master, clipGain, buffers, sources = [], audioLoad, abortAudio, playback = 0;
+let ctx, master, clipGain, clipBuffer, sources = [], audioLoad, abortAudio, playback = 0;
 let ready = false, busy = false, playing = false, storageAvailable = true;
+const isPhoneOrTablet = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "") || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent || ""));
+if ($("#daily-keys")) $("#daily-keys").hidden = isPhoneOrTablet;
 let playStartAt = 0, playDuration = 0, playFrame = 0;
 const UNMUTED_WAVE = "M11 5.5q1.8 2.5 0 5";
 const MUTED_WAVE = "M11 5.5l3.5 5M14.5 5.5l-3.5 5";
@@ -87,7 +89,7 @@ function dispose() {
   abortAudio?.abort();
   abortAudio = null;
   audioLoad = null;
-  buffers = null;
+  clipBuffer = null;
   ready = false;
   busy = false;
   if (ctx) ctx.close().catch(() => {});
@@ -152,7 +154,10 @@ function render() {
   $("#play").textContent = busy ? "Loading audio…" : playing ? "Stop" : done ? "Replay 15s" : `Play ${seconds}s`;
   $("#play").disabled = busy || loading;
   $("#guess-form").hidden = done;
-  for (const id of ["#guess", "#submit", "#skip"]) $(id).disabled = !ready || busy || loading;
+  $("#guess").disabled = !ready || loading;
+  $("#guess").readOnly = busy;
+  for (const id of ["#submit", "#skip"]) $(id).disabled = !ready || busy || loading;
+  if ($("#daily-keys")) $("#daily-keys").hidden = done || isPhoneOrTablet;
   if (done || !ready || busy || loading) suggestions.close();
   $("#skip").textContent = level() === BASE_LENGTHS.length - 1 ? "Give up" : "Skip";
   const guessItems = [];
@@ -206,7 +211,7 @@ function render() {
 }
 
 async function loadAudio() {
-  if (buffers) return;
+  if (clipBuffer) return;
   if (audioLoad) return audioLoad;
   const current = challenge;
   const controller = new AbortController();
@@ -214,17 +219,44 @@ async function loadAudio() {
   const context = ctx;
   audioLoad = (async () => {
     const urls = current.audio;
-    const decoded = [];
-    // Sequential decoding avoids four simultaneous compressed/decoded copies on phones.
-    for (const url of urls) {
-      const response = await fetch(url, { signal: controller.signal });
-      if (!response.ok) throw new Error(`Audio host returned ${response.status}`);
-      decoded.push(await context.decodeAudioData(await response.arrayBuffer()));
-      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+    const maxLen = BASE_LENGTHS.at(-1);
+    const clipSamples = Math.ceil((maxLen + 0.05) * context.sampleRate);
+    const startSample = Math.floor(current.clipAt * context.sampleRate);
+    const mixed = context.createBuffer(2, clipSamples, context.sampleRate);
+    const outL = mixed.getChannelData(0);
+    const outR = mixed.getChannelData(1);
+    let nextFetch = urls.length ? fetch(urls[0], { signal: controller.signal }) : null;
+    nextFetch?.catch(() => {});
+    // Pipeline the next fetch while decoding sequentially, keeping only the 15s clip slice in RAM.
+    try {
+      for (let i = 0; i < urls.length; i++) {
+        const response = await nextFetch;
+        nextFetch = null;
+        if (!response.ok) throw new Error(`Audio host returned ${response.status}`);
+        const bytesPromise = response.arrayBuffer();
+        if (i + 1 < urls.length) {
+          nextFetch = fetch(urls[i + 1], { signal: controller.signal });
+          nextFetch.catch(() => {});
+        }
+        let decoded = await context.decodeAudioData(await bytesPromise);
+        if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+        if (decoded.duration < current.clipAt + maxLen) throw new Error("Today's audio is too short for the shared clip");
+        const srcL = decoded.getChannelData(0);
+        const srcR = decoded.getChannelData(decoded.numberOfChannels > 1 ? 1 : 0);
+        const copyLen = Math.min(clipSamples, Math.max(0, decoded.length - startSample));
+        for (let j = 0; j < copyLen; j++) {
+          const k = startSample + j;
+          outL[j] += srcL[k];
+          outR[j] += srcR[k];
+        }
+        decoded = null;
+      }
+    } catch (err) {
+      nextFetch?.catch(() => {});
+      throw err;
     }
-    if (Math.min(...decoded.map(b => b.duration)) < current.clipAt + BASE_LENGTHS.at(-1)) throw new Error("Today's audio is too short for the shared clip");
     if (challenge !== current || controller.signal.aborted) return;
-    buffers = decoded;
+    clipBuffer = mixed;
     ready = true;
   })();
   try { await audioLoad; }
@@ -241,6 +273,7 @@ async function play() {
   if (loading || expired()) return;
   if (playing) { stop(); render(); return; }
   const current = challenge;
+  const needLoad = !clipBuffer;
   mediaPlaybackSession();
   try {
     if (!ctx) {
@@ -249,16 +282,17 @@ async function play() {
       master = ctx.createGain();
       master.connect(ctx.destination);
     }
-    // Resume during the tap gesture, before waiting for the network (Android).
-    busy = true;
-    render();
-    await ctx.resume();
-    notice(ready ? "" : "Preparing today's audio. Your attempts start when it is ready.");
-    await loadAudio();
-    if (challenge !== current || document.hidden || !buffers || expired()) return;
+    if (needLoad) {
+      // Resume during the tap gesture, before waiting for the network (Android).
+      busy = true;
+      render();
+      notice("Preparing today's audio. Your attempts start when it is ready.");
+    }
+    if (ctx.state !== "running") await ctx.resume();
+    if (needLoad) await loadAudio();
+    if (challenge !== current || document.hidden || !clipBuffer || expired()) return;
     stop();
     const token = playback;
-    const offset = challenge.clipAt;
     const length = round.status === "playing" ? BASE_LENGTHS[level()] : BASE_LENGTHS.at(-1);
     const when = ctx.currentTime + 0.02;
     const volume = (muted ? 0 : volumeLevel) ** 2;
@@ -269,14 +303,12 @@ async function play() {
     clipGain.gain.linearRampToValueAtTime(1, when + 0.005);
     clipGain.gain.setValueAtTime(1, when + length - 0.005);
     clipGain.gain.linearRampToValueAtTime(0, when + length);
-    sources = buffers.map(buffer => {
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(clipGain);
-      source.start(when, offset, length);
-      return source;
-    });
-    sources[0].onended = () => { if (playback === token) { stop(); render(); } };
+    const source = ctx.createBufferSource();
+    source.buffer = clipBuffer;
+    source.connect(clipGain);
+    source.start(when, 0, length);
+    sources = [source];
+    source.onended = () => { if (playback === token) { stop(); render(); } };
     playStartAt = when;
     playDuration = length;
     playing = true;
@@ -285,7 +317,10 @@ async function play() {
   } catch (error) {
     if (challenge === current && error.name !== "AbortError") notice(`Couldn't play today's song. Tap Play to retry the same song; no attempt was used. ${error.message}`);
   } finally {
-    if (challenge === current) { busy = false; render(); }
+    if (challenge === current) {
+      if (needLoad) busy = false;
+      render();
+    }
   }
 }
 
@@ -306,6 +341,8 @@ function applyServerRound(result) {
 
 async function checkedAttempt(text, skip) {
   const current = challenge;
+  const wasFocused = document.activeElement === $("#guess");
+  let shouldAutoPlay = false;
   busy = true;
   stop();
   render();
@@ -316,13 +353,19 @@ async function checkedAttempt(text, skip) {
     $("#guess").value = "";
     suggestions.close();
     if (result.closeGuess) notice(`Different version — "${result.closeGuess.text}" is another version of this song. Try again on ${BASE_LENGTHS[level()]}s.`);
+    else if (round.status === "playing" && ready) shouldAutoPlay = true;
   } catch (error) {
     if (challenge === current) {
       if (error?.status === 409) { busy = false; loadChallenge(); return; }
       notice(`${error.message} No attempt was used.`);
     }
   } finally {
-    if (challenge === current) { busy = false; render(); }
+    if (challenge === current) {
+      busy = false;
+      render();
+      if (wasFocused && round.status === "playing" && !isPhoneOrTablet) $("#guess").focus({ preventScroll: true });
+      if (shouldAutoPlay && !document.hidden) play();
+    }
   }
 }
 
@@ -331,6 +374,7 @@ function attempt(text, skip = false) {
   if (challenge.checked) { if (round.status === "playing") checkedAttempt(text, skip); return; }
   if (storageAvailable) round = readRound();
   if (round.status !== "playing") { render(); return; }
+  const wasFocused = document.activeElement === $("#guess");
   const correct = !skip && matchesSong(challenge.song, text);
   const diffVersion = !skip && !correct && matchesVersion(challenge.song, text);
   stop();
@@ -341,6 +385,7 @@ function attempt(text, skip = false) {
     suggestions.close();
     notice(`Different version — "${text}" is another version of this song. Try again on ${BASE_LENGTHS[level()]}s.`);
     render();
+    if (wasFocused && !isPhoneOrTablet) $("#guess").focus({ preventScroll: true });
     return;
   }
   round.attempts.push({ kind: correct ? "right" : skip ? "skip" : "wrong", text: skip ? "" : text });
@@ -350,6 +395,8 @@ function attempt(text, skip = false) {
   $("#guess").value = "";
   suggestions.close();
   render();
+  if (wasFocused && round.status === "playing" && !isPhoneOrTablet) $("#guess").focus({ preventScroll: true });
+  if (round.status === "playing" && ready && !document.hidden) play();
 }
 function expired() {
   if (challenge && serverNow() >= challenge.resetsAt) { loadChallenge(); return true; }
@@ -446,6 +493,32 @@ addEventListener("pageshow", event => { if (event.persisted) loadChallenge(); })
 addEventListener("yeatle:banned", dispose);
 document.addEventListener("visibilitychange", () => { if (document.hidden) { stop(); render(); } else expired(); });
 addEventListener("pagehide", dispose);
+const hasOpenModal = () => Boolean(document.querySelector(".yeatle-lb-overlay:not([hidden]), .yeatle-wrapped-overlay:not([hidden])"));
+const isFormInput = target => /^(INPUT|SELECT|TEXTAREA)$/.test(target?.tagName || "");
+addEventListener("keydown", event => {
+  if (event.metaKey || event.ctrlKey || event.altKey || hasOpenModal() || isFormInput(event.target)) return;
+  if (event.code === "Space") {
+    if (/^(BUTTON|A)$/.test(event.target?.tagName || "")) return;
+    event.preventDefault();
+    play();
+  } else if (event.key === "s" || event.key === "S") {
+    if (ready && !busy && !loading && round?.status === "playing") {
+      event.preventDefault();
+      attempt("", true);
+    }
+  } else if (event.key === "Enter") {
+    if (round?.status === "playing" && !$("#guess").disabled && !/^(BUTTON|A)$/.test(event.target?.tagName || "")) {
+      event.preventDefault();
+      $("#guess").focus();
+    }
+  }
+});
+addEventListener("keyup", event => {
+  if (event.code === "Space" && !isFormInput(event.target) && !/^(BUTTON|A)$/.test(event.target?.tagName || "") && !hasOpenModal()) {
+    event.preventDefault();
+  }
+});
+
 setInterval(() => {
   if (document.hidden || !challenge || loading || expired()) return;
   const seconds = Math.max(0, Math.ceil((challenge.resetsAt - serverNow()) / 1000));

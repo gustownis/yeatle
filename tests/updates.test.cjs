@@ -170,3 +170,62 @@ test("bumpReleaseVersion updates package files, build ?v= cache-busting strings,
   assert.match(fs.readFileSync(path.join(dir, "README.md"), "utf8"), /v1\.14\.2\/Yeatle-Setup-1\.14\.2-windows-x64\.exe/);
   assert.match(fs.readFileSync(path.join(dir, "docs", "setup.md"), "utf8"), /Yeatle-1\.14\.2-linux-x64\.deb/);
 });
+
+test("createUpdateController throttles progress/status updates and invokes onBeforeInstall before quitAndInstall", async t => {
+  const { createUpdateController } = require("../desktop/updates.cjs");
+  const dir = folder(t);
+  const prevEnv = process.env.PORTABLE_EXECUTABLE_FILE;
+  const prevFetch = globalThis.fetch;
+  process.env.PORTABLE_EXECUTABLE_FILE = "Yeatle.exe";
+
+  const barUpdates = [];
+  const statuses = [];
+  const win = { isDestroyed: () => false, setProgressBar: v => barUpdates.push(v) };
+  try {
+    const name = assetName("9.9.9", process.platform, process.arch, "portable");
+    const payload = Buffer.alloc(1000, 65);
+    const digest = `sha256:${crypto.createHash("sha256").update(payload).digest("hex")}`;
+    const releaseUrl = "https://github.com/gustownis/yeatle/releases/download/v9.9.9/";
+    globalThis.fetch = async url => {
+      if (String(url).includes("/releases/latest")) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({
+            tag_name: "v9.9.9", draft: false, prerelease: false,
+            html_url: "https://github.com/gustownis/yeatle/releases/tag/v9.9.9",
+            assets: [{ name, size: payload.length, state: "uploaded", digest, browser_download_url: releaseUrl + name }]
+          })
+        };
+      }
+      // 25 small 4% chunks inside <10ms: should throttle status to 5% steps instead of 25 rebuilds
+      const stream = new ReadableStream({
+        start(c) {
+          for (let i = 0; i < 25; i++) c.enqueue(payload.subarray(i * 40, (i + 1) * 40));
+          c.close();
+        }
+      });
+      return new Response(stream, { status: 200 });
+    };
+    let ctrl;
+    ctrl = createUpdateController({
+      app: { isPackaged: true, getVersion: () => "1.14.3", getPath: () => dir },
+      dialog: { showMessageBox: async () => ({ response: 0 }) },
+      shell: { openExternal: async () => {}, showItemInFolder() {}, openPath: async () => "" },
+      getWindow: () => win,
+      onStatus: () => statuses.push(ctrl.status)
+    });
+    await ctrl.check(true);
+    const downloadStatuses = statuses.filter(s => s.startsWith("Downloading Update ("));
+    assert.ok(downloadStatuses.length >= 2 && downloadStatuses.length <= 21, `throttled from 25 chunks to ${downloadStatuses.length}`);
+    assert.equal(barUpdates.at(-1), -1, "progress bar resets to -1 in finally");
+    assert.equal(ctrl.status, "Check for Updates");
+  } finally {
+    if (prevEnv === undefined) delete process.env.PORTABLE_EXECUTABLE_FILE;
+    else process.env.PORTABLE_EXECUTABLE_FILE = prevEnv;
+    globalThis.fetch = prevFetch;
+  }
+
+  // Verify onBeforeInstall hook runs before quitAndInstall in updates.cjs
+  const updatesSrc = fs.readFileSync(path.join(__dirname, "..", "desktop", "updates.cjs"), "utf8");
+  assert.match(updatesSrc, /await onBeforeInstall\(\)\.catch\(\(\) => \{\}\);\s*target\.quitAndInstall\(true, true\);/);
+});

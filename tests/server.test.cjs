@@ -1083,3 +1083,104 @@ test("pages serve page-specific Open Graph embeds, mode redirects, and distinct 
     assert.equal(redir.headers.get("location"), expected, alias);
   }
 });
+
+test("compressed API responses, proxied Daily audio caching, and cover resilience work cleanly", async t => {
+  const http = require("node:http");
+  const folder = dataFolder(t);
+  config(folder, { dailyAuthority: "", stemDownloads: true });
+  const songsDir = path.join(folder, "Songs", "Compress Song");
+  fs.mkdirSync(songsDir, { recursive: true });
+  for (const stem of ["drums", "bass", "other", "vocals"]) {
+    fs.writeFileSync(path.join(songsDir, `${stem}.mp3`), Buffer.concat([Buffer.from("ID3"), Buffer.alloc(17000, 1)]));
+  }
+  const { url: hostUrl } = await launch(t, folder);
+
+  // Wait for stem catalog hashes to finish, then check br/gzip + ETag 304 on /api/stems/catalog.
+  let catRes;
+  for (let i = 0; i < 40; i++) {
+    catRes = await fetch(`${hostUrl}/api/stems/catalog`, { headers: { "Accept-Encoding": "br" } });
+    const catBody = await catRes.clone().json();
+    if (catBody.pending === 0 && catBody.songs.length === 1) break;
+    await new Promise(r => setTimeout(r, 50));
+  }
+  assert.equal(catRes.status, 200);
+  const catEtag = catRes.headers.get("etag");
+  assert.ok(catEtag);
+  assert.equal(catRes.headers.get("vary"), "Accept-Encoding");
+  if ((await catRes.clone().text()).length >= 1024) assert.equal(catRes.headers.get("content-encoding"), "br");
+  const notMod = await fetch(`${hostUrl}/api/stems/catalog`, { headers: { "Accept-Encoding": "br", "If-None-Match": catEtag } });
+  assert.equal(notMod.status, 304);
+
+  // Register 20 accounts on a dedicated proxy-trusted server so /api/leaderboard exceeds 1KB and compresses with gzip.
+  const lbFolder = dataFolder(t);
+  config(lbFolder, { dailyAuthority: "", trustedProxies: ["127.0.0.1"] });
+  fs.writeFileSync(path.join(lbFolder, "songs-cache.json"), JSON.stringify({
+    format: 5,
+    updated: 1,
+    eras: [{ name: "2093" }],
+    songs: [{ id: "s0", title: "s0", display: "s0", era: "2093", mode: "filter", source: { kind: "url", id: "https://audio.invalid/s0" } }]
+  }));
+  const { url: lbUrl } = await launch(t, lbFolder);
+  for (let i = 0; i < 20; i++) {
+    const regRes = await fetch(`${lbUrl}/api/account/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forwarded-For": `198.51.100.${i + 1}`,
+        "X-Yeatle-Device": String(i).padStart(32, "a")
+      },
+      body: JSON.stringify({ username: `user_compress_${i}`, password: "password123", progress: { completed: { stems: ["s0"] } } })
+    });
+    assert.equal(regRes.status, 200);
+  }
+  const lbRes = await fetch(`${lbUrl}/api/leaderboard`, { headers: { "Accept-Encoding": "gzip" } });
+  assert.equal(lbRes.status, 200);
+  assert.equal(lbRes.headers.get("content-encoding"), "gzip");
+  assert.equal(lbRes.headers.get("vary"), "Accept-Encoding");
+
+  // Copy server proxying a Daily upstream audio file caches it in roundAudioCache & sets private max-age=3600.
+  let upstreamDailyHits = 0;
+  const mockMp3 = Buffer.concat([Buffer.from("ID3"), Buffer.alloc(2048, 5)]);
+  const upstreamHost = http.createServer((req, res) => {
+    if (req.url === "/api/daily") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        id: "v1:2026-11-22:proxied",
+        date: "2026-11-22",
+        seed: 1,
+        clipAt: 5,
+        resetsAt: Date.now() + 3600000,
+        serverTime: Date.now(),
+        checked: true,
+        audio: ["api/daily/audio/0?challenge=v1:2026-11-22:proxied"]
+      }));
+      return;
+    }
+    if (req.url.startsWith("/api/daily/audio/0")) {
+      upstreamDailyHits++;
+      res.writeHead(200, { "Content-Type": "audio/mpeg", "Content-Length": String(mockMp3.length) });
+      res.end(mockMp3);
+    }
+  });
+  await new Promise(r => upstreamHost.listen(0, "127.0.0.1", r));
+  t.after(() => upstreamHost.close());
+  const upUrl = `http://127.0.0.1:${upstreamHost.address().port}`;
+  const copyDir = dataFolder(t);
+  config(copyDir, { dailyAuthority: upUrl });
+  const { url: copyUrl } = await launch(t, copyDir);
+
+  const d1 = await fetch(`${copyUrl}/api/daily/audio/0?challenge=${encodeURIComponent("v1:2026-11-22:proxied")}`);
+  assert.equal(d1.status, 200);
+  assert.equal(d1.headers.get("cache-control"), "private, max-age=3600");
+  assert.deepEqual(Buffer.from(await d1.arrayBuffer()), mockMp3);
+  const d2 = await fetch(`${copyUrl}/api/daily/audio/0?challenge=${encodeURIComponent("v1:2026-11-22:proxied")}`);
+  assert.equal(d2.status, 200);
+  assert.deepEqual(Buffer.from(await d2.arrayBuffer()), mockMp3);
+  assert.equal(upstreamDailyHits, 1, "second Daily audio request is served from copy's roundAudioCache");
+
+  // Cover resilience: fetchImage sleeps only between attempts, and rereadEraImages enforces cooldown.
+  const src = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  assert.match(src, /if \(attempt === 0\) await new Promise\(resolve => setTimeout\(resolve, 600\)\);/);
+  assert.match(src, /ERA_REREAD_COOLDOWN_MS/);
+  assert.match(src, /coverFailedUntil/);
+});

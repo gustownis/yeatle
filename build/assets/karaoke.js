@@ -48,7 +48,24 @@ const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", 
 export const freqToMidi = f => 69 + 12 * Math.log2(f / 440);
 export const chromaDistance = (a, b) => { const d = (((a - b) % 12) + 12) % 12; return Math.min(d, 12 - d); };
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-const idle = () => new Promise(resolve => setTimeout(resolve, 0));
+const idle = (() => {
+  if (typeof MessageChannel !== "function") return () => new Promise(resolve => setTimeout(resolve, 0));
+  let channel = null;
+  const queue = [];
+  return () => new Promise(resolve => {
+    if (!channel) {
+      channel = new MessageChannel();
+      channel.port1.onmessage = () => {
+        const batch = queue.splice(0, queue.length);
+        for (const fn of batch) fn();
+      };
+      channel.port1.unref?.();
+      channel.port2.unref?.();
+    }
+    queue.push(resolve);
+    if (queue.length === 1) channel.port2.postMessage(null);
+  });
+})();
 const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const YIELD_BUDGET_MS = 12;
 function createYielder(budgetMs = YIELD_BUDGET_MS) {
@@ -90,24 +107,24 @@ export function yin(buf, n, sr, minF, maxF, scratch) {
   const d = scratch && scratch.length > tauMax ? scratch : new Float32Array(tauMax + 1);
   d[0] = 1;
   let running = 0;
+  let best = -1, below = false, low = Infinity, lowTau = tauMin;
   for (let tau = 1; tau <= tauMax; tau++) {
     let sum = 0;
     for (let j = 0; j < n; j++) { const diff = buf[j] - buf[j + tau]; sum += diff * diff; }
     running += sum;
-    d[tau] = running > 0 ? (sum * tau) / running : 1;
-  }
-  let best = -1;
-  for (let tau = tauMin; tau <= tauMax; tau++) {
-    if (d[tau] < 0.15) {
-      while (tau + 1 <= tauMax && d[tau + 1] < d[tau]) tau++;
-      best = tau;
-      break;
+    const val = running > 0 ? (sum * tau) / running : 1;
+    d[tau] = val;
+    if (tau >= tauMin) {
+      if (val < low) { low = val; lowTau = tau; }
+      if (!below) {
+        if (val < 0.15) below = true;
+      } else if (!(val < d[tau - 1])) {
+        best = tau - 1;
+        break;
+      }
     }
   }
-  if (best < 0) {
-    let low = Infinity;
-    for (let tau = tauMin; tau <= tauMax; tau++) if (d[tau] < low) { low = d[tau]; best = tau; }
-  }
+  if (best < 0) best = below ? tauMax : lowTau;
   let t = best;
   if (best > 1 && best < tauMax) {
     const a = d[best - 1], b = d[best], c = d[best + 1], den = a + c - 2 * b;
@@ -981,26 +998,56 @@ function songTag(song) {
   return { text: "AI split", cls: "ai" };
 }
 
+const songRowCache = new Map();
+
 function renderSongList() {
   const query = norm($("#search").value);
   const list = $("#song-list");
   const matches = !query ? state.songs : state.songs.filter(song => {
-    const hay = song._searchHay ?? (song._searchHay = norm(`${song.display} ${song.era} ${(song.features || []).join(" ")}`));
+    const hay = song._searchHay ?? (song._searchHay = norm(`${song.display} ${song.title || ""} ${(song.aliases || []).join(" ")} ${song.era || ""} ${song.eraYear || song.year || ""} ${(song.features || []).join(" ")}`));
     return hay.includes(query);
   });
-  list.replaceChildren(...matches.slice(0, 250).map(song => {
-    const tag = songTag(song);
-    return el("button", {
-      class: "song" + (state.song && state.song.id === song.id ? " picked" : ""),
-      "data-song-id": song.id,
-      onclick: () => pickSong(song)
-    },
-      song.cover ? el("img", { src: song.cover, alt: "", width: 40, height: 40, loading: "lazy", decoding: "async" }) : el("span", { class: "nocover" }),
-      el("span", { class: "song-text" }, el("b", { text: song.display }), el("small", { text: [song.era || "No era", song.eraYear || song.year, song.tab, song.relatedRecording].filter(Boolean).join(" · ") })),
-      el("span", { class: "tag " + tag.cls, text: tag.text })
-    );
-  }));
+  const nodes = matches.slice(0, 250).map(song => {
+    let btn = songRowCache.get(song.id);
+    if (!btn) {
+      const tag = songTag(song);
+      btn = el("button", {
+        class: "song",
+        "data-song-id": song.id,
+        onclick: () => pickSong(song)
+      },
+        song.cover ? el("img", { src: song.cover, alt: "", width: 40, height: 40, loading: "lazy", decoding: "async" }) : el("span", { class: "nocover" }),
+        el("span", { class: "song-text" }, el("b", { text: song.display }), el("small", { text: [song.era || "No era", song.eraYear || song.year, song.tab, song.relatedRecording].filter(Boolean).join(" · ") })),
+        el("span", { class: "tag " + tag.cls, text: tag.text })
+      );
+      songRowCache.set(song.id, btn);
+    }
+    btn.classList.toggle("picked", Boolean(state.song && state.song.id === song.id));
+    return btn;
+  });
+  list.replaceChildren(...nodes);
   $("#song-count").textContent = matches.length > 250 ? `Showing 250 of ${matches.length}. Search to narrow it down.` : `${matches.length} song${matches.length === 1 ? "" : "s"}`;
+}
+
+function attachModalDismiss(modal, close) {
+  const opener = typeof document !== "undefined" ? document.activeElement : null;
+  let closed = false;
+  const dismiss = () => {
+    if (closed) return;
+    closed = true;
+    window.removeEventListener("keydown", onKey, true);
+    close();
+    if (opener && opener.isConnected && typeof opener.focus === "function") opener.focus({ preventScroll: true });
+  };
+  const onKey = e => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); dismiss(); }
+    else if (!modal.contains(e.target)) e.stopPropagation();
+  };
+  modal.addEventListener("mousedown", e => { if (e.target === modal) dismiss(); });
+  modal.addEventListener("keydown", e => e.stopPropagation());
+  modal.addEventListener("keyup", e => { if (e.code === "Space") e.stopPropagation(); });
+  window.addEventListener("keydown", onKey, true);
+  return dismiss;
 }
 
 function pickSong(song) {
@@ -1068,7 +1115,7 @@ function openEraPicker() {
   });
   const note = el("p", { class: "error" });
   const setAll = on => boxes.forEach(b => { b.input.checked = on; });
-  const close = () => modal.remove();
+  let close = () => modal.remove();
   const modal = el("div", { class: "modal" },
     el("div", { class: "modal-box" },
       el("h2", { text: "Shuffle eras" }),
@@ -1089,10 +1136,11 @@ function openEraPicker() {
           renderShuffle();
           close();
         } }),
-        el("button", { class: "btn", text: "Cancel", onclick: close })
+        el("button", { class: "btn", text: "Cancel", onclick: () => close() })
       )
     )
   );
+  close = attachModalDismiss(modal, close);
   document.body.append(modal);
 }
 
@@ -1270,7 +1318,7 @@ function openLyricsEditor(song) {
   const area = el("textarea", { rows: 14, spellcheck: "false", placeholder: "[00:12.40] First lyric line\n[00:15.80] Next lyric line" });
   area.value = store.get(key, "") || "";
   const note = el("p", { class: "muted" });
-  const close = () => modal.remove();
+  let close = () => modal.remove();
   const modal = el("div", { class: "modal" },
     el("div", { class: "modal-box" },
       el("h2", { text: `Lyrics for ${song.display}` }),
@@ -1285,10 +1333,11 @@ function openLyricsEditor(song) {
           lookUpLyrics(song).then(() => renderPicked());
         } }),
         el("button", { class: "btn", text: "Remove mine", onclick: () => { store.remove(key); invalidateLyrics(song); close(); lookUpLyrics(song).then(() => renderPicked()); } }),
-        el("button", { class: "btn", text: "Cancel", onclick: close })
+        el("button", { class: "btn", text: "Cancel", onclick: () => close() })
       )
     )
   );
+  close = attachModalDismiss(modal, close);
   document.body.append(modal);
   area.focus();
 }
@@ -1329,7 +1378,7 @@ function openSkipEditor(song) {
   const auto = el("input", { type: "checkbox" });
   auto.checked = prefs.auto;
   const note = el("p", { class: "muted" });
-  const close = () => modal.remove();
+  let close = () => modal.remove();
   const foundText = found
     ? found.length ? `Found from the lyrics in your last round: ${found.map(s => `${s.exact ? "" : "≈"}${fmtTime(s.start)}–${fmtTime(s.end)}`).join(", ")}` : "Your last round found no skips in the lyrics."
     : "Sing a round in White people mode to see the times found from the lyrics here.";
@@ -1359,10 +1408,11 @@ function openSkipEditor(song) {
           renderPicked();
         } }),
         el("button", { class: "btn", text: "Clear my times", onclick: () => { area.value = ""; } }),
-        el("button", { class: "btn", text: "Cancel", onclick: close })
+        el("button", { class: "btn", text: "Cancel", onclick: () => close() })
       )
     )
   );
+  close = attachModalDismiss(modal, close);
   document.body.append(modal);
   area.focus();
 }
@@ -1649,34 +1699,39 @@ const decode = (bytes, decoder = new OfflineAudioContext(2, 1, SR)) => decoder.d
 async function loadStemSong(song, job) {
   job.check();
   job.status("Loading the HQ stems…", 0);
-  const names = ["drums", "bass", "other", "vocals"];
   const decoder = new OfflineAudioContext(2, 1, SR);
-  const decoded = [];
-  // Decode stems one at a time so raw MP3 buffers can be reclaimed between stems.
-  for (const name of names) {
+  const fetchAndDecode = async name => {
     job.check();
     let bytes;
     try { bytes = await fetchBytes(folderUrl(song, `${name}.mp3`), job); }
     catch (err) { if (job.cancelled) throw err; bytes = await fetchBytes(folderUrl(song, `${name[0].toUpperCase()}${name.slice(1)}.mp3`), job); }
     job.check();
-    const buffer = await decode(bytes, decoder);
+    const buf = await decode(bytes, decoder);
     bytes = null;
     job.check();
-    decoded.push(buffer);
-    job.status("Loading the HQ stems…", decoded.length / names.length);
-  }
-  let [drums, bass, other, vox] = decoded;
-  decoded.length = 0;
-  job.check();
-  const length = Math.max(drums.length, bass.length, other.length, vox.length);
+    return buf;
+  };
+  // Decode stems sequentially in order and stream-mix backing stems into inst as each arrives.
   const ctx = audioCtx();
-  const inst = ctx.createBuffer(2, length, SR), guide = ctx.createBuffer(2, length, SR);
   const yielder = createYielder();
   const isCancelled = () => job.cancelled;
   const block = 65536;
-  for (let ch = 0; ch < 2; ch++) {
-    const out = inst.getChannelData(ch);
-    for (const b of [drums, bass, other]) {
+  let length = 0;
+  let inst = null;
+  const backing = ["drums", "bass", "other"];
+  for (let idx = 0; idx < backing.length; idx++) {
+    let b = await fetchAndDecode(backing[idx]);
+    if (!inst) {
+      length = b.length;
+      inst = ctx.createBuffer(2, length, SR);
+    } else if (b.length > length) {
+      const grown = ctx.createBuffer(2, b.length, SR);
+      for (let ch = 0; ch < 2; ch++) grown.getChannelData(ch).set(inst.getChannelData(ch));
+      inst = grown;
+      length = b.length;
+    }
+    for (let ch = 0; ch < 2; ch++) {
+      const out = inst.getChannelData(ch);
       const src = b.getChannelData(Math.min(ch, b.numberOfChannels - 1));
       for (let start = 0; start < src.length; start += block) {
         const end = Math.min(src.length, start + block);
@@ -1684,10 +1739,27 @@ async function loadStemSong(song, job) {
         if (yielder.due()) await yielder.yield(isCancelled);
       }
     }
-    guide.copyToChannel(vox.getChannelData(Math.min(ch, vox.numberOfChannels - 1)), ch);
-    if (yielder.due()) await yielder.yield(isCancelled);
+    b = null;
+    job.status("Loading the HQ stems…", (idx + 1) / 4);
   }
-  drums = bass = other = null;
+  const vox = await fetchAndDecode("vocals");
+  if (vox.length > length) {
+    const grown = ctx.createBuffer(2, vox.length, SR);
+    for (let ch = 0; ch < 2; ch++) grown.getChannelData(ch).set(inst.getChannelData(ch));
+    inst = grown;
+    length = vox.length;
+  }
+  job.status("Loading the HQ stems…", 1);
+  let guide;
+  if (vox.numberOfChannels >= 2 && vox.length === length) {
+    guide = vox;
+  } else {
+    guide = ctx.createBuffer(2, length, SR);
+    for (let ch = 0; ch < 2; ch++) {
+      guide.getChannelData(ch).set(vox.getChannelData(Math.min(ch, vox.numberOfChannels - 1)));
+      if (yielder.due()) await yielder.yield(isCancelled);
+    }
+  }
   const vocals = new Float32Array(length);
   const vl = vox.getChannelData(0), vr = vox.getChannelData(vox.numberOfChannels > 1 ? 1 : 0);
   for (let start = 0; start < vl.length; start += block) {
@@ -1858,7 +1930,8 @@ async function loadSplitSong(song, job) {
   job.check();
   // instrumental = the mix with the vocals taken out, which keeps it in stereo
   const d = stems.drums.getChannelData(0), b = stems.bass.getChannelData(0), o = stems.other.getChannelData(0);
-  const vocals = new Float32Array(total);
+  const guide = ctx.createBuffer(1, total, SR);
+  const vocals = guide.getChannelData(0);
   const inst = ctx.createBuffer(2, total, SR);
   const il = inst.getChannelData(0), ir = inst.getChannelData(1);
   const yielder = createYielder();
@@ -1874,8 +1947,6 @@ async function loadSplitSong(song, job) {
     }
     if (start + block < total && yielder.due()) await yielder.yield(isCancelled);
   }
-  const guide = ctx.createBuffer(1, total, SR);
-  guide.copyToChannel(vocals, 0);
   return { inst, guide, vocals, duration: total / SR };
 }
 
@@ -1983,12 +2054,22 @@ function beginGame(song, audio, chart, lyrics, lyricKind = "line") {
   playFrom(0, COUNT_IN);
   showScreen("stage");
   resizeCanvas();
-  const currentGame = game;
-  try { navigator.wakeLock?.request("screen").then(lock => {
-    if (game === currentGame && !currentGame.ended) currentGame.wakeLock = lock;
-    else lock.release().catch(() => {});
-  }).catch(() => {}); } catch { /* not supported */ }
+  requestWakeLock(game);
   game.raf = requestAnimationFrame(tick);
+}
+
+function requestWakeLock(currentGame) {
+  if (!currentGame || currentGame.ended || currentGame.paused || (typeof document !== "undefined" && document.hidden)) return;
+  if (currentGame.wakeLock && !currentGame.wakeLock.released) return;
+  try {
+    navigator.wakeLock?.request("screen").then(lock => {
+      if (game === currentGame && !currentGame.ended && !currentGame.paused && !(typeof document !== "undefined" && document.hidden)) {
+        currentGame.wakeLock = lock;
+      } else {
+        lock.release().catch(() => {});
+      }
+    }).catch(() => {});
+  } catch { /* not supported */ }
 }
 
 // Works out this round's skip windows (none outside White people mode) and marks them on the notes.
@@ -2062,6 +2143,7 @@ function setPaused(paused) {
     Promise.resolve(audioCtx().suspend?.()).catch(() => {});
   } else {
     Promise.resolve(audioCtx().resume?.()).catch(() => {});
+    requestWakeLock(game);
     if (!game.raf && typeof requestAnimationFrame === "function") game.raf = requestAnimationFrame(tick);
   }
 }
@@ -2618,6 +2700,7 @@ async function loadSongs() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     state.songs = songsForPool(data.songs || []).slice().sort((a, b) => a.display.localeCompare(b.display));
+    songRowCache.clear();
     carryFormerIds(state.songs);
     state.artist = data.artist || "Yeat";
     renderSongList();
@@ -2670,11 +2753,15 @@ function init() {
   $("#random-next").addEventListener("click", () => { backToSetup(); if (shuffleSong()) startSong(); });
   renderShuffle();
   window.addEventListener("resize", resizeCanvas);
-  window.addEventListener("pagehide", () => {
+  window.addEventListener("pagehide", event => {
     if (state.job) { state.job.cancel(); state.job = null; }
     if (game) endGame();
     for (const det of mics.detectors) det?.stop();
     mics.detectors = [];
+    mics.allowed = false;
+    const enableBtn = $("#enable-mics");
+    if (enableBtn) enableBtn.hidden = false;
+    if (!event?.persisted) terminateSplitterWorker();
     try { Promise.resolve(audioContext?.close?.()).catch(() => {}); } catch {}
     audioContext = null;
   });

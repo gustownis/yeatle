@@ -121,7 +121,7 @@ test("downloading two chosen songs into an empty Songs folder installs exactly t
   }
   assert.ok(fs.existsSync(path.join(songsDir, "Spacey Song", "lyrics.lrc")));
   assert.ok(fs.existsSync(path.join(songsDir, "Ünïcödé sóng ë", "info.txt")));
-  assert.equal(rescans, 2, "the game is told to look at the Songs folder after each install");
+  assert.equal(rescans, 1, "a concurrent batch coalesces into one Songs folder rescan");
   const items = d.snapshot().items;
   assert.ok(pick.every(id => items[id].status === "installed"));
   // a second request for the same songs does nothing
@@ -533,4 +533,38 @@ test("fetchFile cancels response streams when declared content-length mismatches
   assert.equal(d.snapshot().items["mismatch-song"].status, "failed");
   assert.ok(fileResponses >= 1);
   assert.equal(cancelledStreams, fileResponses);
+});
+
+test("batch downloads coalesce rescans and cancelAll waits for partial temp cleanup", async () => {
+  const songsDir = path.join(tmp, "profile-batch", "Songs");
+  fs.mkdirSync(songsDir, { recursive: true });
+  let rescans = 0, localCalls = 0;
+  const d = downloader(songsDir, {
+    rescan: async () => { rescans++; },
+    localSongs: async () => { localCalls++; return new Map(); }
+  });
+  const snap = await d.loadCatalog();
+  localCalls = 0;
+  const ids = snap.catalog.songs.map(s => s.id);
+  assert.equal(ids.length, 3);
+  d.download(ids);
+  await settle(d);
+  assert.equal(rescans, 1, "3-song batch triggers a single coalesced rescan");
+  assert.equal(localCalls, 1, "3-song batch triggers a single localSongs check");
+  const items = d.snapshot().items;
+  for (const id of ids) {
+    assert.equal(items[id].status, "installed");
+    assert.equal(items[id].note, "Installed. It's in your song list now.");
+  }
+
+  // cancelAll() awaits active downloads to finish cleaning .yeatle-downloads before resolving
+  const cancelDir = path.join(tmp, "profile-cancelall", "Songs");
+  fs.mkdirSync(cancelDir, { recursive: true });
+  const slow = downloader(cancelDir, { fetch: slowFetch({ delay: 30 }) });
+  const snap2 = await slow.loadCatalog();
+  slow.download(snap2.catalog.songs.map(s => s.id));
+  await until(() => Object.values(slow.snapshot().items).some(i => (i.received || 0) > 0));
+  await slow.cancelAll();
+  assert.equal(slow.busy, false);
+  assert.deepEqual(tree(path.join(cancelDir, ".yeatle-downloads")), [], "temp folder is already clean when cancelAll resolves");
 });

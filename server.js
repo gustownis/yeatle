@@ -25,7 +25,11 @@ const path = require("path");
 const { URL } = require("url");
 const { exec } = require("child_process");
 const { pipeline } = require("stream/promises");
-const { createGzip, constants: zlibConstants } = require("node:zlib");
+const { promisify: nodePromisify } = require("node:util");
+const zlib = require("node:zlib");
+const { createGzip, constants: zlibConstants } = zlib;
+const gzipAsync = nodePromisify(zlib.gzip);
+const brotliCompressAsync = nodePromisify(zlib.brotliCompress);
 const { staticCacheHeaders, isNotModified, rangeAllowed, createCompressedCache, encodeBuffer, acceptedEncoding } = require("./server/static-cache.cjs");
 const { createAudioCache } = require("./server/audio-cache.cjs");
 const { createActiveSongFeed } = require("./server/live-control.cjs");
@@ -1811,13 +1815,19 @@ function buildEras(songs) {
 
   const used = new Set(songs.map(s => s.era));
   ERAS = eras.filter(e => used.has(e.name)).map(({ name, aliases, start, end, year, cover }) => ({ name, aliases, start, end, year, cover }));
+  coverFailedUntil.clear();
   console.log(`  [eras] ${ERAS.length} eras with songs, ${ERA_IMAGE.size} covers from the sheet`);
 }
 
 let rereadPromise = null;
+let lastEraRereadAt = 0;
+const ERA_REREAD_COOLDOWN_MS = 5 * 60 * 1000;
 // a cover URL that stopped working means the sheet moved on: read it again
 async function rereadEraImages() {
   if (rereadPromise) return rereadPromise;
+  const now = Date.now();
+  if (now - lastEraRereadAt < ERA_REREAD_COOLDOWN_MS) return;
+  lastEraRereadAt = now;
   rereadPromise = (async () => {
     for (const tab of CONFIG.tabs) {
       try {
@@ -1831,7 +1841,10 @@ async function rereadEraImages() {
           const key = looseEraKey(name);
           if (key && (ERA_IMAGE.has(key) || /^unreleased/i.test(tab.name))) {
             const nextImg = atCoverSize(grid.imageRows[i]);
-            if (ERA_IMAGE.get(key) !== nextImg) coverBytes.delete(key);
+            if (ERA_IMAGE.get(key) !== nextImg) {
+              coverBytes.delete(key);
+              coverFailedUntil.delete(key);
+            }
             ERA_IMAGE.set(key, nextImg);
           }
         });
@@ -1843,9 +1856,12 @@ async function rereadEraImages() {
 
 const coverBytes = new Map();
 const coverLoads = new Map();
+const coverFailedUntil = new Map();
 const MAX_COVER_CACHE = 200;
+const COVER_NEGATIVE_TTL_MS = 2 * 60 * 1000;
 
 function rememberCover(key, image) {
+  coverFailedUntil.delete(key);
   coverBytes.delete(key);
   coverBytes.set(key, image);
   while (coverBytes.size > MAX_COVER_CACHE) coverBytes.delete(coverBytes.keys().next().value);
@@ -1862,7 +1878,7 @@ async function fetchImage(url) {
       }
       res.resume();
     } catch (err) { /* retry */ }
-    await new Promise(resolve => setTimeout(resolve, 600));
+    if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 600));
   }
   return null;
 }
@@ -1873,6 +1889,11 @@ async function serveCover(res, era) {
     const cached = coverBytes.get(key);
     rememberCover(key, cached);
     return sendImage(res, cached);
+  }
+  if ((coverFailedUntil.get(key) || 0) > Date.now()) {
+    res.writeHead(404);
+    res.end();
+    return;
   }
 
   let job = coverLoads.get(key);
@@ -1894,6 +1915,10 @@ async function serveCover(res, era) {
       }
 
       if (image) rememberCover(key, image);
+      else {
+        if (coverFailedUntil.size >= 500) coverFailedUntil.clear();
+        coverFailedUntil.set(key, Date.now() + COVER_NEGATIVE_TTL_MS);
+      }
       return image;
     })().finally(() => coverLoads.delete(key));
     coverLoads.set(key, job);
@@ -1978,7 +2003,7 @@ function detectAudioType(buf) {
   return null;
 }
 
-async function pipeAudio(req, res, url, { retryOnStatus = null, onAccepted = null } = {}) {
+async function pipeAudio(req, res, url, { retryOnStatus = null, onAccepted = null, cacheControl = "no-store", teeCache = null } = {}) {
   const headers = {};
   if (req.headers.range) headers.Range = req.headers.range;
 
@@ -2026,15 +2051,13 @@ async function pipeAudio(req, res, url, { retryOnStatus = null, onAccepted = nul
     if (isHead) {
       upstream.destroy();
       if (!/^(audio|video)\//i.test(type)) type = "audio/mpeg";
-      const out = { "Content-Type": type, "Accept-Ranges": "bytes", "Cache-Control": "no-store" };
+      const out = { "Content-Type": type, "Accept-Ranges": "bytes", "Cache-Control": cacheControl };
       if (upstream.headers["content-length"]) out["Content-Length"] = upstream.headers["content-length"];
       if (upstream.headers["content-range"]) out["Content-Range"] = upstream.headers["content-range"];
       res.writeHead(upstream.statusCode === 206 ? 206 : 200, out);
       res.end();
       return true;
     }
-
-    onAccepted?.();
 
     // read across initial chunks until at least 12 bytes are buffered so mislabelled files get the right type
     const first = await new Promise((resolve, reject) => {
@@ -2074,21 +2097,52 @@ async function pipeAudio(req, res, url, { retryOnStatus = null, onAccepted = nul
       upstream.once("close", onClose);
     });
 
-    if (aborted || res.destroyed) { upstream.destroy(); return true; }
+    if (aborted || res.destroyed) {
+      upstream.destroy();
+      return true;
+    }
 
     const sniffed = upstream.statusCode === 200 || /bytes 0-/.test(upstream.headers["content-range"] || "")
       ? detectAudioType(first) : null;
     if (sniffed) type = sniffed;
     else if (!/^(audio|video)\//i.test(type)) type = "audio/mpeg";
 
-    const out = { "Content-Type": type, "Accept-Ranges": "bytes", "Cache-Control": "no-store" };
+    let writer = null;
+    if (teeCache && req.method === "GET" && !req.headers.range && upstream.statusCode === 200) {
+      writer = await teeCache.cache.beginWrite(teeCache.key, {
+        contentType: type,
+        declaredLength: Number(upstream.headers["content-length"]) || 0
+      }).catch(() => null);
+    }
+    if (!writer) onAccepted?.();
+
+    const out = { "Content-Type": type, "Accept-Ranges": "bytes", "Cache-Control": cacheControl };
     if (upstream.headers["content-length"]) out["Content-Length"] = upstream.headers["content-length"];
     if (upstream.headers["content-range"]) out["Content-Range"] = upstream.headers["content-range"];
 
     res.writeHead(upstream.statusCode === 206 ? 206 : 200, out);
     await pipeline(async function* () {
-      if (first.length) yield first;
-      for await (const chunk of upstream) yield chunk;
+      try {
+        if (first.length) {
+          if (writer) await writer.write(first);
+          yield first;
+        }
+        for await (const chunk of upstream) {
+          if (writer) await writer.write(chunk);
+          yield chunk;
+        }
+        if (writer && !aborted && upstream.complete !== false) {
+          const w = writer;
+          writer = null;
+          await w.finish();
+        }
+      } finally {
+        if (writer) {
+          const w = writer;
+          writer = null;
+          await w.abort();
+        }
+      }
     }, res).catch(() => {
       if (!upstream.destroyed) upstream.destroy();
       if (!res.destroyed) res.destroy();
@@ -2136,15 +2190,19 @@ async function serveSongAudio(req, res, id, pinnedSong, { cache = false } = {}) 
     const startFill = activeUrl => {
       if (cacheKey && req.method === "GET") roundAudioCache.fill(cacheKey, () => request(activeUrl));
     };
+    const cacheControl = cache ? "private, max-age=3600" : "no-store";
+    const teeCache = cacheKey ? { cache: roundAudioCache, key: cacheKey } : null;
     const sent = await pipeAudio(req, res, url, {
       retryOnStatus: wasCached ? [403, 404, 410] : null,
+      cacheControl,
+      teeCache,
       onAccepted: () => startFill(url)
     });
     if (!sent) {
       evictResolvedSource(song, source);
       url = await resolveSource(song, source);
       if (!url) return sendJson(res, 404, { error: "No playable audio link was found for this song. Try another song or use local stems." });
-      await pipeAudio(req, res, url, { onAccepted: () => startFill(url) });
+      await pipeAudio(req, res, url, { cacheControl, teeCache, onAccepted: () => startFill(url) });
     }
   } catch (err) {
     console.warn(`[audio] ${song.title}: ${err.message}`);
@@ -2162,8 +2220,21 @@ async function serveRoundAudio(req, res, roundId, stem) {
   if (!["GET", "HEAD"].includes(req.method)) return sendJson(res, 405, { error: "Use GET." });
   const rel = `/api/audio/round-${roundId}${stem ? `/${stem}.mp3` : ""}`;
   if (CONFIG.dailyAuthority) {
-    try { return await pipeAudio(req, res, new URL(rel, CONFIG.dailyAuthority).href); }
-    catch (err) { if (!res.headersSent) return sendJson(res, 502, { error: `Could not load this round's audio. (${err.message})` }); res.destroy(); return; }
+    const targetUrl = new URL(rel, CONFIG.dailyAuthority).href;
+    const cacheKey = `proxy:${targetUrl}`;
+    const cached = roundAudioCache.lookup(cacheKey);
+    if (cached && await roundAudioCache.serve(req, res, cached)) return;
+    try {
+      return await pipeAudio(req, res, targetUrl, {
+        cacheControl: "private, max-age=3600",
+        teeCache: { cache: roundAudioCache, key: cacheKey },
+        onAccepted: () => { if (req.method === "GET") roundAudioCache.fill(cacheKey, () => request(targetUrl)); }
+      });
+    } catch (err) {
+      if (!res.headersSent) return sendJson(res, 502, { error: `Could not load this round's audio. (${err.message})` });
+      res.destroy();
+      return;
+    }
   }
   const round = leaderboardStore.snippetRoundAudio(roundId);
   const entry = round && snippetEntry(round.songId, round.pool);
@@ -2414,6 +2485,27 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+async function sendJsonCompressed(req, res, status, body, extraHeaders = {}) {
+  const raw = Buffer.from(JSON.stringify(body));
+  const encoding = raw.length >= 1024 ? acceptedEncoding(req.headers["accept-encoding"]) : null;
+  let out = raw;
+  if (encoding === "br") {
+    out = await brotliCompressAsync(raw, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 4, [zlibConstants.BROTLI_PARAM_SIZE_HINT]: raw.length } });
+  } else if (encoding === "gzip") {
+    out = await gzipAsync(raw, { level: 6 });
+  }
+  if (res.destroyed) return;
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    "Vary": "Accept-Encoding",
+    "Content-Length": out.length,
+    ...(encoding ? { "Content-Encoding": encoding } : {}),
+    ...extraHeaders
+  });
+  res.end(req.method === "HEAD" ? undefined : out);
+}
+
 /* ------------------------------------------------------------------ *
  *  Server
  * ------------------------------------------------------------------ */
@@ -2509,12 +2601,91 @@ function refreshOnce() {
   return refreshing;
 }
 
+function mergeLocalStemsOffline(stemFolders) {
+  if (LAST_SOURCE === "stems-only") {
+    setSongs(buildSongList([], stemFolders), "stems-only");
+    return;
+  }
+  const baseSongs = [];
+  for (const song of SONGS) {
+    if (song.mode === "stems" && !song.fallback) continue;
+    const base = song.mode === "stems" && song.fallback
+      ? {
+          ...song,
+          source: song.fallback,
+          fallback: null,
+          mode: "filter",
+          preview: song.fallback.kind === "apple" || song.fallback.kind === "search",
+          folder: null
+        }
+      : { ...song };
+    if (base.poolVariants) {
+      const nextPv = { ...base.poolVariants };
+      delete nextPv.stems;
+      base.poolVariants = nextPv;
+    }
+    if (base.sourceVariants) {
+      base.sourceVariants = base.sourceVariants.filter(v => v.source?.kind !== "stems");
+    }
+    baseSongs.push(base);
+  }
+
+  const byAlias = new Map();
+  for (const entry of baseSongs) {
+    for (const k of guessKeys(entry)) {
+      const entries = byAlias.get(k) || [];
+      if (!entries.includes(entry)) entries.push(entry);
+      byAlias.set(k, entries);
+    }
+  }
+  const taken = new Set();
+  for (const stem of stemFolders) {
+    const keys = [norm(stem.title), norm(stem.title.replace(/\s*\(.*?\)\s*/g, " "))];
+    const binding = stemBindingFor(stem.folder);
+    const boundRow = row => binding && row.source?.kind === binding.source.kind && row.source?.id === binding.source.id;
+    let match = binding ? baseSongs.find(entry => !taken.has(entry) && (entry.sourceVariants || [entry]).some(boundRow)) : null;
+    const sameTitle = k => baseSongs.filter(entry => !taken.has(entry) && (entry.id === k || entry.id.startsWith(k + "@")));
+    const pickByAlbum = list => {
+      if (list.length < 2) return list[0] || null;
+      const album = eraBaseKey(stem.info.album);
+      return (album && list.find(entry => eraBaseKey(entry.era) === album || eraBaseKey(entry.releasedOn) === album)) || list[0];
+    };
+    if (!binding) for (const k of keys) { const found = pickByAlbum(sameTitle(k)); if (found) { match = found; break; } }
+    if (!binding && !match) for (const k of keys) {
+      const candidates = (byAlias.get(k) || []).filter(entry => !taken.has(entry));
+      const album = eraBaseKey(stem.info.album);
+      const inAlbum = album ? candidates.filter(entry => [entry.era, entry.releasedOn].some(era => eraBaseKey(era) === album)) : [];
+      const unique = inAlbum.length ? inAlbum : candidates;
+      if (unique.length === 1) { match = unique[0]; break; }
+    }
+    const stemSource = { kind: "stems", folder: stem.folder };
+    if (match) {
+      taken.add(match);
+      const origin = (match.sourceVariants && match.sourceVariants.find(boundRow)) || match;
+      const stemVariant = { ...origin, mode: "stems", preview: false, folder: stem.folder, source: stemSource, fallback: origin.source };
+      match.fallback = origin.source;
+      match.source = stemSource;
+      match.mode = "stems";
+      match.preview = false;
+      match.folder = stem.folder;
+      if (match.poolVariants) match.poolVariants = { ...match.poolVariants, stems: { ...stemVariant, aliases: match.aliases, keys: match.keys } };
+      if (match.sourceVariants) match.sourceVariants = [...match.sourceVariants, stemVariant];
+    } else {
+      const standalone = buildSongList([], [stem])[0];
+      if (standalone) baseSongs.push(standalone);
+    }
+  }
+  setSongs(baseSongs, LAST_SOURCE);
+}
+
 // Picks up stem folders added while running (the desktop app asks after a download).
 async function rescanStems() {
   if (refreshing) await refreshing;
   if (LAST_INPUT) {
     LAST_INPUT = { ...LAST_INPUT, stemFolders: readStemFolders() };
     rebuildFromLast();
+  } else if (SONGS.length > 0) {
+    mergeLocalStemsOffline(readStemFolders());
   } else await refreshOnce();
   stemCatalog.invalidate();
   return SONGS.filter(s => s.mode === "stems").length;
@@ -3855,7 +4026,7 @@ async function handleAdmin(req, res, pathname) {
   }
 
   if (pathname === "/api/admin/songs" && req.method === "GET") {
-    sendJson(res, 200, adminSongList());
+    await sendJsonCompressed(req, res, 200, adminSongList());
     return true;
   }
 
@@ -4125,7 +4296,7 @@ async function handleLeaderboard(req, res, pathname) {
   const token = bearerToken(req, body);
   if (CONFIG.dailyAuthority) {
     const proxied = await proxyLeaderboardAuthority(req, pathname, body, token);
-    sendJson(res, proxied.status, proxied.body);
+    await sendJsonCompressed(req, res, proxied.status, proxied.body);
     return true;
   }
 
@@ -4158,7 +4329,7 @@ async function handleLeaderboard(req, res, pathname) {
       case "round-act": result = leaderboardStore.snippetRoundAct(token, body || {}, now, ctx); break;
       case "report": result = leaderboardStore.reportCheatTool(token, body || {}, now, ctx); break;
     }
-    sendJson(res, 200, { ...result, scope });
+    await sendJsonCompressed(req, res, 200, { ...result, scope });
   } catch (err) {
     if (err.banned) { sendJson(res, 403, { banned: true, error: err.message }); return true; }
     if (!err.status) console.warn(`[leaderboard] ${err.message}`);
@@ -4348,7 +4519,15 @@ const server = http.createServer(async (req, res) => {
             if (searchParams.get("challenge") !== daily.id) return sendJson(res, 409, { error: "A new daily challenge is available. Reload Daily." });
             const audio = daily.audio[Number(dailyAudio[1])];
             if (!audio) return sendJson(res, 404, { error: "Daily audio not found." });
-            return await pipeAudio(req, res, dailyAuthority.audioUrl(audio));
+            const targetUrl = dailyAuthority.audioUrl(audio);
+            const cacheKey = `proxy-daily:${daily.id}:${Number(dailyAudio[1])}:${targetUrl}`;
+            const cached = roundAudioCache.lookup(cacheKey);
+            if (cached && await roundAudioCache.serve(req, res, cached)) return;
+            return await pipeAudio(req, res, targetUrl, {
+              cacheControl: "private, max-age=3600",
+              teeCache: { cache: roundAudioCache, key: cacheKey },
+              onAccepted: () => { if (req.method === "GET") roundAudioCache.fill(cacheKey, () => request(targetUrl)); }
+            });
           }
           return sendJson(res, 200, { ...daily, scope: "global", shareUrl: dailyAuthority.shareUrl,
             audio: daily.audio.map((_, index) => `api/daily/audio/${index}?challenge=${encodeURIComponent(daily.id)}`) });
@@ -4391,7 +4570,16 @@ const server = http.createServer(async (req, res) => {
       if (req.method !== "GET" && req.method !== "HEAD") return sendJson(res, 405, { error: "Use GET." });
       if (pathname === "/api/stems/file") return serveStemFile(req, res, searchParams);
       if (!SONGS.length) await refreshOnce();
-      return sendJson(res, 200, stemCatalog.catalog());
+      const cat = stemCatalog.catalog();
+      const reqEncoding = acceptedEncoding(req.headers["accept-encoding"]);
+      const etag = `"stems-${cat.generated}-${cat.songs.length}-${cat.pending}${reqEncoding ? `-${reqEncoding}` : ""}"`;
+      const cacheHeaders = { "ETag": etag, "Cache-Control": "no-cache", "Vary": "Accept-Encoding" };
+      if (req.headers["if-none-match"] !== undefined && isNotModified(req.headers, etag, 0)) {
+        res.writeHead(304, cacheHeaders);
+        res.end();
+        return;
+      }
+      return await sendJsonCompressed(req, res, 200, cat, cacheHeaders);
     }
 
     const roundAudio = /^\/api\/audio\/round-([a-f0-9]{32})(?:\/(drums|bass|other|vocals)\.mp3)?$/.exec(pathname);

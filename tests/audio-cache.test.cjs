@@ -123,3 +123,60 @@ test("a copy deleted from disk falls back to the song host", async t => {
   assert.equal(cache.lookup("song"), null);
   assert.equal(cache.retainedBytes, 0);
 });
+
+test("beginWrite single-stream tee commits cleanly, cleans aborted partials, and defers unlink while streaming", async t => {
+  const dir = cacheDir(t);
+  const cache = createAudioCache({ dir, maxBytes: 1500, maxFileBytes: 2000 });
+
+  // Aborted tee removes .part without caching
+  const aborted = await cache.beginWrite("aborted-key", { contentType: "audio/mpeg", declaredLength: AUDIO.length });
+  assert.ok(aborted);
+  await aborted.write(AUDIO.subarray(0, 100));
+  await aborted.abort();
+  assert.equal(cache.lookup("aborted-key"), null);
+  assert.deepEqual(fs.readdirSync(dir).filter(f => f.endsWith(".part")), []);
+
+  // Committed tee serves subsequent reads and defers deletion until active reader completes
+  const writer = await cache.beginWrite("song-a", { contentType: "application/octet-stream", declaredLength: AUDIO.length });
+  assert.ok(writer);
+  await writer.write(AUDIO.subarray(0, 200));
+  await writer.write(AUDIO.subarray(200));
+  assert.equal(await writer.finish(), true);
+  const entryA = cache.lookup("song-a");
+  assert.ok(entryA);
+  assert.equal(entryA.type, "audio/mpeg");
+  const fileA = entryA.file;
+
+  // Start serving song-a via a slow response stream and evict song-a mid-stream by filling song-b
+  const { Writable } = require("node:stream");
+  let readBytes = 0;
+  let releaseWrite;
+  let wroteFirst = false;
+  const firstChunkSeen = new Promise(r => { releaseWrite = r; });
+  let continueStream;
+  const slowRes = new Writable({
+    write(chunk, _enc, cb) {
+      readBytes += chunk.length;
+      if (!wroteFirst) {
+        wroteFirst = true;
+        releaseWrite();
+        continueStream = cb;
+      } else {
+        cb();
+      }
+    }
+  });
+  slowRes.writeHead = () => {};
+
+  const servePromise = cache.serve({ headers: {}, method: "GET" }, slowRes, entryA);
+  await firstChunkSeen;
+  // Evict song-a while slowRes still has the read stream open
+  await cache.fill("song-b", async () => hostResponse(AUDIO));
+  assert.equal(cache.lookup("song-a"), null);
+  assert.equal(fs.existsSync(fileA), true, "active reader delays file deletion until stream closes");
+  continueStream();
+  assert.equal(await servePromise, true);
+  assert.equal(readBytes, AUDIO.length);
+  await new Promise(r => setTimeout(r, 40));
+  assert.equal(fs.existsSync(fileA), false, "evicted file is deleted once last reader closes");
+});

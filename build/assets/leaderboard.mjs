@@ -171,17 +171,23 @@ function dailyDayNumber(now = Date.now()) {
 }
 
 export function computeLocalDailyStreak(storage = globalThis.localStorage, now = Date.now()) {
-  const { daily } = collectLocalProgress(storage);
+  if (!storage) return 0;
   const days = [];
-  for (const [date, entry] of Object.entries(daily)) {
-    if (entry && (entry.status === "won" || entry.status === "lost")) {
-      const ms = Date.parse(`${date}T00:00:00Z`);
-      if (Number.isFinite(ms)) days.push(Math.floor(ms / 86400000));
+  try {
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (!key || !/^yeatle:daily:\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+      const date = key.slice("yeatle:daily:".length);
+      const entry = safeJsonParse(storage.getItem(key), null);
+      if (entry && typeof entry === "object" && (entry.status === "won" || entry.status === "lost")) {
+        const ms = Date.parse(`${date}T00:00:00Z`);
+        if (Number.isFinite(ms)) days.push(Math.floor(ms / 86400000));
+      }
     }
-  }
+  } catch { /* ignore storage enumeration issues */ }
+  if (!days.length) return 0;
   days.sort((a, b) => a - b);
   const unique = [...new Set(days)];
-  if (!unique.length) return 0;
   const today = dailyDayNumber(now);
   const last = unique[unique.length - 1];
   if (last < today - 1) return 0;
@@ -704,6 +710,12 @@ function initLeaderboardUI() {
   overlay.addEventListener("mousedown", e => {
     if (e.target === overlay) closeModal();
   });
+  overlay.addEventListener("keydown", e => {
+    if (isOpen) e.stopPropagation();
+  });
+  overlay.addEventListener("keyup", e => {
+    if (isOpen && e.code === "Space") e.stopPropagation();
+  });
 
   const modal = document.createElement("div");
   modal.className = "yeatle-lb-modal";
@@ -745,23 +757,36 @@ function initLeaderboardUI() {
     if (!isOpen) return;
     if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       closeModal();
       return;
     }
     if (e.key === "Tab") {
       const items = focusablesIn(modal);
-      if (!items.length) return;
+      if (!items.length) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       const first = items[0];
       const last = items[items.length - 1];
       if (e.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) {
         e.preventDefault();
+        e.stopPropagation();
         last.focus();
       } else if (!e.shiftKey && document.activeElement === last) {
         e.preventDefault();
+        e.stopPropagation();
         first.focus();
       }
+      return;
     }
-  });
+    if (!overlay.contains(e.target)) e.stopPropagation();
+  }, true);
+
+  window.addEventListener("keyup", e => {
+    if (isOpen && e.code === "Space" && !overlay.contains(e.target)) e.stopPropagation();
+  }, true);
 
   function apiCall(path, method = "GET", body = null) {
     return requestJson(path, { method, body, token: accountState?.token || "" });
@@ -1316,7 +1341,7 @@ function initLeaderboardUI() {
         try { window.dispatchEvent(new CustomEvent("yeatle:round-saved", { detail: { key, before, value: nextStr } })); } catch { /* Wrapped is optional */ }
       }
       if (progressKey) {
-        renderTriggerButton();
+        if (key.startsWith("yeatle:daily:")) renderTriggerButton();
         if (accountState?.token && !bannedShown) {
           clearTimeout(syncTimer);
           syncTimer = setTimeout(() => syncNow(true), 800);

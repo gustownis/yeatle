@@ -2,14 +2,37 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { checkRelease, installMode, selectAsset, downloadAsset, RELEASES_URL } = require("./update-core.cjs");
 
-function createUpdateController({ app, dialog, shell, getWindow, onStatus = () => {} }) {
+function createUpdateController({ app, dialog, shell, getWindow, onStatus = () => {}, onBeforeInstall = async () => {} }) {
   let busy = false;
   let installing = false;
   let status = "Check for Updates";
   let readyUpdater;
   let updateVersion;
+  let lastProgressBarAt = 0;
+  let lastStatusStep = -1;
+  let lastStatusAt = 0;
   const mode = installMode(process.platform, process.env, app.isPackaged);
   const setStatus = text => { if (text === status) return; status = text; onStatus(); };
+  const resetProgressThrottle = () => {
+    lastProgressBarAt = 0;
+    lastStatusStep = -1;
+    lastStatusAt = 0;
+  };
+  const reportProgress = (fraction, now = Date.now()) => {
+    const clamped = Math.max(0, Math.min(1, Number(fraction) || 0));
+    const pct = Math.round(clamped * 100);
+    if (pct >= 100 || now - lastProgressBarAt >= 200) {
+      lastProgressBarAt = now;
+      const window = getWindow();
+      if (window && !window.isDestroyed()) window.setProgressBar(clamped);
+    }
+    const step = Math.floor(pct / 5) * 5;
+    if (lastStatusStep < 0 || pct >= 100 || step > lastStatusStep || now - lastStatusAt >= 2000) {
+      lastStatusStep = step;
+      lastStatusAt = now;
+      setStatus(`Downloading Update (${pct}%)`);
+    }
+  };
   const message = options => {
     const window = getWindow();
     return window && !window.isDestroyed() ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options);
@@ -20,13 +43,18 @@ function createUpdateController({ app, dialog, shell, getWindow, onStatus = () =
     installing = true;
     try {
       const { response } = await message({ type: "info", title: "Yeatle update ready", message: `Yeatle ${updateVersion} is ready to install.`, detail: "Yeatle will close, apply the update, and restart. Your settings, songs, and progress are kept.", buttons: ["Install and Restart", "Later"], defaultId: 0, cancelId: 1 });
-      if (response === 0 && readyUpdater) readyUpdater.quitAndInstall(true, true);
+      if (response === 0 && readyUpdater) {
+        const target = readyUpdater;
+        await onBeforeInstall().catch(() => {});
+        target.quitAndInstall(true, true);
+      }
     } finally {
       installing = false;
     }
   }
 
   async function nativeUpdate(release, asset) {
+    resetProgressThrottle();
     if (mode === "appimage") fs.accessSync(path.dirname(process.env.APPIMAGE), fs.constants.W_OK);
     const { NsisUpdater, AppImageUpdater } = require("electron-updater");
     const Type = mode === "nsis" ? NsisUpdater : AppImageUpdater;
@@ -50,9 +78,7 @@ function createUpdateController({ app, dialog, shell, getWindow, onStatus = () =
       }
     });
     updater.on("download-progress", progress => {
-      const window = getWindow();
-      if (window && !window.isDestroyed()) window.setProgressBar(progress.percent / 100);
-      setStatus(`Downloading Update (${Math.round(progress.percent)}%)`);
+      reportProgress(progress.percent / 100);
     });
     const result = await updater.checkForUpdates();
     if (!result || result.updateInfo.version !== release.version || result.updateInfo.files?.length !== 1 ||
@@ -68,10 +94,9 @@ function createUpdateController({ app, dialog, shell, getWindow, onStatus = () =
   }
 
   async function installerDownload(release, asset) {
+    resetProgressThrottle();
     const target = await downloadAsset(asset, path.join(app.getPath("userData"), "updates"), progress => {
-      const window = getWindow();
-      if (window && !window.isDestroyed()) window.setProgressBar(progress);
-      setStatus(`Downloading Update (${Math.round(progress * 100)}%)`);
+      reportProgress(progress);
     });
     const portable = mode === "portable";
     const detail = portable

@@ -164,7 +164,11 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
   let active = 0, changeTimer = null, cleanupPromise = null, catalogEpoch = 0;
   const queue = [];
   const controllers = new Map();
+  const running = new Set();
+  const pendingInstalled = new Set();
   const idLocks = new Map();
+  let rescanTimer = null;
+  let rescanInFlight = null;
   const tempRoot = path.join(songsDir, TEMP);
 
   const withIdLock = (id, fn) => {
@@ -281,7 +285,14 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
       const id = queue.shift();
       if (items.get(id)?.status !== "queued") continue;
       active++;
-      run(id).finally(() => { active--; pump(); });
+      let job;
+      job = run(id).finally(() => {
+        running.delete(job);
+        active--;
+        pump();
+        if (active === 0 && queue.length === 0 && pendingInstalled.size > 0) scheduleRescan(true);
+      });
+      running.add(job);
     }
   }
 
@@ -326,7 +337,7 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
           touch();
           if (signal.aborted) throw abortError();
           if (writeError) throw writeError;
-          const buf = Buffer.from(chunk);
+          const buf = ArrayBuffer.isView(chunk) ? Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength) : Buffer.from(chunk);
           bytes += buf.length;
           if (bytes > file.size) throw new Error(`${file.name} is bigger than the server said`);
           if (head.length < 3) head = Buffer.concat([head, buf.subarray(0, 3)]).subarray(0, 3);
@@ -416,17 +427,52 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
       }
       throw new Error(`couldn't move the song into your Songs folder (${err.code || err.message})`);
     }
-    set(song.id, { status: "installed", note: "", temp: null });
-    await finishInstall(song.id);
+    set(song.id, { status: "installed", note: "Installed. Updating song list…", temp: null });
+    pendingInstalled.add(song.id);
+    scheduleRescan(false);
   }
 
-  async function finishInstall(id) {
-    try { await rescan(); } catch { /* the game also picks it up on the next start */ }
-    let local = new Map();
-    try { local = await localSongs(); } catch { /* unknown */ }
-    const mine = local.get(id);
-    if (local.size && !(mine && mine.mode === "stems")) set(id, { note: "Installed. If it isn't in your song list yet, restart Yeatle." });
-    else set(id, { note: "Installed. It's in your song list now." });
+  function scheduleRescan(immediate = false) {
+    if (immediate) {
+      if (rescanTimer) { clearTimeout(rescanTimer); rescanTimer = null; }
+      return flushInstalled();
+    }
+    if (!rescanTimer && pendingInstalled.size > 0) {
+      rescanTimer = setTimeout(() => {
+        rescanTimer = null;
+        flushInstalled();
+      }, 1500);
+      rescanTimer.unref?.();
+    }
+    return rescanInFlight || Promise.resolve();
+  }
+
+  function flushInstalled() {
+    if (rescanInFlight) return rescanInFlight;
+    if (!pendingInstalled.size) return Promise.resolve();
+    rescanInFlight = (async () => {
+      try {
+        while (pendingInstalled.size > 0) {
+          const batchIds = [...pendingInstalled];
+          pendingInstalled.clear();
+          try { await rescan(); } catch { /* the game also picks it up on the next start */ }
+          let local = new Map();
+          try { local = await localSongs(); } catch { /* unknown */ }
+          for (const id of batchIds) {
+            if (items.get(id)?.status !== "installed") continue;
+            const mine = local.get(id);
+            if (local.size && !(mine && mine.mode === "stems")) {
+              set(id, { note: "Installed. If it isn't in your song list yet, restart Yeatle." });
+            } else {
+              set(id, { note: "Installed. It's in your song list now." });
+            }
+          }
+        }
+      } finally {
+        rescanInFlight = null;
+      }
+    })();
+    return rescanInFlight;
   }
 
   async function replace(id) {
@@ -444,7 +490,8 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
         }
         await fsp.rename(item.temp, path.join(songsDir, song.folder));
         set(id, { status: "installed", temp: null, note: existing ? `Your old folder was moved to ${REPLACED} in your Songs folder.` : "" });
-        await finishInstall(id);
+        pendingInstalled.add(id);
+        await scheduleRescan(true);
       } catch (err) {
         if (movedOld && existing) await fsp.rename(movedOld, existing.dir).catch(() => {});
         set(id, { error: `Couldn't replace it (${err.code || err.message}).` });
@@ -468,12 +515,18 @@ function createStemDownloader({ songsDir, host, fetch, onChange = () => {}, loca
   }
 
   async function cancelAll() {
+    if (rescanTimer) { clearTimeout(rescanTimer); rescanTimer = null; }
+    pendingInstalled.clear();
     for (const id of [...queue]) await cancel(id);
     for (const ctrl of controllers.values()) ctrl.abort();
+    await Promise.allSettled([...running]);
     for (const [id, item] of items) if (item.status === "conflict") await cancel(id);
   }
 
-  return { loadCatalog, download, cancel, cancelAll, replace, refreshInstalled, cleanupStale, snapshot, get busy() { return active > 0 || queue.length > 0; } };
+  return {
+    loadCatalog, download, cancel, cancelAll, replace, refreshInstalled, cleanupStale, snapshot,
+    get busy() { return active > 0 || queue.length > 0 || pendingInstalled.size > 0 || Boolean(rescanInFlight); }
+  };
 }
 
 module.exports = { createStemDownloader, validateCatalog, safeFolderName, stemsHostUrl, findLocalFolder, TEMP, REPLACED };

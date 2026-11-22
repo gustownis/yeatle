@@ -30,6 +30,7 @@ let quitting = false;
 let starting = false;
 let quitCleanupDone = false;
 let stoppedChild = null;
+let stopServerPromise = null;
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
@@ -53,14 +54,17 @@ else {
   app.on("before-quit", event => {
     quitting = true;
     // unfinished downloads are removed; nothing half-downloaded is left behind
-    if (stemDownloader?.busy && !quitCleanupDone) {
+    const needsCleanup = Boolean(stemDownloader?.busy || serverProcess);
+    if (needsCleanup && !quitCleanupDone) {
       event.preventDefault();
       quitCleanupDone = true;
       Promise.race([
-        stemDownloader.cancelAll().catch(() => {}),
-        new Promise(resolve => setTimeout(resolve, 2000))
+        Promise.allSettled([
+          stemDownloader?.busy ? stemDownloader.cancelAll() : null,
+          serverProcess ? stopServer(serverProcess) : null
+        ]),
+        new Promise(resolve => setTimeout(resolve, 2500))
       ]).finally(() => {
-        if (serverProcess) stopServer(serverProcess);
         app.quit();
       });
       return;
@@ -71,13 +75,37 @@ else {
 
 // Asks first, so the server can save progress; kill() alone gives it no chance on Windows.
 function stopServer(child) {
-  if (!child || stoppedChild === child) return;
+  if (!child) return Promise.resolve();
+  if (stoppedChild === child && stopServerPromise) return stopServerPromise;
   stoppedChild = child;
-  try {
-    child.send({ type: "shutdown" });
-    const fallback = setTimeout(() => { try { child.kill(); } catch {} }, 2000);
-    child.once("exit", () => clearTimeout(fallback));
-  } catch (_) { try { child.kill(); } catch {} }
+  stopServerPromise = new Promise(resolve => {
+    if (child.exitCode !== null || child.signalCode !== null) { resolve(); return; }
+    let done = false;
+    let killTimer = null;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(fallback);
+      clearTimeout(killTimer);
+      child.off("exit", finish);
+      resolve();
+    };
+    const fallback = setTimeout(() => {
+      try { child.kill(); } catch {}
+      killTimer = setTimeout(finish, 300);
+      killTimer.unref?.();
+    }, 2000);
+    fallback.unref?.();
+    child.once("exit", finish);
+    try { child.send({ type: "shutdown" }); }
+    catch (_) {
+      clearTimeout(fallback);
+      try { child.kill(); } catch {}
+      killTimer = setTimeout(finish, 300);
+      killTimer.unref?.();
+    }
+  });
+  return stopServerPromise;
 }
 
 function failStartup(error) {
@@ -130,6 +158,7 @@ async function startGame() {
     });
     serverProcess = child;
     stoppedChild = null;
+    stopServerPromise = null;
     for (const output of [child.stdout, child.stderr]) output.on("data", chunk => {
       recentOutput = (recentOutput + chunk.toString()).slice(-4000);
       if (!logStream.destroyed && logStream.writable) logStream.write(chunk);
@@ -157,7 +186,14 @@ async function startGame() {
     });
     if (quitting) { stopServer(child); return; }
     serverUrl = `http://127.0.0.1:${port}`;
-    updates ||= createUpdateController({ app, dialog, shell, getWindow: () => gameWindow, onStatus: refreshMenu });
+    updates ||= createUpdateController({
+      app,
+      dialog,
+      shell,
+      getWindow: () => gameWindow,
+      onStatus: refreshMenu,
+      onBeforeInstall: () => (serverProcess ? stopServer(serverProcess) : Promise.resolve())
+    });
     createWindow();
   } finally { starting = false; }
 }
