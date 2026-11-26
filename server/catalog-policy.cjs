@@ -468,7 +468,7 @@ function premasterFor(song, variants) {
   const isPreview = played && (played.kind === "apple" || played.kind === "search");
   const entry = premasterById.get(song.id);
   if (entry && (song.tab === "Released" || song.releasedOn || song.poolVariants?.released)) {
-    if (isPreview) return entry.source;
+    if (isPreview || entry.preferOverRelease) return entry.source;
   }
   if ((song.tab === "Released" || song.poolVariants?.released) && isPreview) {
     const og = findOgPremaster(song, variants || song.sourceVariants);

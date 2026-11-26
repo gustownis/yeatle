@@ -89,7 +89,8 @@ test("answer groups don't overlap", () => {
   }
 });
 
-test("same recordings share one answer and their progress; open verses stay separate", () => {
+test("same recordings share one answer and their progress; open verses stay separate", async () => {
+  const { matchesSong, acceptedKeys } = await rules();
   const pair = ["jealousy", "jelousy"].map(id => applyCatalogMetadata(byId.get(id)));
   assert.equal(pair[0].answerId, pair[1].answerId);
   assert.deepEqual(pair[0].equivalentIds, ["jelousy"]);
@@ -116,4 +117,22 @@ test("same recordings share one answer and their progress; open verses stay sepa
   assert.equal(countup[1].answerId, "countup");
   assert.deepEqual(countup[0].equivalentIds, ["summrscountup"]);
   assert.deepEqual(countup[1].equivalentIds, ["countup"]);
+  const septPairs = [
+    ["2much@4l", "septembersrichmetthadevil", "SeptembersRich - Met Tha Devil (feat. YEAT)", "2 much (feat. SeptembersRich)"],
+    ["52a60", "septembersrich52uh60", "SeptembersRich - 5 2 Üh 60 (feat. Yeat)", "5 2 A 60 (feat. SeptembersRich)"],
+    ["hello@4l", "septembersrichhello", "SeptembersRich - Hello (feat. YEAT)", "Hello (feat. SeptembersRich)"],
+    ["tesla", "septembersrichtesla", "SeptembersRich - Tesla (feat. YEAT)", "Tesla (feat. SeptembersRich)"],
+    ["xtrakrazy", "septembersrichxtrakrazy", "SeptembersRich - Xtra Krazy (feat. Yeat)", "Xtra Krazy (feat. SeptembersRich)"]
+  ];
+  for (const [unrelId, relId, relDisplay, unrelDisplay] of septPairs) {
+    const pairSongs = [unrelId, relId].map(id => publicSong(byId.get(id), acceptedKeys));
+    assert.equal(pairSongs[0].answerId, relId);
+    assert.equal(pairSongs[1].answerId, relId);
+    assert.deepEqual(pairSongs[0].equivalentIds, [relId]);
+    assert.deepEqual(pairSongs[1].equivalentIds, [unrelId]);
+    for (const song of pairSongs) {
+      assert.ok(matchesSong(song, relDisplay));
+      assert.ok(matchesSong(song, unrelDisplay));
+    }
+  }
 });

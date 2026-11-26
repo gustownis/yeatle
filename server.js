@@ -55,7 +55,9 @@ const CACHE_FILE = path.join(DATA_DIR, "songs-cache.json");
 // Bump when saved song metadata changes meaning, so older saved lists are corrected on load.
 const SONG_CACHE_FORMAT = 5;
 const PREVIEW_CACHE_FILE = path.join(DATA_DIR, "preview-cache.json");
-const dailyChallenge = createDailyChallenges(path.join(DATA_DIR, "daily-challenges.json"));
+const dailyChallenge = createDailyChallenges(path.join(DATA_DIR, "daily-challenges.json"), {
+  resolveSong: id => catalogSongById(id)
+});
 try {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 } catch (err) {

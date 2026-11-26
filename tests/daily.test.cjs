@@ -380,3 +380,91 @@ test("daily reveal includes era cover art and falls back via coverForEra for old
   const openDaily = await (await fetch(`${await server(t, openDir)}/api/daily`)).json();
   assert.equal(openDaily.song.cover, eraCovers["4L"]);
 });
+
+test("2026-11-26 daily override pins SeptembersRich - Xtra Krazy (feat. Yeat) with the OG pre-master and upgrades pinned xtrakrazy", async t => {
+  const targetDate = "2026-11-26";
+  const now = Date.parse("2026-11-26T12:00:00Z");
+  const releasedXtra = {
+    id: "septembersrichxtrakrazy",
+    title: "SeptembersRich - Xtra Krazy",
+    display: "SeptembersRich - Xtra Krazy (feat. Yeat)",
+    features: ["feat. Yeat"],
+    era: "2 Alivë (Geëk Pack)",
+    eraYear: 2022,
+    year: 2022,
+    tab: "Released",
+    mode: "filter",
+    preview: true,
+    length: "2:52",
+    keys: ["septembersrichxtrakrazy", "xtrakrazy", "septembersrichxtrakrazyfeatyeat"],
+    source: { kind: "apple", id: "1614019269" }
+  };
+  const unreleasedXtra = {
+    id: "xtrakrazy",
+    title: "Xtra Krazy",
+    display: "Xtra Krazy (feat. SeptembersRich)",
+    features: ["feat. SeptembersRich"],
+    era: "Up 2 Më [V1]",
+    eraYear: 2021,
+    year: 2021,
+    tab: "Unreleased",
+    mode: "filter",
+    preview: false,
+    length: "2:52",
+    keys: ["xtrakrazy", "xtrakrazyfeatseptembersrich"],
+    source: { kind: "pillows", id: "6ed111a0f6436c623ae1633429ec94a2" }
+  };
+
+  // Fresh pick on 2026-11-26 chooses septembersrichxtrakrazy with the premaster, and replace() can switch away.
+  const freshFile = path.join(folder(t), "daily-challenges.json");
+  const get = createDailyChallenges(freshFile);
+  const picked = get([...pool, releasedXtra], now);
+  assert.equal(picked.date, targetDate);
+  assert.equal(picked.song.id, "septembersrichxtrakrazy");
+  assert.deepEqual(picked.song.premaster, { kind: "pillows", id: "6ed111a0f6436c623ae1633429ec94a2" });
+  assert.equal(picked.song.preview, false);
+  const replaced = get.replace(targetDate, [...pool, releasedXtra]);
+  assert.notEqual(replaced.entry.song.id, "septembersrichxtrakrazy");
+
+  // Unrelated pinned songs on 2026-11-26 are left untouched.
+  const untouchedFile = path.join(folder(t), "daily-challenges.json");
+  const untouched = { [targetDate]: { id: `v1:${targetDate}:alpha`, song: pool[0], seed: 9, clipAt: 5.5 } };
+  fs.writeFileSync(untouchedFile, JSON.stringify(untouched));
+  assert.equal(createDailyChallenges(untouchedFile)(pool, now).song.id, "alpha");
+
+  // Existing 2026-11-26 Daily pinned to xtrakrazy upgrades in place while preserving id, seed, and clipAt.
+  const dir = folder(t);
+  const oldEntry = { id: `v1:${targetDate}:xtrakrazy`, song: unreleasedXtra, seed: 42, clipAt: 6.125 };
+  fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({
+    tabs: [], refreshMinutes: 0, openBrowser: false, dailyAuthority: "", dailyFromEra: "", dailyHideAnswer: true
+  }));
+  fs.writeFileSync(path.join(dir, "songs-cache.json"), JSON.stringify({
+    format: 5, updated: 1, eras: [], songs: [unreleasedXtra, releasedXtra]
+  }));
+  fs.writeFileSync(path.join(dir, "daily-challenges.json"), JSON.stringify({ [targetDate]: oldEntry }));
+
+  const url = await server(t, dir, now - Date.now());
+  const daily = await (await fetch(`${url}/api/daily`)).json();
+  assert.equal(daily.clipAt, 6.125);
+  assert.equal(daily.song, undefined);
+
+  const persisted = JSON.parse(fs.readFileSync(path.join(dir, "daily-challenges.json"), "utf8"))[targetDate];
+  assert.equal(persisted.id, oldEntry.id);
+  assert.equal(persisted.seed, 42);
+  assert.equal(persisted.clipAt, 6.125);
+  assert.equal(persisted.song.id, "septembersrichxtrakrazy");
+  assert.equal(persisted.song.tab, "Released");
+  assert.deepEqual(persisted.song.premaster, { kind: "pillows", id: "6ed111a0f6436c623ae1633429ec94a2" });
+  assert.equal(persisted.song.preview, false);
+
+  const auth = { "X-Yeatle-Device": "c".repeat(32) };
+  const result = await (await fetch(`${url}/api/account/daily`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...auth },
+    body: JSON.stringify({ challenge: daily.id, kind: "guess", text: "SeptembersRich - Xtra Krazy (feat. Yeat)" })
+  })).json();
+  assert.equal(result.status, "won");
+  assert.equal(result.song.display, "SeptembersRich - Xtra Krazy (feat. Yeat)");
+  assert.equal(result.song.era, "2 Alivë (Geëk Pack)");
+  assert.equal(result.song.tab, "Released");
+});

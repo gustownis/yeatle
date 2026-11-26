@@ -682,3 +682,36 @@ test("all 9 newly verified premasters in catalog-metadata.json resolve Released 
     assert.equal(out.preview, false, `${id} clears preview badge`);
   }
 });
+
+test("SeptembersRich OG-file pairs exclude the unreleased entry and always play the OG pre-master for the released entry", () => {
+  const pairs = [
+    ["2much@4l", "2 much", "4L", "septembersrichmetthadevil", "SeptembersRich - Met Tha Devil", "SeptembersRich - Met Tha Devil (feat. YEAT)", "Trëndi", "69566578a38ef468dd562b74d60dc454", "feat. YEAT"],
+    ["52a60", "5 2 A 60", "4L", "septembersrich52uh60", "SeptembersRich - 5 2 Üh 60", "SeptembersRich - 5 2 Üh 60 (feat. Yeat)", "2 Alivë", "9853ba2453281dfdaad5251d5bedd4da", "feat. Yeat"],
+    ["hello@4l", "Hello", "4L", "septembersrichhello", "SeptembersRich - Hello", "SeptembersRich - Hello (feat. YEAT)", "Trëndi", "3a57c6ed14a1b75f51cf9671375c503e", "feat. YEAT"],
+    ["tesla", "Tesla", "4L with us", "septembersrichtesla", "SeptembersRich - Tesla", "SeptembersRich - Tesla (feat. YEAT)", "Alivë", "14a9907eb7f284062e58f50c5ca1ee8a", "feat. YEAT"],
+    ["xtrakrazy", "Xtra Krazy", "Up 2 Më [V1]", "septembersrichxtrakrazy", "SeptembersRich - Xtra Krazy", "SeptembersRich - Xtra Krazy (feat. Yeat)", "2 Alivë (Geëk Pack)", "6ed111a0f6436c623ae1633429ec94a2", "feat. Yeat"]
+  ];
+  for (const [unrelId, unrelTitle, unrelEra, relId, relTitle, relDisplay, relEra, premasterId, relFeature] of pairs) {
+    const unreleased = {
+      id: unrelId, title: unrelTitle, display: `${unrelTitle} (feat. SeptembersRich)`,
+      era: unrelEra, tab: "Unreleased", type: "OG",
+      source: { kind: "pillows", id: premasterId }, features: ["feat. SeptembersRich"]
+    };
+    const releasedApple = {
+      id: relId, title: relTitle, display: relDisplay,
+      era: relEra, tab: "Released", type: "Feature",
+      source: { kind: "apple", id: "1614019269" }, features: [relFeature], preview: true
+    };
+    const releasedDirect = {
+      ...releasedApple,
+      source: { kind: "pillows", id: "otherreleasefile" }, preview: false
+    };
+    assert.equal(isGuessingEligible(applyCatalogMetadata(unreleased)), false, `${unrelId} is excluded`);
+    for (const rel of [releasedApple, releasedDirect]) {
+      const out = applyCatalogMetadata(rel);
+      assert.equal(isGuessingEligible(out), true, `${relId} remains eligible`);
+      assert.deepEqual(out.premaster, { kind: "pillows", id: premasterId }, `${relId} always uses OG premaster`);
+      assert.equal(out.preview, false, `${relId} clears preview badge`);
+    }
+  }
+});
