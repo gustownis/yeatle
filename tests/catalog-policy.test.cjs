@@ -715,3 +715,109 @@ test("SeptembersRich OG-file pairs exclude the unreleased entry and always play 
     }
   }
 });
+
+test("publicSong backfills recordedIn and releasedOn on pinned Released songs", t => {
+  const { catalog } = setup(t);
+  const full = {
+    id: "reltrack",
+    title: "Rel Track",
+    display: "Rel Track",
+    era: "2 Alivë",
+    recordedIn: "Up 2 Më",
+    releasedOn: "2 Alivë",
+    tab: "Released",
+    mode: "filter",
+    source: { kind: "pillows", id: "rel-audio" }
+  };
+  catalog.setSongs([full], "test");
+  const pinnedSnapshot = { id: "reltrack", title: "Rel Track", display: "Rel Track", era: "2 Alivë", tab: "Released" };
+  const pub = catalog.publicSong(pinnedSnapshot);
+  assert.equal(pub.recordedIn, "Up 2 Më");
+  assert.equal(pub.releasedOn, "2 Alivë");
+});
+
+test("features use their recording era cover while keeping release era for Released songs", t => {
+  const { catalog } = setup(t);
+  const albumTrack = {
+    id: "albumtrack",
+    title: "Album Track",
+    display: "Album Track",
+    era: "4L",
+    recordedIn: "Up 2 Më",
+    releasedOn: "4L",
+    tab: "Released",
+    type: "Album Track",
+    mode: "filter",
+    cover: "https://example.test/up2me.webp",
+    source: { kind: "pillows", id: "album-audio" }
+  };
+  const recAnchor = {
+    id: "recanchor",
+    title: "Rec Anchor",
+    display: "Rec Anchor",
+    era: "ADL [V2]",
+    tab: "Unreleased",
+    type: "Demo",
+    mode: "filter",
+    cover: "https://example.test/adlv2.webp",
+    source: { kind: "pillows", id: "rec-audio" }
+  };
+  const relAnchor = {
+    id: "relanchor",
+    title: "Rel Anchor",
+    display: "Rel Anchor",
+    era: "DANGEROUS SUMMER",
+    tab: "Released",
+    type: "Single",
+    mode: "filter",
+    cover: "https://example.test/ds.webp",
+    source: { kind: "pillows", id: "rel-audio" }
+  };
+  const featureTrack = {
+    id: "featfixture",
+    title: "Feat Artist - Sample Track",
+    display: "Feat Artist - Sample Track (feat. Yeat)",
+    features: ["feat. Yeat"],
+    era: "DANGEROUS SUMMER",
+    recordedIn: "ADL [V2]",
+    releasedOn: "DANGEROUS SUMMER",
+    tab: "Released",
+    type: "Feature",
+    artistRole: "featured",
+    mode: "filter",
+    cover: "https://example.test/ds.webp",
+    source: { kind: "pillows", id: "work-audio" }
+  };
+  catalog.setSongs([recAnchor, relAnchor, albumTrack, featureTrack], "test");
+  const list = JSON.parse(catalog.songListJson()).songs;
+  assert.equal(list.find(s => s.id === "featfixture").cover, "https://example.test/adlv2.webp", "feature uses recording era cover");
+  assert.equal(catalog.publicSong({ id: "featfixture", title: "Feat Artist - Sample Track", features: ["feat. Yeat"], era: "DANGEROUS SUMMER", recordedIn: "ADL [V2]", releasedOn: "DANGEROUS SUMMER", tab: "Released", type: "Feature", cover: "https://example.test/ds.webp" }).cover, "https://example.test/adlv2.webp", "pinned feature snapshot upgrades to recording era cover");
+});
+
+test("Anyma - Work (feat. Yeat) is excluded while Anyma & Yeat - Work stays playable with shared answer names and premaster", () => {
+  const anymaWork = applyCatalogMetadata({
+    id: "anymawork",
+    title: "Anyma - Work",
+    display: "Anyma - Work (feat. Yeat)",
+    tab: "Released",
+    type: "Feature",
+    features: ["feat. Yeat"],
+    source: { kind: "pillows", id: "5f909c4a2080182e4e0277c9dd85aef1" }
+  });
+  const anymaAndYeatWork = applyCatalogMetadata({
+    id: "anymaandyeatwork",
+    title: "Anyma & Yeat - Work",
+    display: "Anyma & Yeat - Work",
+    tab: "Released",
+    type: "Single",
+    features: [],
+    source: { kind: "apple", id: "1800000001" },
+    preview: true
+  });
+  assert.equal(isGuessingEligible(anymaWork), false);
+  assert.equal(isGuessingEligible(anymaAndYeatWork), true);
+  assert.equal(anymaAndYeatWork.answerId, "anymaandyeatwork");
+  assert.deepEqual(anymaAndYeatWork.equivalentIds, ["anymawork"]);
+  assert.deepEqual(anymaAndYeatWork.premaster, { kind: "pillows", id: "5f909c4a2080182e4e0277c9dd85aef1" });
+  assert.equal(anymaAndYeatWork.preview, false);
+});

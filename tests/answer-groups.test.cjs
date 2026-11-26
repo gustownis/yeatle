@@ -122,7 +122,8 @@ test("same recordings share one answer and their progress; open verses stay sepa
     ["52a60", "septembersrich52uh60", "SeptembersRich - 5 2 Üh 60 (feat. Yeat)", "5 2 A 60 (feat. SeptembersRich)"],
     ["hello@4l", "septembersrichhello", "SeptembersRich - Hello (feat. YEAT)", "Hello (feat. SeptembersRich)"],
     ["tesla", "septembersrichtesla", "SeptembersRich - Tesla (feat. YEAT)", "Tesla (feat. SeptembersRich)"],
-    ["xtrakrazy", "septembersrichxtrakrazy", "SeptembersRich - Xtra Krazy (feat. Yeat)", "Xtra Krazy (feat. SeptembersRich)"]
+    ["xtrakrazy", "septembersrichxtrakrazy", "SeptembersRich - Xtra Krazy (feat. Yeat)", "Xtra Krazy (feat. SeptembersRich)"],
+    ["anymawork", "anymaandyeatwork", "Anyma & Yeat - Work", "Anyma - Work (feat. Yeat)"]
   ];
   for (const [unrelId, relId, relDisplay, unrelDisplay] of septPairs) {
     const pairSongs = [unrelId, relId].map(id => publicSong(byId.get(id), acceptedKeys));

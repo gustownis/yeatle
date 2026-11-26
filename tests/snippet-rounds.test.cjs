@@ -59,9 +59,9 @@ test("the page never learns the song until the round is over", async t => {
   assert.equal(res.level, 2);
   assert.deepEqual(res.hints, {});
   res = act("skip");
-  assert.deepEqual(res.hints, { era: "flawless era" }, "Era unlocks at the fourth clip, as in the game");
+  assert.deepEqual(res.hints, { eraYear: 2023, year: 2022 }, "Year unlocks at the fourth clip, as in the game");
   res = act("skip");
-  assert.deepEqual(res.hints, { era: "flawless era", eraYear: 2023, year: 2022 });
+  assert.deepEqual(res.hints, { year: 2022, eraYear: 2023, era: "flawless era" });
   res = act("skip");
   assert.deepEqual(res.hints.producers, ["flawless producer"]);
   assert.equal(res.song, undefined);

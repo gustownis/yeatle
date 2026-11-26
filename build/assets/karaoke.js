@@ -2186,7 +2186,7 @@ function finishPhrase(index) {
 
 // Signed-in rounds are ranked from Singer 1's microphone. The server issues the run when
 // the song starts and checks the trace when it ends; local best scores work as before.
-const ranking = () => import("./leaderboard.mjs?v=1.14.3").then(m => m.rankedKaraoke);
+const ranking = () => import("./leaderboard.mjs?v=1.14.4").then(m => m.rankedKaraoke);
 function startRankedRun(g) {
   g.ranked = null;
   g.trace = null;
@@ -2242,9 +2242,14 @@ async function submitRankedRun(g, note) {
   const p = g.players[0];
   const run = await g.ranked;
   if (game !== g) return;
-  if (!run || run.error || !run.runId) { note.textContent = run?.error ? `Not ranked: ${run.error}` : ""; return; }
+  if (!run || run.error || !run.runId) {
+    note.textContent = run?.error ? `Not ranked: ${run.error}` : "";
+    note.hidden = !note.textContent;
+    return;
+  }
   const failed = [...environmentFailures(), ...(p.detector?.integrity || [])];
   note.textContent = "Checking your run for the leaderboard…";
+  note.hidden = false;
   try {
     const ranked = await ranking();
     if (game !== g) return;
@@ -2254,9 +2259,11 @@ async function submitRankedRun(g, note) {
     });
     if (game !== g) return;
     note.textContent = res.ranked ? `Ranked on the leaderboard · your verified best here is ${res.best.toLocaleString()}` : res.message || "This run wasn't ranked.";
+    note.hidden = !note.textContent;
   } catch (err) {
     if (game !== g) return;
     note.textContent = `Not ranked: ${err.message}`;
+    note.hidden = !note.textContent;
   }
 }
 
@@ -2582,6 +2589,126 @@ function endGame() {
   $("#countdown").textContent = "";
 }
 
+function releasedEras(song) {
+  if (!song || song.tab !== "Released") return null;
+  const throwaway = /\bthrowaway\b/i.test(String(song.type || ""));
+  const baseEra = song.eraDisplay || song.era || "";
+  const releaseEra = throwaway ? (song.releasedOn || baseEra) : (baseEra || song.releasedOn || "");
+  const recordingEra = throwaway ? (song.recordedIn || baseEra) : (song.recordedIn || baseEra || song.releasedOn || "");
+  const recOut = recordingEra || releaseEra;
+  const relOut = releaseEra || recordingEra;
+  if (!recOut && !relOut) return null;
+  return { recordingEra: recOut, releaseEra: relOut, same: karaokeNorm(recOut) === karaokeNorm(relOut) };
+}
+
+function formatSongCredit(song, defaultArtist = state.artist || "Yeat") {
+  const rawDisplay = String(song?.display || song?.title || "").trim();
+  const explicitArtist = String(song?.artist || "").trim();
+  const def = String(defaultArtist || "Yeat").trim() || "Yeat";
+  const defLower = def.toLowerCase();
+  const defEsc = def.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let title = rawDisplay;
+  let artist = explicitArtist || def;
+
+  const dash = /^(.+?)\s+[-–—]\s+(.+)$/.exec(rawDisplay);
+  if (dash) {
+    const leftTrim = dash[1].trim();
+    const rightTrim = dash[2].trim();
+    const leftLower = leftTrim.toLowerCase();
+    const explicitMatchesLeft = Boolean(explicitArtist) && explicitArtist.toLowerCase() === leftLower;
+    const isDefaultPrefix = leftLower === defLower;
+    const leftHasCollabWithDefault = !isDefaultPrefix && new RegExp(`\\b${defEsc}\\b`, "i").test(leftTrim) && /(?:\s+(?:&|and|x|\+)\s+|,\s*)/i.test(leftTrim);
+    const rightFeaturesDefault = new RegExp(`\\b(?:feat\\.?|ft\\.?|with)\\s+${defEsc}\\b`, "i").test(rightTrim);
+    const isFeaturedRole = song?.artistRole === "featured";
+    if (isDefaultPrefix || (explicitMatchesLeft && !isDefaultPrefix) || leftHasCollabWithDefault || (isFeaturedRole && rightTrim) || rightFeaturesDefault) {
+      title = rightTrim;
+      artist = isDefaultPrefix ? def : (explicitMatchesLeft ? explicitArtist : leftTrim);
+    }
+  }
+
+  const withMatch = /\(\s*with\s+([^)]+)\)/i.exec(title);
+  if (withMatch) {
+    const splitRe = /\s*(?:,|&|\band\b|\bx\b|\+)\s*/i;
+    const seen = new Set();
+    const parts = [];
+    for (const p of [...artist.split(splitRe), ...withMatch[1].split(splitRe)]) {
+      const t = String(p || "").trim();
+      const k = t.toLowerCase();
+      if (t && !seen.has(k)) { seen.add(k); parts.push(t); }
+    }
+    artist = parts.length > 2 ? `${parts.slice(0, -1).join(", ")} & ${parts[parts.length - 1]}` : parts.join(" & ");
+    const stripped = title.replace(/\s*\(\s*with\s+[^)]+\)/i, "").replace(/\s{2,}/g, " ").trim();
+    if (stripped) title = stripped;
+  }
+  const plural = /(?:\s+(?:&|and|x|\+)\s+|,\s+)/i.test(artist);
+  return { title, artist, label: plural ? "Artists" : "Artist" };
+}
+
+const KARAOKE_ALIAS_PARENS_RE = /\s*\(([^()]*(?:,|\([^()]*\))[^()]*)\)/g;
+const KARAOKE_PAREN_BLOCK_RE = /\s*\([^()]*\)/g;
+const KARAOKE_PAREN_CAP_RE = /\(([^()]+)\)/g;
+const KARAOKE_GENERIC_ALIAS_RE = /^(yeat\s+)?(remix|mix|version|edit|intro|outro|interlude|freestyle|skit|open|solo|bonus)$/i;
+const KARAOKE_N_AND_TEST_RE = /\b(?:n|and)\b/i;
+const KARAOKE_N_AND_RE = /\b(?:n|and)\b/gi;
+const KARAOKE_WS_RE = /\s+/g;
+const karaokeNorm = text => String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/æ/gi, "ae").replace(/ø/gi, "o").replace(/\$/g, "s").replace(/&/g, "and").toLowerCase().replace(/[^a-z0-9]/g, "");
+const karaokeLooseNorm = text => {
+  const s = String(text || "");
+  return KARAOKE_N_AND_TEST_RE.test(s) ? karaokeNorm(s.replace(KARAOKE_N_AND_RE, "and")) : karaokeNorm(s);
+};
+function stripKaraokeAliasParens(str, extra) {
+  const s = String(str || "");
+  if (!s.includes("(")) return s.replace(KARAOKE_WS_RE, " ").trim();
+  return s.replace(KARAOKE_ALIAS_PARENS_RE, (_, inner) => {
+    for (const part of inner.split(",")) {
+      const trimmed = part.trim();
+      if (trimmed) extra.push(trimmed);
+    }
+    return "";
+  }).replace(KARAOKE_WS_RE, " ").trim();
+}
+function songAltNames(song, creditTitle) {
+  if (!song) return [];
+  const extra = [];
+  const rawTitle = String(song.title || "");
+  const rawDisplay = String(song.display || rawTitle);
+  const cleanTitle = stripKaraokeAliasParens(rawTitle, extra);
+  const cleanDisplay = rawDisplay === rawTitle ? cleanTitle : stripKaraokeAliasParens(rawDisplay, extra);
+  const seen = new Set();
+  for (const v of [cleanTitle, cleanDisplay, creditTitle || ""]) {
+    const s = String(v || "").trim();
+    if (!s) continue;
+    seen.add(karaokeNorm(s));
+    seen.add(karaokeLooseNorm(s));
+    const base = s.includes("(") ? s.replace(KARAOKE_PAREN_BLOCK_RE, "").trim() : s;
+    if (base && base !== s) {
+      seen.add(karaokeNorm(base));
+      seen.add(karaokeLooseNorm(base));
+    }
+    if (s.includes("(")) {
+      for (const m of s.matchAll(KARAOKE_PAREN_CAP_RE)) seen.add(karaokeLooseNorm(m[1]));
+    }
+  }
+  seen.delete("");
+  const rawAliases = extra.length ? (song.aliases?.length ? [...extra, ...song.aliases] : extra) : (song.aliases || []);
+  const out = [];
+  for (const raw of rawAliases) {
+    const t = String(raw || "").trim();
+    if (!t) continue;
+    const k = karaokeNorm(t);
+    if (!k || k.length <= 1 || KARAOKE_GENERIC_ALIAS_RE.test(t)) continue;
+    const kl = KARAOKE_N_AND_TEST_RE.test(t) ? karaokeLooseNorm(t) : k;
+    const ab = t.includes("(") ? t.replace(KARAOKE_PAREN_BLOCK_RE, "").trim() : t;
+    const kb = ab === t ? kl : karaokeLooseNorm(ab);
+    if (seen.has(k) || seen.has(kl) || (kb && seen.has(kb))) continue;
+    seen.add(k);
+    seen.add(kl);
+    if (kb) seen.add(kb);
+    out.push(t);
+  }
+  return out;
+}
+
 function showResults() {
   if (!game || game.ended) return;
   const { phrases } = game.chart;
@@ -2595,16 +2722,27 @@ function showResults() {
     const acc = p.durSum ? p.accSum / p.durSum : 0;
     const stars = starsFor(acc);
     if (p.detector && (!previous || p.score > previous.score) && (!newBest || p.score > newBest.score)) newBest = { score: p.score, name: p.name };
+    const totalRated = Object.values(p.counts).reduce((sum, n) => sum + n, 0) || 1;
+    const isLeader = game.players.length > 1 && p.score === top && top > 0;
     return el("div", { class: "result", style: `--c:${p.color}` },
-      el("div", { class: "result-name" }, el("b", { text: (game.players.length > 1 && p.score === top && top > 0 ? "👑 " : "") + p.name })),
-      el("div", { class: "stars" + (acc >= 0.96 ? " gold" : "") , text: "★".repeat(stars) + "☆".repeat(5 - stars) }),
+      el("div", { class: "result-name" },
+        el("span", { class: "result-dot", "aria-hidden": "true" }),
+        el("b", { text: (isLeader ? "👑 " : "") + p.name })
+      ),
+      el("div", { class: "stars" + (acc >= 0.96 ? " gold" : ""), "aria-label": `${stars} out of 5 stars` },
+        ...Array.from({ length: 5 }, (_, idx) => el("span", { class: idx < stars ? "star lit" : "star", text: "★" }))
+      ),
       el("div", { class: "result-score", text: p.score.toLocaleString() }),
       el("div", { class: "result-stats" },
         el("span", { text: `${Math.round(acc * 100)}% notes hit` }),
         el("span", { text: `Best streak ${p.bestStreak}` }),
         game.whiteMode ? el("span", { text: p.skipped ? `${p.skipped} phrase${p.skipped === 1 ? "" : "s"} fully skipped` : "No phrases fully skipped" }) : null
       ),
-      el("ul", { class: "breakdown" }, ...RATINGS.map(r => el("li", { class: r.cls }, el("span", { text: r.text.replace("!", "") }), el("b", { text: String(p.counts[r.cls]) }))))
+      el("ul", { class: "breakdown" }, ...RATINGS.map(r => {
+        const count = p.counts[r.cls];
+        const pct = Math.round((count / totalRated) * 100);
+        return el("li", { class: r.cls, style: `--pct:${pct}%`, "data-zero": count === 0 ? "1" : null }, el("span", { text: r.text.replace("!", "") }), el("b", { text: String(count) }));
+      }))
     );
   });
   if (newBest) store.set(key, newBest);
@@ -2615,15 +2753,95 @@ function showResults() {
       dispatchEvent(new CustomEvent("yeatle:wrapped-record", { detail: { kind: "karaoke", song: game.song, score: sung.score, accuracy: sung.durSum ? sung.accSum / sung.durSum : 0 } }));
     } catch { /* Wrapped is optional */ }
   }
-  $("#results-title").textContent = game.song.display;
-  $("#results-sub").textContent = `${DIFFICULTIES[game.difficulty].label}${game.whiteMode ? " · White people mode" : ""}${newBest ? ` · New best: ${newBest.score.toLocaleString()} by ${newBest.name}` : previous ? ` · Best: ${previous.score.toLocaleString()} by ${previous.name}` : ""}`;
+  const resultsBox = $("#results .results-box");
+  resultsBox?.classList.toggle("solo", game.players.length === 1);
+  const coverEl = $("#results-cover");
+  if (coverEl) {
+    const isFeat = game.song.artistRole === "featured" || /\bfeature\b/i.test(String(game.song.type || "")) || (game.song.features || []).some(v => /\b(?:feat\.?|ft\.?|with)\s+yeat\b/i.test(v));
+    const recCover = isFeat && game.song.recordedIn ? state.songs.find(s => s.era === game.song.recordedIn && s.cover && s.artistRole !== "featured")?.cover : "";
+    const resultCover = recCover || game.song.cover;
+    if (resultCover) {
+      coverEl.onerror = () => { coverEl.hidden = true; coverEl.removeAttribute("src"); };
+      coverEl.src = resultCover;
+      coverEl.hidden = false;
+    } else {
+      coverEl.hidden = true;
+      coverEl.removeAttribute("src");
+    }
+  }
+  const credit = formatSongCredit(game.song, state.artist || "Yeat");
+  $("#results-title").textContent = credit.title;
+  const artistEl = $("#results-artist");
+  if (artistEl) {
+    if (credit.artist) {
+      artistEl.replaceChildren(el("span", { text: `${credit.label}: ` }), el("strong", { text: credit.artist }));
+      artistEl.hidden = false;
+    } else {
+      artistEl.replaceChildren();
+      artistEl.hidden = true;
+    }
+  }
+  const alts = songAltNames(game.song, credit.title);
+  const altsEl = $("#results-alts");
+  if (altsEl) {
+    if (alts.length) {
+      const nodes = [el("span", { text: alts.length === 1 ? "Alternate name: " : "Alternate names: " })];
+      alts.forEach((name, idx) => {
+        if (idx > 0) nodes.push(", ");
+        nodes.push(el("strong", { text: name }));
+      });
+      altsEl.replaceChildren(...nodes);
+      altsEl.hidden = false;
+    } else {
+      altsEl.replaceChildren();
+      altsEl.hidden = true;
+    }
+  }
+  const relEras = releasedEras(game.song);
+  const subParts = [
+    DIFFICULTIES[game.difficulty].label,
+    game.whiteMode ? "White people mode" : "",
+    game.song.tab === "Released" || game.song.tab === "Unreleased" ? game.song.tab : "",
+    !newBest && previous ? `Best: ${previous.score.toLocaleString()} by ${previous.name}` : ""
+  ].filter(Boolean);
+  $("#results-sub").textContent = subParts.join(" · ");
+  const erasEl = $("#results-eras");
+  if (erasEl) {
+    const rawEra = game.song.eraDisplay || game.song.era || "";
+    if (relEras) {
+      erasEl.replaceChildren(...(relEras.same
+        ? [el("span", { class: "results-era-item" }, el("span", { text: "Era:" }), el("strong", { text: relEras.releaseEra }))]
+        : [
+            el("span", { class: "results-era-item" }, el("span", { text: "Recording era:" }), el("strong", { text: relEras.recordingEra })),
+            el("span", { class: "results-era-item" }, el("span", { text: "Release era:" }), el("strong", { text: relEras.releaseEra }))
+          ]));
+      erasEl.hidden = false;
+    } else if (rawEra) {
+      erasEl.replaceChildren(el("span", { class: "results-era-item" }, el("span", { text: "Era:" }), el("strong", { text: rawEra })));
+      erasEl.hidden = false;
+    } else {
+      erasEl.replaceChildren();
+      erasEl.hidden = true;
+    }
+  }
+  const bestEl = $("#results-best");
+  if (bestEl) {
+    if (newBest) {
+      bestEl.textContent = `★ New best · ${newBest.score.toLocaleString()}${game.players.length > 1 ? ` (${newBest.name})` : ""}`;
+      bestEl.hidden = false;
+    } else {
+      bestEl.textContent = "";
+      bestEl.hidden = true;
+    }
+  }
   $("#results-cards").replaceChildren(...cards);
   let rankNote = $("#results-rank");
   if (!rankNote) {
-    rankNote = el("p", { id: "results-rank", class: "muted", "aria-live": "polite" });
-    $("#results-sub").after(rankNote);
+    rankNote = el("p", { id: "results-rank", class: "results-rank muted", "aria-live": "polite", hidden: true });
+    $("#results-cards").before(rankNote);
   }
   rankNote.textContent = "";
+  rankNote.hidden = true;
   if (game.ranked) submitRankedRun(game, rankNote);
   game.ranked = null;
   showScreen("results");
@@ -2695,7 +2913,7 @@ async function loadSongs() {
   try {
     const [res, { songsForPool }] = await Promise.all([
       fetch("api/songs"),
-      import("./song-pools.mjs?v=1.14.3")
+      import("./song-pools.mjs?v=1.14.4")
     ]);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();

@@ -218,7 +218,7 @@ try {
         date, id: publicDailyId(saved, date), tries: 6,
         matches: text => Boolean(snippetRules && snippetRules.matchesSong(pub, text)),
         matchesVersion: text => Boolean(snippetRules && snippetRules.matchesVersion?.(pub, text)),
-        reveal: () => ({ display: pub.display, title: pub.title, era: pub.era || "", eraDisplay: pub.eraDisplay || "", eraYear: pub.eraYear || null, year: pub.year || null, tab: pub.tab || "", cover: pub.cover || "", relatedRecording: pub.relatedRecording || "" })
+        reveal: () => ({ id: pub.id, display: pub.display, title: pub.title, era: pub.era || "", eraDisplay: pub.eraDisplay || "", recordedIn: pub.recordedIn || "", releasedOn: pub.releasedOn || "", eraYear: pub.eraYear || null, year: pub.year || null, type: pub.type || "", artist: pub.artist || "", artistRole: pub.artistRole || "", aliases: pub.aliases || [], tab: pub.tab || "", cover: pub.cover || "", relatedRecording: pub.relatedRecording || "" })
       };
     },
     snippetSong: (id, pool) => {
@@ -229,7 +229,14 @@ try {
     },
     snippetHints: (id, pool) => {
       const pub = snippetEntry(id, pool)?.pub;
-      return pub ? { era: pub.eraDisplay || pub.era || "", eraYear: pub.eraYear || null, year: pub.year || null, producers: pub.producers || [] } : {};
+      if (!pub) return {};
+      let eraYear = pub.eraYear || null;
+      if (!eraYear && !pub.year && pub.era) {
+        const info = ERAS.find(e => e.name === pub.era);
+        const span = info ? [info.start, info.end].map(v => (String(v || "").match(/\b(19|20)\d{2}\b/) || [])[0]).filter(Boolean) : [];
+        eraYear = info?.year || (span.length ? (span[0] === span[span.length - 1] ? Number(span[0]) : `${span[0]}–${span[span.length - 1]}`) : null);
+      }
+      return { era: pub.eraDisplay || pub.era || "", eraYear, year: pub.year || null, producers: pub.producers || [] };
     },
     snippetReveal: (id, pool) => {
       const pub = snippetEntry(id, pool)?.pub;
@@ -981,6 +988,14 @@ const SOURCE_RANK = { stems: 0, pillows: 1, drive: 1, exofile: 1, exoshare: 1, p
 function isThrowaway(row) {
   return /\bthrowaway\b/i.test(String(row && row.type || ""));
 }
+function isFeatureSong(row) {
+  if (!row) return false;
+  return row.artistRole === "featured" || /\bfeature\b/i.test(String(row.type || "")) || (row.features || []).some(value => /\b(?:feat\.?|ft\.?|with)\s+yeat\b/i.test(value));
+}
+function coverEraForSong(song) {
+  if (!song) return "";
+  return isFeatureSong(song) && song.recordedIn ? song.recordedIn : (song.era || song.eraDisplay || "");
+}
 
 
 // Exact, normalised names only (accents, case and punctuation): no prefix or
@@ -1208,7 +1223,7 @@ function buildSongList(sheetRows, stemFolders) {
       recordedIn,
       releasedOn: song.releasedOn || "",
       eraYear: ERA_YEARS.get(looseEraKey(era)) || ERA_YEARS.get(looseEraKey(String(era || "").replace(/\s*[[(].*$/, ""))) || null,
-      cover: coverForEra(era),
+      cover: coverForEra(isFeatureSong(song) && recordedIn ? recordedIn : era) || coverForEra(era),
       date: song.date,
       year: song.year,
       length: song.length,
@@ -1339,13 +1354,16 @@ function catalogSongById(id) {
 
 function setSongs(songs, source) {
   songs = reconcileStemSources(songs);
-  const covers = new Map(songs.filter(song => song.cover).map(song => [song.era, song.cover]));
+  const covers = new Map(songs.filter(song => song.cover && !(isFeatureSong(song) && song.recordedIn)).map(song => [song.era, song.cover]));
+  const eraCovers = new Map(ERAS.filter(e => e.cover).map(e => [e.name, e.cover]));
   SONGS = songs.map(song => {
     const override = RENAMES[song.id];
     song = reconcileCatalogEligibility(applyCatalogMetadata(song), SOURCE_RANK);
-    if (!song.cover) song = { ...song, cover: covers.get(song.era) || coverForEra(song.era) };
     const entry = { ...song, ...creditFor(song, CONFIG.artist) };
-    return override ? { ...entry, display: override } : entry;
+    const recCover = isFeatureSong(entry) && entry.recordedIn ? (eraCovers.get(entry.recordedIn) || covers.get(entry.recordedIn) || coverForEra(entry.recordedIn)) : "";
+    const cover = recCover || entry.cover || covers.get(entry.era) || coverForEra(entry.era);
+    const withCover = cover && cover !== entry.cover ? { ...entry, cover } : entry;
+    return override ? { ...withCover, display: override } : withCover;
   });
   rebuildSongIndex();
   LAST_SOURCE = source;
@@ -1813,7 +1831,7 @@ function buildEras(songs) {
   });
 
   const coverOf = new Map(eras.map(e => [e.name, e.cover]));
-  songs.forEach(song => { song.cover = coverOf.get(song.era) || song.cover || ""; });
+  songs.forEach(song => { const ce = coverEraForSong(song); song.cover = coverOf.get(ce) || (ce ? coverForEra(ce) : "") || coverOf.get(song.era) || song.cover || ""; });
 
   const used = new Set(songs.map(s => s.era));
   ERAS = eras.filter(e => used.has(e.name)).map(({ name, aliases, start, end, year, cover }) => ({ name, aliases, start, end, year, cover }));
@@ -2861,8 +2879,19 @@ function publicSong(song) {
     if (aliases?.length) out = { ...out, aliases };
   }
   out = cleanMangledDisplayAndAliases(out);
+  const indexed = SONG_INDEX.get(out.id);
+  if (out.tab === "Released" && indexed) {
+    const rel = indexed.tab === "Released" ? indexed : indexed.poolVariants?.released;
+    if (rel) {
+      if (!out.recordedIn && rel.recordedIn) out = { ...out, recordedIn: rel.recordedIn };
+      if (!out.releasedOn && rel.releasedOn) out = { ...out, releasedOn: rel.releasedOn };
+    }
+  }
+  if (isFeatureSong(out) && out.recordedIn) {
+    const recCover = (indexed && indexed.recordedIn === out.recordedIn && isFeatureSong(indexed) && indexed.cover) || ERAS.find(e => e.name === out.recordedIn)?.cover || coverForEra(out.recordedIn);
+    if (recCover && recCover !== out.cover) out = { ...out, cover: recCover };
+  }
   if (!out.cover && (out.era || out.eraDisplay)) {
-    const indexed = SONG_INDEX.get(out.id);
     const cover = (indexed && indexed.era === out.era && indexed.cover) || ERAS.find(e => e.name === out.era || e.name === out.eraDisplay)?.cover || coverForEra(out.era) || coverForEra(out.eraDisplay);
     if (cover) out = { ...out, cover };
   }

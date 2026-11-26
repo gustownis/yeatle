@@ -14,17 +14,17 @@
     <meta property="og:url" content="https://playyeatle.duckdns.org/karaoke" />
     <meta property="og:image" content="https://playyeatle.duckdns.org/favicon.png" />
     <meta property="og:image:alt" content="Yeatle" />
-    <link rel="modulepreload" href="./assets/song-pools.mjs?v=1.14.3">
+    <link rel="modulepreload" href="./assets/song-pools.mjs?v=1.14.4">
     <link rel="preload" href="api/songs" as="fetch" crossorigin>
-    <link rel="stylesheet" href="./assets/karaoke.css?v=1.14.3">
-    <link rel="stylesheet" href="./assets/navigation.css?v=1.14.3">
-    <link rel="stylesheet" href="./assets/leaderboard.css?v=1.14.3">
-    <link rel="stylesheet" href="./assets/wrapped.css?v=1.14.3">
-    <script src="./assets/navigation-runtime.js?v=1.14.3"></script>
-    <script type="module" src="./assets/interface-motion.mjs?v=1.14.3"></script>
-    <script type="module" src="./assets/karaoke.js?v=1.14.3"></script>
-    <script type="module" src="./assets/leaderboard.mjs?v=1.14.3"></script>
-    <script type="module" src="./assets/wrapped.mjs?v=1.14.3"></script>
+    <link rel="stylesheet" href="./assets/karaoke.css?v=1.14.4">
+    <link rel="stylesheet" href="./assets/navigation.css?v=1.14.4">
+    <link rel="stylesheet" href="./assets/leaderboard.css?v=1.14.4">
+    <link rel="stylesheet" href="./assets/wrapped.css?v=1.14.4">
+    <script src="./assets/navigation-runtime.js?v=1.14.4"></script>
+    <script type="module" src="./assets/interface-motion.mjs?v=1.14.4"></script>
+    <script type="module" src="./assets/karaoke.js?v=1.14.4"></script>
+    <script type="module" src="./assets/leaderboard.mjs?v=1.14.4"></script>
+    <script type="module" src="./assets/wrapped.mjs?v=1.14.4"></script>
   </head>
   <body>
     <div id="karaoke-app">
@@ -132,10 +132,22 @@
 
       <section id="results" class="screen" hidden aria-label="Karaoke results">
         <div class="results-box">
-          <h2 id="results-title"></h2>
-          <p id="results-sub" class="muted"></p>
+          <header class="results-head">
+            <img id="results-cover" class="results-cover" alt="" hidden>
+            <div class="results-head-copy">
+              <div class="results-title-row">
+                <h2 id="results-title"></h2>
+                <span id="results-best" class="results-best" hidden></span>
+              </div>
+              <p id="results-artist" class="results-artist" hidden></p>
+              <p id="results-alts" class="results-alt" hidden></p>
+              <p id="results-sub" class="muted"></p>
+              <div id="results-eras" class="results-era-grid" hidden></div>
+            </div>
+          </header>
+          <p id="results-rank" class="results-rank muted" aria-live="polite" hidden></p>
           <div id="results-cards" class="results-cards"></div>
-          <div class="row center">
+          <div class="row center results-actions">
             <button id="again" class="btn primary">Sing it again</button>
             <button id="random-next" class="btn" title="Sing a random song from the chosen eras">Shuffle a song</button>
             <button id="another" class="btn">Pick another song</button>

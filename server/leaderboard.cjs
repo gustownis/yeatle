@@ -41,7 +41,7 @@ const MAX_FLAGS = 500;
 // streams it under the round's id and checks each guess, so the page never learns the
 // answer until the round is over. Tries per difficulty match the game's clip lists.
 const SNIPPET_TRIES = { base: 6, easy: 7, medium: 7, hard: 7, extreme: 3 };
-const SNIPPET_HINTS = [["era", 3], ["year", 4], ["producers", 5]];
+const SNIPPET_HINTS = [["year", 3], ["era", 4], ["producers", 5]];
 const SNIPPET_ROUND_MS = 3 * 3600000;
 const SNIPPET_MAX_CANDIDATES = 6000;
 const SNIPPET_ROUNDS_PER_PLAYER = 20;

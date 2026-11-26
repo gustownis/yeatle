@@ -1,22 +1,184 @@
-import { BASE_LENGTHS, matchesSong, matchesVersion, restoreRound, shareResult } from "./snippet-rules.mjs?v=1.14.3";
-import { attachSongSuggestions } from "./song-suggestions.mjs?v=1.14.3";
-import { dailyRounds } from "./leaderboard.mjs?v=1.14.3";
+import { BASE_LENGTHS, matchesSong, matchesVersion, normalizeGuess, restoreRound, shareResult } from "./snippet-rules.mjs?v=1.14.4";
+import { attachSongSuggestions } from "./song-suggestions.mjs?v=1.14.4";
+import { dailyRounds } from "./leaderboard.mjs?v=1.14.4";
 
 const $ = selector => document.querySelector(selector);
 const suggestions = attachSongSuggestions($("#guess"), $("#song-suggestions"));
-let challenge, round, storageKey, clockAt, serverAt, loading = false;
-let catalogSongs = [], catalogEras = [];
+let challenge, round, storageKey, clockAt, serverAt, loading = false, copyResetTimer = 0;
+let catalogSongs = [], catalogEras = [], catalogArtist = "Yeat";
 const ALIVE_WHITE_COVER = "https://i1.sndcdn.com/artworks-3AabyPZmITS5OQRk-ylKvNA-original.jpg";
 const coverRolls = new WeakMap();
+function releasedEras(song) {
+  if (!song || song.tab !== "Released") return null;
+  let ref = null;
+  if ((!song.recordedIn || !song.releasedOn) && song.id && catalogSongs.length) {
+    const match = catalogSongs.find(item => item && item.id === song.id);
+    ref = match ? (match.tab === "Released" ? match : match.poolVariants?.released) : null;
+  }
+  const recordedIn = song.recordedIn || ref?.recordedIn || "";
+  const releasedOn = song.releasedOn || ref?.releasedOn || "";
+  const throwaway = /\bthrowaway\b/i.test(String(song.type || ref?.type || ""));
+  const baseEra = song.eraDisplay || song.era || ref?.eraDisplay || ref?.era || "";
+  const releaseEra = throwaway ? (releasedOn || baseEra) : (baseEra || releasedOn || "");
+  const recordingEra = throwaway ? (recordedIn || baseEra) : (recordedIn || baseEra || releasedOn || "");
+  const recOut = recordingEra || releaseEra;
+  const relOut = releaseEra || recordingEra;
+  if (!recOut && !relOut) return null;
+  return { recordingEra: recOut, releaseEra: relOut, same: normalizeGuess(recOut) === normalizeGuess(relOut) };
+}
+function formatSongCredit(song, defaultArtist = catalogArtist) {
+  let ref = null;
+  if ((!song?.artist || !song?.artistRole) && song?.id && catalogSongs.length) {
+    ref = catalogSongs.find(item => item && item.id === song.id) || null;
+  }
+  const rawDisplay = String(song?.display || song?.title || "").trim();
+  const explicitArtist = String(song?.artist || ref?.artist || "").trim();
+  const role = song?.artistRole || ref?.artistRole || "";
+  const def = String(defaultArtist || "Yeat").trim() || "Yeat";
+  const defLower = def.toLowerCase();
+  const defEsc = def.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let title = rawDisplay;
+  let artist = explicitArtist || def;
+
+  const dash = /^(.+?)\s+[-–—]\s+(.+)$/.exec(rawDisplay);
+  if (dash) {
+    const leftTrim = dash[1].trim();
+    const rightTrim = dash[2].trim();
+    const leftLower = leftTrim.toLowerCase();
+    const explicitMatchesLeft = Boolean(explicitArtist) && explicitArtist.toLowerCase() === leftLower;
+    const isDefaultPrefix = leftLower === defLower;
+    const leftHasCollabWithDefault = !isDefaultPrefix && new RegExp(`\\b${defEsc}\\b`, "i").test(leftTrim) && /(?:\s+(?:&|and|x|\+)\s+|,\s*)/i.test(leftTrim);
+    const rightFeaturesDefault = new RegExp(`\\b(?:feat\\.?|ft\\.?|with)\\s+${defEsc}\\b`, "i").test(rightTrim);
+    const isFeaturedRole = role === "featured";
+    if (isDefaultPrefix || (explicitMatchesLeft && !isDefaultPrefix) || leftHasCollabWithDefault || (isFeaturedRole && rightTrim) || rightFeaturesDefault) {
+      title = rightTrim;
+      artist = isDefaultPrefix ? def : (explicitMatchesLeft ? explicitArtist : leftTrim);
+    }
+  }
+
+  const withMatch = /\(\s*with\s+([^)]+)\)/i.exec(title);
+  if (withMatch) {
+    const splitRe = /\s*(?:,|&|\band\b|\bx\b|\+)\s*/i;
+    const seen = new Set();
+    const parts = [];
+    for (const p of [...artist.split(splitRe), ...withMatch[1].split(splitRe)]) {
+      const t = String(p || "").trim();
+      const k = t.toLowerCase();
+      if (t && !seen.has(k)) { seen.add(k); parts.push(t); }
+    }
+    artist = parts.length > 2 ? `${parts.slice(0, -1).join(", ")} & ${parts[parts.length - 1]}` : parts.join(" & ");
+    const stripped = title.replace(/\s*\(\s*with\s+[^)]+\)/i, "").replace(/\s{2,}/g, " ").trim();
+    if (stripped) title = stripped;
+  }
+  const plural = /(?:\s+(?:&|and|x|\+)\s+|,\s+)/i.test(artist);
+  return { title, artist, label: plural ? "Artists" : "Artist" };
+}
+const DAILY_ALIAS_PARENS_RE = /\s*\(([^()]*(?:,|\([^()]*\))[^()]*)\)/g;
+const DAILY_PAREN_BLOCK_RE = /\s*\([^()]*\)/g;
+const DAILY_PAREN_CAP_RE = /\(([^()]+)\)/g;
+const DAILY_GENERIC_ALIAS_RE = /^(yeat\s+)?(remix|mix|version|edit|intro|outro|interlude|freestyle|skit|open|solo|bonus)$/i;
+const DAILY_N_AND_TEST_RE = /\b(?:n|and)\b/i;
+const DAILY_N_AND_RE = /\b(?:n|and)\b/gi;
+const DAILY_WS_RE = /\s+/g;
+const dailyLooseNorm = value => {
+  const s = String(value || "");
+  return DAILY_N_AND_TEST_RE.test(s) ? normalizeGuess(s.replace(DAILY_N_AND_RE, "and")) : normalizeGuess(s);
+};
+function stripDailyAliasParens(str, extra) {
+  const s = String(str || "");
+  if (!s.includes("(")) return s.replace(DAILY_WS_RE, " ").trim();
+  return s.replace(DAILY_ALIAS_PARENS_RE, (_, inner) => {
+    for (const part of inner.split(",")) {
+      const trimmed = part.trim();
+      if (trimmed) extra.push(trimmed);
+    }
+    return "";
+  }).replace(DAILY_WS_RE, " ").trim();
+}
+function songAltNames(song, creditTitle) {
+  if (!song) return [];
+  const extra = [];
+  const rawTitle = String(song.title || "");
+  const rawDisplay = String(song.display || rawTitle);
+  const cleanTitle = stripDailyAliasParens(rawTitle, extra);
+  const cleanDisplay = rawDisplay === rawTitle ? cleanTitle : stripDailyAliasParens(rawDisplay, extra);
+  const seen = new Set();
+  for (const v of [cleanTitle, cleanDisplay, creditTitle || ""]) {
+    const s = String(v || "").trim();
+    if (!s) continue;
+    seen.add(normalizeGuess(s));
+    seen.add(dailyLooseNorm(s));
+    const base = s.includes("(") ? s.replace(DAILY_PAREN_BLOCK_RE, "").trim() : s;
+    if (base && base !== s) {
+      seen.add(normalizeGuess(base));
+      seen.add(dailyLooseNorm(base));
+    }
+    if (s.includes("(")) {
+      for (const m of s.matchAll(DAILY_PAREN_CAP_RE)) seen.add(dailyLooseNorm(m[1]));
+    }
+  }
+  seen.delete("");
+  let baseAliases = song.aliases;
+  if ((!Array.isArray(baseAliases) || !baseAliases.length) && song.id && catalogSongs.length) {
+    const hit = catalogSongs.find(item => item && item.id === song.id);
+    if (hit && Array.isArray(hit.aliases)) baseAliases = hit.aliases;
+  }
+  const rawAliases = extra.length ? (baseAliases?.length ? [...extra, ...baseAliases] : extra) : (baseAliases || []);
+  const out = [];
+  for (const raw of rawAliases) {
+    const t = String(raw || "").trim();
+    if (!t) continue;
+    const k = normalizeGuess(t);
+    if (!k || k.length <= 1 || DAILY_GENERIC_ALIAS_RE.test(t)) continue;
+    const kl = DAILY_N_AND_TEST_RE.test(t) ? dailyLooseNorm(t) : k;
+    const ab = t.includes("(") ? t.replace(DAILY_PAREN_BLOCK_RE, "").trim() : t;
+    const kb = ab === t ? kl : dailyLooseNorm(ab);
+    if (seen.has(k) || seen.has(kl) || (kb && seen.has(kb))) continue;
+    seen.add(k);
+    seen.add(kl);
+    if (kb) seen.add(kb);
+    out.push(t);
+  }
+  return out;
+}
+function formatClipAt(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "";
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+function makeEraItem(label, value) {
+  const wrap = document.createElement("span");
+  wrap.className = "result-era-item";
+  const dt = document.createElement("span");
+  dt.textContent = label;
+  const dd = document.createElement("strong");
+  dd.textContent = value;
+  wrap.append(dt, dd);
+  return wrap;
+}
 function coverForSong(song) {
   if (!song) return "";
-  let cover = song.cover || "";
+  const ref = song.id && catalogSongs.length ? catalogSongs.find(item => item && item.id === song.id) : null;
+  const isFeat = song.artistRole === "featured" || ref?.artistRole === "featured"
+    || /\bfeature\b/i.test(String(song.type || ref?.type || ""))
+    || (song.features || ref?.features || []).some(v => /\b(?:feat\.?|ft\.?|with)\s+yeat\b/i.test(v));
+  const rec = song.recordedIn || ref?.recordedIn || "";
+  let cover = "";
+  let effEra = song.era || "";
+  if (isFeat && rec) {
+    const recEra = catalogEras.find(item => item.name === rec && item.cover);
+    const recSong = catalogSongs.find(item => item && item.era === rec && item.cover && item.artistRole !== "featured");
+    cover = recEra?.cover || recSong?.cover || "";
+    if (cover) effEra = rec;
+  }
+  if (!cover) cover = song.cover || "";
   if (!cover) {
     const match = catalogSongs.find(item => (song.id && item.id === song.id && item.cover) || (song.era && item.era === song.era && item.cover))
       || catalogEras.find(item => item.name === song.era && item.cover);
     cover = match?.cover || "";
   }
-  if (!cover || String(song.era || "").normalize("NFD").replace(/\s*[\[(].*$/, "").toLowerCase().replace(/[^a-z0-9]/g, "") !== "alive") return cover;
+  if (!cover || String(effEra).normalize("NFD").replace(/\s*[\[(].*$/, "").toLowerCase().replace(/[^a-z0-9]/g, "") !== "alive") return cover;
   let pick = coverRolls.get(song);
   if (pick === undefined) coverRolls.set(song, pick = Math.random() < 0.5);
   return pick ? ALIVE_WHITE_COVER : cover;
@@ -119,8 +281,8 @@ function render() {
   if (!challenge) return;
   const done = round.status !== "playing";
   const seconds = done ? BASE_LENGTHS.at(-1) : BASE_LENGTHS[level()];
-  $("#clip-label").textContent = done ? round.status === "won" ? "You got it" : "Not this time" : `${seconds} second${seconds === 1 ? "" : "s"}`;
-  $("#attempt").textContent = done ? "Come back tomorrow" : `Clip ${level() + 1} of ${BASE_LENGTHS.length}`;
+  $("#clip-label").textContent = done ? `Full ${BASE_LENGTHS.at(-1)}s clip` : `${seconds} second${seconds === 1 ? "" : "s"}`;
+  $("#attempt").textContent = done ? (round.status === "won" ? `Solved in ${round.attempts.length}/${BASE_LENGTHS.length}` : `${BASE_LENGTHS.length}/${BASE_LENGTHS.length} tries used`) : `Clip ${level() + 1} of ${BASE_LENGTHS.length}`;
   const curLevel = level();
   const solvedIndex = round.status === "won" ? Math.max(0, round.attempts.length - 1) : -1;
   const hasClose = !done && (round.close || []).some(c => c.level === curLevel);
@@ -160,35 +322,60 @@ function render() {
   if ($("#daily-keys")) $("#daily-keys").hidden = done || isPhoneOrTablet;
   if (done || !ready || busy || loading) suggestions.close();
   $("#skip").textContent = level() === BASE_LENGTHS.length - 1 ? "Give up" : "Skip";
+  const guessRow = (cls, markText, whatText, whenText, noteText = "") => {
+    const li = document.createElement("li");
+    li.className = cls;
+    const mark = document.createElement("span");
+    mark.className = "mark";
+    mark.textContent = markText;
+    const what = document.createElement("span");
+    what.className = "what";
+    if (noteText) {
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "guess-name";
+      nameSpan.textContent = whatText;
+      const noteSpan = document.createElement("span");
+      noteSpan.className = "guess-note";
+      noteSpan.textContent = noteText;
+      what.append(nameSpan, noteSpan);
+    } else {
+      what.textContent = whatText;
+    }
+    const when = document.createElement("span");
+    when.className = "when";
+    when.textContent = whenText;
+    li.append(mark, what, when);
+    return li;
+  };
   const guessItems = [];
   for (let index = 0; index < BASE_LENGTHS.length; index++) {
+    const lenLabel = `${BASE_LENGTHS[index]}s`;
     for (const c of (round.close || []).filter(item => item.level === index)) {
-      const li = document.createElement("li");
-      li.className = "close";
-      li.textContent = `${BASE_LENGTHS[index]}s · Different version · ${c.text}`;
-      guessItems.push(li);
+      guessItems.push(guessRow("close", "≈", c.text, lenLabel, "Different version"));
     }
     const attempt = round.attempts[index];
     if (attempt) {
-      const li = document.createElement("li");
-      li.className = attempt.kind;
-      li.textContent = `${BASE_LENGTHS[index]}s · ${attempt.kind === "skip" ? "Skipped" : attempt.kind === "right" ? "Correct" : attempt.text}`;
-      guessItems.push(li);
+      const mark = attempt.kind === "right" ? "✓" : attempt.kind === "wrong" ? "×" : "–";
+      const what = attempt.kind === "skip" ? "Skipped" : attempt.kind === "right" ? attempt.text || "Correct" : attempt.text;
+      guessItems.push(guessRow(attempt.kind, mark, what, lenLabel));
     }
   }
   $("#guesses").replaceChildren(...guessItems);
   const coverEl = $("#result-cover");
+  const resultEl = $("#result");
   if (done && !challenge.song) {
-    $("#result").hidden = true;
+    resultEl.hidden = true;
     coverEl.removeAttribute("src");
     delete coverEl.dataset.failedSrc;
     coverEl.hidden = true;
     if (!loading) loadChallenge();
     return;
   }
-  $("#result").hidden = !done;
+  resultEl.className = done ? `result ${round.status}` : "result";
+  resultEl.hidden = !done;
   if (done) {
-    const src = coverForSong(challenge.song);
+    const song = challenge.song;
+    const src = coverForSong(song);
     if (src && coverEl.dataset.failedSrc !== src) {
       if (coverEl.getAttribute("src") !== src) {
         delete coverEl.dataset.failedSrc;
@@ -199,14 +386,93 @@ function render() {
       coverEl.removeAttribute("src");
       coverEl.hidden = true;
     }
-    $("#result-label").textContent = round.status === "won" ? "The song is" : "The song was";
-    $("#answer").textContent = challenge.song.display || challenge.song.title;
+    const won = round.status === "won";
     const solvedSeconds = BASE_LENGTHS[round.attempts.length - 1];
-    $("#result-detail").textContent = [round.status === "won" ? `You found it in ${solvedSeconds} second${solvedSeconds === 1 ? "" : "s"}.` : "Tomorrow brings another song.", challenge.song.eraDisplay || challenge.song.era, challenge.song.eraYear || challenge.song.year, challenge.song.tab, challenge.song.relatedRecording && `Related recording: ${challenge.song.relatedRecording}`].filter(Boolean).join(" · ");
+    const outcomeEl = document.createElement("span");
+    outcomeEl.className = `result-outcome ${won ? "won" : "lost"}`;
+    outcomeEl.textContent = won ? "Solved" : "Missed";
+    const ctxEl = document.createElement("span");
+    ctxEl.className = "result-context";
+    ctxEl.textContent = ` · ${won ? `in ${solvedSeconds}s · ${round.attempts.length}/${BASE_LENGTHS.length}` : (round.attempts.at(-1)?.kind === "skip" ? "Gave up" : "Out of tries")}`;
+    const statusNodes = [outcomeEl, ctxEl];
+    if (song.tab === "Released" || song.tab === "Unreleased") {
+      const tabEl = document.createElement("span");
+      tabEl.className = "result-tab";
+      tabEl.textContent = song.tab;
+      statusNodes.push(tabEl);
+    }
+    $("#result-label").replaceChildren(...statusNodes);
+    const credit = formatSongCredit(song, catalogArtist);
+    $("#answer").textContent = credit.title;
+    const artistEl = $("#result-artist");
+    if (credit.artist) {
+      const aLabel = document.createElement("span");
+      aLabel.textContent = `${credit.label}: `;
+      const aName = document.createElement("strong");
+      aName.textContent = credit.artist;
+      artistEl.replaceChildren(aLabel, aName);
+      artistEl.hidden = false;
+    } else {
+      artistEl.replaceChildren();
+      artistEl.hidden = true;
+    }
+    const alts = songAltNames(song, credit.title);
+    const altsEl = $("#result-alts");
+    if (alts.length) {
+      const altLabel = document.createElement("span");
+      altLabel.textContent = alts.length === 1 ? "Alternate name: " : "Alternate names: ";
+      const altNodes = [altLabel];
+      alts.forEach((name, idx) => {
+        if (idx > 0) altNodes.push(", ");
+        const strong = document.createElement("strong");
+        strong.textContent = name;
+        altNodes.push(strong);
+      });
+      altsEl.replaceChildren(...altNodes);
+      altsEl.hidden = false;
+    } else {
+      altsEl.replaceChildren();
+      altsEl.hidden = true;
+    }
+
+    const relEras = releasedEras(song);
+    const clipLabel = formatClipAt(challenge.clipAt);
+    const detailText = clipLabel ? `Clip at ${clipLabel}` : "";
+    $("#result-detail").textContent = detailText;
+    $("#result-detail").hidden = !detailText;
+    const rawEra = song.eraDisplay || song.era || "";
+    if (relEras) {
+      $("#result-eras").replaceChildren(...(relEras.same
+        ? [makeEraItem("Era:", relEras.releaseEra)]
+        : [makeEraItem("Recording era:", relEras.recordingEra), makeEraItem("Release era:", relEras.releaseEra)]));
+      $("#result-eras").hidden = false;
+    } else if (rawEra) {
+      $("#result-eras").replaceChildren(makeEraItem("Era:", rawEra));
+      $("#result-eras").hidden = false;
+    } else {
+      $("#result-eras").replaceChildren();
+      $("#result-eras").hidden = true;
+    }
+
+    const subParts = [
+      !relEras && song.recordedIn && song.recordedIn !== song.era && !(song.eraDisplay && song.eraDisplay.includes(song.recordedIn)) ? `Recorded in ${song.recordedIn}` : "",
+      song.relatedRecording ? `Related recording: ${song.relatedRecording}` : ""
+    ].filter(Boolean);
+    $("#result-submeta").textContent = subParts.join(" · ");
+    $("#result-submeta").hidden = subParts.length === 0;
   } else {
     coverEl.removeAttribute("src");
     delete coverEl.dataset.failedSrc;
     coverEl.hidden = true;
+    $("#result-artist").replaceChildren();
+    $("#result-artist").hidden = true;
+    $("#result-alts").replaceChildren();
+    $("#result-alts").hidden = true;
+    $("#result-eras").replaceChildren();
+    $("#result-eras").hidden = true;
+    $("#result-detail").textContent = "";
+    $("#result-detail").hidden = true;
+    $("#result-submeta").hidden = true;
   }
 }
 
@@ -413,6 +679,9 @@ async function loadChallenge() {
   if (loading) return;
   loading = true;
   dispose();
+  clearTimeout(copyResetTimer);
+  $("#share").classList.remove("copied");
+  $("#share").textContent = "Copy result";
   $("#game").hidden = true;
   $("#retry").hidden = true;
   $("#share-text").hidden = true;
@@ -430,7 +699,7 @@ async function loadChallenge() {
     if (body.checked) applyServerRound(await dailyRounds.act({ challenge: body.id, kind: "state" }));
     $("#day").textContent = `${dayLabel(body)} · ${body.scope === "global" ? "Same song and clip for every Yeatle player" : "Local test · shared by this server's clients"}`;
     $("#game").hidden = false;
-    notice(round.status === "playing" ? "Tap Play to load today's song." : "Today's result is saved. Share it or keep playing Snippets.");
+    notice(round.status === "playing" ? "Tap Play to load today's song." : (storageAvailable ? "" : "Browser storage is unavailable. Keep this tab open to retain today's progress."));
     render();
     noteFinished();
     // Suggestions are optional; the pinned answer remains guessable after a tracker edit.
@@ -441,8 +710,9 @@ async function loadChallenge() {
       if (!list || challenge !== body) return;
       catalogSongs = Array.isArray(list.songs) ? list.songs : [];
       catalogEras = Array.isArray(list.eras) ? list.eras : [];
+      catalogArtist = list.artist || "Yeat";
       suggestions.setSongs([...pinned, ...catalogSongs]);
-      if (round && round.status !== "playing" && $("#result-cover").hidden && !$("#result-cover").dataset.failedSrc) render();
+      if (round && round.status !== "playing") render();
     });
   } catch (error) { challenge = null; notice(error.message); $("#retry").hidden = false; }
   finally { loading = false; render(); }
@@ -462,10 +732,18 @@ $("#volume").oninput = () => { muted = false; volumeLevel = Math.max(0, Math.min
 syncVolume(false);
 $("#share").onclick = async () => {
   const text = shareResult(dayLabel(challenge), round, challenge.shareUrl || new URL("daily", location.href).href);
+  const btn = $("#share");
   try {
     if (!navigator.clipboard?.writeText) throw new Error("Copy manually");
     await navigator.clipboard.writeText(text);
     $("#share-text").hidden = true;
+    clearTimeout(copyResetTimer);
+    btn.classList.add("copied");
+    btn.textContent = "Copied!";
+    copyResetTimer = setTimeout(() => {
+      btn.classList.remove("copied");
+      btn.textContent = "Copy result";
+    }, 2200);
     notice("Result copied. Paste it wherever you like.");
   } catch (error) {
     $("#share-text").hidden = false;

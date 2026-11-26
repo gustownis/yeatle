@@ -14,19 +14,19 @@
     <meta property="og:image" content="https://playyeatle.duckdns.org/favicon.png">
     <meta property="og:image:alt" content="Yeatle">
     <link rel="icon" href="./favicon-64.png">
-    <link rel="modulepreload" href="./assets/snippet-rules.mjs?v=1.14.3">
-    <link rel="modulepreload" href="./assets/song-suggestions.mjs?v=1.14.3">
-    <link rel="modulepreload" href="./assets/song-pools.mjs?v=1.14.3">
+    <link rel="modulepreload" href="./assets/snippet-rules.mjs?v=1.14.4">
+    <link rel="modulepreload" href="./assets/song-suggestions.mjs?v=1.14.4">
+    <link rel="modulepreload" href="./assets/song-pools.mjs?v=1.14.4">
     <link rel="preload" href="api/songs" as="fetch" crossorigin>
-    <link rel="stylesheet" href="./assets/yeatle.css?v=1.14.3">
-    <link rel="stylesheet" href="./assets/daily.css?v=1.14.3">
-    <link rel="stylesheet" href="./assets/navigation.css?v=1.14.3">
-    <link rel="stylesheet" href="./assets/leaderboard.css?v=1.14.3">
-    <link rel="stylesheet" href="./assets/wrapped.css?v=1.14.3">
-    <script src="./assets/navigation-runtime.js?v=1.14.3"></script>
-    <script type="module" src="./assets/daily.mjs?v=1.14.3"></script>
-    <script type="module" src="./assets/leaderboard.mjs?v=1.14.3"></script>
-    <script type="module" src="./assets/wrapped.mjs?v=1.14.3"></script>
+    <link rel="stylesheet" href="./assets/yeatle.css?v=1.14.4">
+    <link rel="stylesheet" href="./assets/daily.css?v=1.14.4">
+    <link rel="stylesheet" href="./assets/navigation.css?v=1.14.4">
+    <link rel="stylesheet" href="./assets/leaderboard.css?v=1.14.4">
+    <link rel="stylesheet" href="./assets/wrapped.css?v=1.14.4">
+    <script src="./assets/navigation-runtime.js?v=1.14.4"></script>
+    <script type="module" src="./assets/daily.mjs?v=1.14.4"></script>
+    <script type="module" src="./assets/leaderboard.mjs?v=1.14.4"></script>
+    <script type="module" src="./assets/wrapped.mjs?v=1.14.4"></script>
   </head>
   <body>
     <div class="background"></div>
@@ -62,14 +62,20 @@
         </form>
         <p id="daily-keys" class="keys">Space play/stop · S skip · Enter type guess</p>
         <ol id="guesses" class="guesses" aria-label="Your guesses so far"></ol>
-        <section id="result" hidden aria-live="polite">
+        <section id="result" class="result" hidden aria-live="polite">
           <div class="result-top">
             <img id="result-cover" class="cover" alt="" hidden>
-            <div>
-              <p id="result-label" class="result-label"></p><h2 id="answer" class="result-title"></h2><p id="result-detail" class="muted"></p>
+            <div class="result-body">
+              <p id="result-label" class="result-label result-status"></p>
+              <h2 id="answer" class="result-title"></h2>
+              <p id="result-artist" class="result-artist" hidden></p>
+              <p id="result-alts" class="result-alt" hidden></p>
+              <div id="result-eras" class="result-era-grid" hidden></div>
+              <div id="result-detail" class="result-meta"></div>
+              <p id="result-submeta" class="result-submeta" hidden></p>
             </div>
           </div>
-          <div class="result-actions"><button id="share" class="btn solid">Copy result</button>
+          <div class="result-actions"><button id="share" class="btn solid" type="button">Copy result</button>
             <a class="btn" href="./?mode=snippet">Keep playing Snippets</a></div>
           <textarea id="share-text" readonly aria-label="Your result to copy" hidden></textarea>
         </section>
