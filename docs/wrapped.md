@@ -6,7 +6,7 @@ A yearly recap of each player's own Yeatle year, in the style of Spotify Wrapped
 
 - Every year it opens on November 16 and stays viewable through January 7 (the player's local time). Change `OPENS` and `CLOSES` at the top of `wrapped.mjs` to move the window.
 - From November 16 through December 31 it shows the current year and keeps updating as the player plays until December 31 ends. January 1-7 shows the finished year.
-- The first page load in the window shows a one-time announcement. After that a small "Wrapped" button with the Yeatle icon in the bottom-right corner reopens it; its × shrinks it to just the icon. Wrapped uses no emoji anywhere, including the copied text.
+- The first page load in the window shows a one-time announcement. After that a small "Wrapped" button with the Yeatle icon in the bottom-right corner reopens it; clicking its `×` hides it and switches the corner button to Settings, where Wrapped stays available until January 7. Wrapped uses no emoji anywhere, including the copied text.
 - Add `?wrapped=preview` to any page's address to open the current year's Wrapped outside the window, for testing.
 
 ## What it counts

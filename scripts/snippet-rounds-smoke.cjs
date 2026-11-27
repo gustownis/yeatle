@@ -55,8 +55,9 @@ function startServer() {
 
   await page.goto(`${base}/`);
   await page.click(".yeatle-lb-btn");
-  await page.fill(".yeatle-lb-auth-form input[type=text]", "smoketester");
-  await page.fill(".yeatle-lb-auth-form input[type=password]", "pass1234");
+  await page.click(".yeatle-lb-foot-link");
+  await page.fill(".yeatle-settings-auth-form input[type=text]", "smoketester");
+  await page.fill(".yeatle-settings-auth-form input[type=password]", "pass1234");
   await page.click("text=Create account");
   await page.waitForSelector("text=Change username");
   await page.keyboard.press("Escape");

@@ -65,7 +65,7 @@ Runtime caches and account files (`config.json`, `admin.json`, `songs-cache.json
 
 ## Admin panel
 
-The admin panel lives at `/admin` (`http://127.0.0.1:3093/admin` in browser mode, or **Developer → Open Admin Panel** in desktop mode, which opens in a separate window).
+The admin panel lives at `/admin` (`http://127.0.0.1:3093/admin` in browser/server mode). It is not exposed inside the desktop app UI.
 
 - **Browser setup:** create `admin.json` next to `server.js` with `{ "password": "garlic" }` (or pick your own password) and restart. On first startup, the server hashes the plaintext password with salted `scrypt`. Never commit or share `admin.json`.
 - **Desktop setup:** enabled by default with password `garlic`; existing custom passwords are preserved across updates.

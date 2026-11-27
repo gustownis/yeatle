@@ -338,11 +338,11 @@ test("desktop permissions, menu bar, updates throttling/reentrancy, and stem dow
   assert.equal(ask("clipboard-sanitized-write", { requestingUrl: "https://evil.example/" }), false);
   assert.equal(checkFn(null, "screen-wake-lock", "http://127.0.0.1:3094", {}), true);
 
-  // macOS menu has editMenu; Windows keeps exact 4 labels.
+  // macOS menu has editMenu; Windows keeps exact 3 labels without Developer.
   const darwinMenu = menuTemplate({ platform: "darwin", updateStatus: "Check", updating: false });
   assert.ok(darwinMenu.some(item => item.role === "editMenu"));
   const winMenu = menuTemplate({ platform: "win32", updateStatus: "Check", updating: false });
-  assert.deepEqual(winMenu.map(i => i.label), ["Game", "View", "Developer", "Help"]);
+  assert.deepEqual(winMenu.map(i => i.label), ["Game", "View", "Help"]);
 
   // Stem downloader: missing song after catalog change + rollback on replace() failure.
   const dir = makeTempDir(t);

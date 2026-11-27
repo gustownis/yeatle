@@ -12,7 +12,7 @@
 
 ### Windows
 
-**Desktop app:** download `Yeatle-Setup-1.14.4-windows-x64.exe` (installer) or `Yeatle-1.14.4-windows-x64-portable.exe` from the [releases page](https://github.com/gustownis/yeatle/releases/latest). Open **Yeatle** from the Start menu or run the portable executable directly. On first launch, give the tracker a moment to load; Real stems downloads the AI models automatically if they are not already present.
+**Desktop app:** download `Yeatle-Setup-1.15.0-windows-x64.exe` (installer) or `Yeatle-1.15.0-windows-x64-portable.exe` from the [releases page](https://github.com/gustownis/yeatle/releases/latest). Open **Yeatle** from the Start menu or run the portable executable directly. On first launch, give the tracker a moment to load; Real stems downloads the AI models automatically if they are not already present.
 
 <details>
 <summary>Windows browser setup (Node.js + Start Yeatle (Node).bat)</summary>
@@ -55,7 +55,7 @@ To use the Finder launcher, make it executable once with `chmod +x "Start Yeatle
 **Desktop app:** pick **x64** (`uname -m` shows `x86_64`) or **ARM64** (`aarch64`).
 
 - **AppImage:** run `chmod +x Yeatle-*.AppImage && ./Yeatle-*.AppImage`. Some distributions need FUSE support for AppImages; if unavailable, use the `.deb` package or the browser version.
-- **Debian / Ubuntu (`.deb`):** run `sudo apt install ./Yeatle-1.14.4-linux-x64.deb` (or `-arm64.deb`), then launch **Yeatle** from your application menu.
+- **Debian / Ubuntu (`.deb`):** run `sudo apt install ./Yeatle-1.15.0-linux-x64.deb` (or `-arm64.deb`), then launch **Yeatle** from your application menu.
 
 <details>
 <summary>Linux browser setup (Node.js + start-yeatle.sh)</summary>
@@ -119,7 +119,7 @@ Completed AI stems are also kept in a lossless browser IndexedDB cache (capped a
 
 ## Karaoke microphone and calibration
 
-- **Mic permissions:** browsers only grant microphone access on `https://` origins or `localhost` / `127.0.0.1`. On the desktop app, **Developer → Microphone Settings** opens your OS microphone privacy controls.
+- **Mic permissions:** browsers only grant microphone access on `https://` origins or `localhost` / `127.0.0.1`. On the desktop app, **Settings → Desktop App → Mic settings** opens your OS microphone privacy controls.
 - **Echo and sensitivity:** use headphones for accurate pitch scoring. When using speakers, tick **Using speakers (reduce echo)** under **Mic & audio settings**, and raise **Mic sensitivity** if quiet singing is missed.
 - **Delay calibration:** in **Mic & audio settings**, run **Test audio delay** (tap test, useful for Bluetooth headphones which can add 200+ ms) and **Test mic delay** (clap test), or use **Reset timing** to restore defaults.
 - **Lyric timing:** synced lyrics load from [lrclib.net](https://lrclib.net) then [lyrics.ovh](https://lyrics.ovh), or you can paste custom lyrics / add a `lyrics.lrc` file in the song's `Songs/` folder. Press `[` and `]` while singing to shift timing per song.

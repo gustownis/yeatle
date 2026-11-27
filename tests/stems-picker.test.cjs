@@ -79,14 +79,15 @@ test("Clear, no matches, status changes and removed songs keep selection accurat
 
 test("refreshing the application menu keeps utility windows without menu bars", () => {
   const source = fs.readFileSync(path.join(__dirname, "../desktop/main.cjs"), "utf8");
-  const refresh = source.slice(source.indexOf("function refreshMenu()"), source.indexOf("function openAdmin()"));
+  const refresh = source.slice(source.indexOf("function refreshMenu()"), source.indexOf("function openMicSettings()"));
   const utility = () => ({ visible: true, menu: "game", isDestroyed: () => false, setMenu(menu) { this.menu = menu; }, setMenuBarVisibility(value) { this.visible = value; } });
-  const adminWindow = utility(), stemsWindow = utility();
-  const context = vm.createContext({ serverUrl: "http://localhost", updates: {}, process, adminWindow, stemsWindow, Menu: { buildFromTemplate: value => value, setApplicationMenu() { for (const win of [adminWindow, stemsWindow]) { win.menu = "game"; win.visible = true; } } }, menuTemplate: () => [], openAdmin() {}, openStemsServer() {} });
+  const stemsWindow = utility();
+  const context = vm.createContext({ serverUrl: "http://localhost", updates: {}, process, stemsWindow, Menu: { buildFromTemplate: value => value, setApplicationMenu() { stemsWindow.menu = "game"; stemsWindow.visible = true; } }, menuTemplate: () => [], openStemsServer() {} });
   vm.runInContext(refresh, context);
   for (let i = 0; i < 2; i++) {
     vm.runInContext("refreshMenu()", context);
-    for (const win of [adminWindow, stemsWindow]) { assert.equal(win.menu, null); assert.equal(win.visible, false); }
+    assert.equal(stemsWindow.menu, null);
+    assert.equal(stemsWindow.visible, false);
   }
 });
 

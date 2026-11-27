@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, shell, ipcMain, net, systemPreferences } = require("electron");
+const { app, BrowserWindow, Menu, dialog, shell, ipcMain, net, systemPreferences, nativeTheme } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -8,6 +8,7 @@ const { installMicrophonePermissions } = require("./permissions.cjs");
 const { createStemDownloader, stemsHostUrl } = require("./stem-downloads.cjs");
 const { loadWindowPage } = require("./window-load.cjs");
 app.setName("Yeatle");
+nativeTheme.themeSource = "dark";
 // Match the installed shortcut so Windows uses Yeatle's taskbar identity.
 if (process.platform === "win32") app.setAppUserModelId("io.github.gustownis.yeatle");
 // The 1.11 test launcher uses a separate profile, including browser storage.
@@ -22,7 +23,6 @@ let stemsWindow;
 let stemDownloader;
 let serverProcess;
 let gameWindow;
-let adminWindow;
 let updates;
 let checkedOnLaunch = false;
 let serverUrl;
@@ -191,7 +191,7 @@ async function startGame() {
       dialog,
       shell,
       getWindow: () => gameWindow,
-      onStatus: refreshMenu,
+      onStatus: () => { refreshMenu(); pushDesktopState(); },
       onBeforeInstall: () => (serverProcess ? stopServer(serverProcess) : Promise.resolve())
     });
     createWindow();
@@ -217,8 +217,50 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true }
   });
   const window = gameWindow;
+  if (process.platform !== "darwin") {
+    window.setMenu(null);
+    window.setMenuBarVisibility(false);
+    window.webContents.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown") return;
+      if (input.key === "F11") {
+        event.preventDefault();
+        window.setFullScreen(!window.isFullScreen());
+        return;
+      }
+      if (input.key === "F12" || ((input.control || input.meta) && input.shift && input.key.toLowerCase() === "i")) {
+        event.preventDefault();
+        return;
+      }
+      if (input.key === "F5") {
+        event.preventDefault();
+        window.webContents.reload();
+        return;
+      }
+      if (!input.control || input.alt || input.meta) return;
+      const key = input.key.toLowerCase();
+      if (key === "r") {
+        event.preventDefault();
+        if (input.shift) window.webContents.reloadIgnoringCache();
+        else window.webContents.reload();
+      } else if (key === "=" || key === "+") {
+        event.preventDefault();
+        window.webContents.setZoomLevel(Math.min(3, window.webContents.getZoomLevel() + 0.5));
+        pushDesktopState();
+      } else if (key === "-") {
+        event.preventDefault();
+        window.webContents.setZoomLevel(Math.max(-3, window.webContents.getZoomLevel() - 0.5));
+        pushDesktopState();
+      } else if (key === "0") {
+        event.preventDefault();
+        window.webContents.setZoomLevel(0);
+        pushDesktopState();
+      }
+    });
+  }
   window.once("ready-to-show", () => { if (!window.isDestroyed()) window.show(); });
   window.on("closed", () => { if (gameWindow === window) gameWindow = null; });
+  window.on("enter-full-screen", pushDesktopState);
+  window.on("leave-full-screen", pushDesktopState);
   guardNavigation(window);
   window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
   // Only karaoke mode's microphone is allowed, and only for the game's own pages.
@@ -228,6 +270,7 @@ function createWindow() {
   });
   refreshMenu();
   window.webContents.once("did-finish-load", () => {
+    pushDesktopState();
     if (checkedOnLaunch) return;
     checkedOnLaunch = true;
     const timer = setTimeout(() => { if (!quitting) updates.check(false).catch(console.warn); }, 10000);
@@ -238,47 +281,35 @@ function createWindow() {
 
 function refreshMenu() {
   if (!serverUrl || !updates) return;
-  Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
-    platform: process.platform,
-    openBrowser: () => shell.openExternal(serverUrl).catch(err => dialog.showErrorBox("Could not open browser", err.message)),
-    openSongs: () => shell.openPath(songsDir()),
-    openSettings: () => shell.openPath(app.getPath("userData")),
-    openAdmin,
-    openMicSettings: () => openMicSettings(),
-    openGuide: () => openExternal("https://github.com/gustownis/yeatle#readme"),
-    openStemsMega: () => openExternal(STEMS_URL),
-    openStemsServer,
-    checkUpdates: () => updates.check(true).catch(console.warn),
-    updateStatus: updates.status,
-    updating: updates.busy
-  })));
+  if (process.platform === "darwin") {
+    Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
+      platform: process.platform,
+      openBrowser: () => shell.openExternal(serverUrl).catch(err => dialog.showErrorBox("Could not open browser", err.message)),
+      openSongs: () => shell.openPath(songsDir()),
+      openSettings: () => shell.openPath(app.getPath("userData")),
+      openMicSettings: () => openMicSettings(),
+      openGuide: () => openExternal("https://github.com/gustownis/yeatle#readme"),
+      openStemsMega: () => openExternal(STEMS_URL),
+      openStemsServer,
+      checkUpdates: () => updates.check(true).catch(console.warn),
+      updateStatus: updates.status,
+      updating: updates.busy
+    })));
+  } else {
+    Menu.setApplicationMenu(null);
+    if (typeof gameWindow !== "undefined" && gameWindow && !gameWindow.isDestroyed()) {
+      gameWindow.setMenu(null);
+      gameWindow.setMenuBarVisibility(false);
+    }
+  }
   // setApplicationMenu also reapplies the menu to existing Windows/Linux
   // windows. The launch-time update check must not restore it in utilities.
-  for (const window of [adminWindow, stemsWindow]) {
+  for (const window of [stemsWindow]) {
     if (window && !window.isDestroyed()) {
       window.setMenu(null);
       window.setMenuBarVisibility(false);
     }
   }
-}
-
-function openAdmin() {
-  if (adminWindow && !adminWindow.isDestroyed()) { adminWindow.show(); adminWindow.focus(); return; }
-  const window = new BrowserWindow({
-    title: "Yeatle Admin", width: 1100, height: 800, backgroundColor: "#000000", show: false,
-    icon: path.join(PROJECT_DIR, "build", "favicon.png"),
-    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true }
-  });
-  adminWindow = window;
-  window.setMenu(null);
-  window.once("ready-to-show", () => { if (!window.isDestroyed()) window.show(); });
-  window.on("closed", () => { if (adminWindow === window) adminWindow = null; });
-  guardNavigation(window);
-  window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
-  loadWindowPage(window, `${serverUrl}/admin`, error => {
-    if (!window.isDestroyed()) window.destroy();
-    if (!quitting) dialog.showErrorBox("Admin panel could not open", error.message);
-  });
 }
 
 function openMicSettings() {
@@ -299,11 +330,71 @@ function openMicSettings() {
   }
 }
 
-ipcMain.handle("yeatle:open-mic-settings", event => {
+function fromGameWindow(event) {
   if (!gameWindow || gameWindow.isDestroyed() || event.sender !== gameWindow.webContents) return false;
-  if (!isSameServerOrigin(event.senderFrame?.url)) return false;
+  return isSameServerOrigin(event.senderFrame?.url);
+}
+
+function desktopStateSnapshot() {
+  const status = updates?.status || "Check for Updates";
+  return {
+    version: app.getVersion(),
+    platform: process.platform,
+    updateStatus: status,
+    updating: Boolean(updates?.busy),
+    updateReady: status.startsWith("Install Yeatle"),
+    zoomFactor: gameWindow && !gameWindow.isDestroyed() ? Number(gameWindow.webContents.getZoomFactor().toFixed(2)) : 1,
+    isFullScreen: Boolean(gameWindow && !gameWindow.isDestroyed() && gameWindow.isFullScreen())
+  };
+}
+
+function pushDesktopState() {
+  if (gameWindow && !gameWindow.isDestroyed()) {
+    try { gameWindow.webContents.send("yeatle:desktop-state", desktopStateSnapshot()); } catch {}
+  }
+}
+
+ipcMain.handle("yeatle:open-mic-settings", event => {
+  if (!fromGameWindow(event)) return false;
   openMicSettings();
   return true;
+});
+
+ipcMain.handle("yeatle:desktop-state", event => (fromGameWindow(event) ? desktopStateSnapshot() : null));
+
+ipcMain.handle("yeatle:desktop-action", (event, action) => {
+  if (!fromGameWindow(event)) return null;
+  switch (String(action || "")) {
+    case "check-updates": updates?.check(true).catch(console.warn); break;
+    case "open-stems-server": openStemsServer(); break;
+    case "open-stems-mega": openExternal(STEMS_URL); break;
+    case "open-songs": shell.openPath(songsDir()); break;
+    case "open-data": shell.openPath(app.getPath("userData")); break;
+    case "open-browser":
+      if (serverUrl) shell.openExternal(serverUrl).catch(err => dialog.showErrorBox("Could not open browser", err.message));
+      break;
+    case "open-mic-settings": openMicSettings(); break;
+    case "zoom-in":
+      gameWindow.webContents.setZoomLevel(Math.min(3, gameWindow.webContents.getZoomLevel() + 0.5));
+      pushDesktopState();
+      break;
+    case "zoom-out":
+      gameWindow.webContents.setZoomLevel(Math.max(-3, gameWindow.webContents.getZoomLevel() - 0.5));
+      pushDesktopState();
+      break;
+    case "zoom-reset":
+      gameWindow.webContents.setZoomLevel(0);
+      pushDesktopState();
+      break;
+    case "toggle-fullscreen":
+      gameWindow.setFullScreen(!gameWindow.isFullScreen());
+      break;
+    case "reload": gameWindow.webContents.reload(); break;
+    case "force-reload": gameWindow.webContents.reloadIgnoringCache(); break;
+    case "open-guide": openExternal("https://github.com/gustownis/yeatle#readme"); break;
+    default: return null;
+  }
+  return desktopStateSnapshot();
 });
 
 // The game's Songs folder: the desktop data folder's "Songs", or YEATLE_STEMS_DIR when set.

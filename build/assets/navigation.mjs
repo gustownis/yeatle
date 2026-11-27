@@ -1,4 +1,4 @@
-import { interfaceMotionAllowed } from "./interface-motion.mjs?v=1.14.4";
+import { interfaceMotionAllowed } from "./interface-motion.mjs?v=1.15.0";
 
 let activeTransition = null;
 let selection = 0;
@@ -7,7 +7,7 @@ let selection = 0;
 export function changeMode(update, animate = true) {
   const current = ++selection;
   activeTransition?.skipTransition();
-  if (document.documentElement.dataset.navigationRuntime !== "desktop" || !animate || !interfaceMotionAllowed() || !document.startViewTransition || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+  if (document.documentElement.dataset.navigationRuntime !== "desktop" || !animate || document.documentElement.dataset.interfaceMotion === "reduced" || !interfaceMotionAllowed() || !document.startViewTransition || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
     update();
     return;
   }

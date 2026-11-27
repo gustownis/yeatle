@@ -549,6 +549,44 @@ function defaultBoardForPage() {
   return "daily";
 }
 
+// Shared account bridge used by settings.mjs so Account & Sync drives the exact same
+// auth state, epoch, auto-sync timer, and token persistence as Leaderboards.
+let accountBridge = {
+  getState: () => ({
+    account: null,
+    streak: 0,
+    prestige: 0,
+    busy: false,
+    statusMessage: "",
+    statusError: false,
+    banned: bannedShown,
+    pendingBlockedPrompt: false
+  }),
+  subscribe: () => () => {},
+  sync: async () => {},
+  login: async () => {},
+  register: async () => {},
+  rename: async () => {},
+  logout: async () => {},
+  clearStatus: () => {},
+  clearBlockedPrompt: () => {},
+  closeLeaderboard: () => {}
+};
+
+export const accountApi = {
+  getState: () => accountBridge.getState(),
+  subscribe: fn => accountBridge.subscribe(fn),
+  sync: () => accountBridge.sync(),
+  login: (u, p) => accountBridge.login(u, p),
+  register: (u, p) => accountBridge.register(u, p),
+  rename: u => accountBridge.rename(u),
+  logout: () => accountBridge.logout(),
+  clearStatus: () => accountBridge.clearStatus(),
+  clearBlockedPrompt: () => accountBridge.clearBlockedPrompt(),
+  closeLeaderboard: () => accountBridge.closeLeaderboard(),
+  USERNAME_BLOCKED_MESSAGE
+};
+
 function initLeaderboardUI() {
   if (typeof document === "undefined" || !document.body) return;
 
@@ -564,18 +602,51 @@ function initLeaderboardUI() {
   let leaderboardData = null;
   let isOpen = false;
   let busyAuth = false;
-  let renaming = false;
-  let renameDraft = "";
-  let focusRename = false;
-  let loginUserDraft = "";
-  let loginPassDraft = "";
   let statusMessage = "";
   let statusError = false;
   let syncTimer = null;
   let blockedNoticeShown = false;
+  let pendingBlockedPrompt = false;
   let triggerObserver = null;
   let liveTimer = 0;
   const pageOpenedAt = Date.now();
+  const subscribers = new Set();
+
+  function currentStreakBadgeValue() {
+    // Signed-in players see the server's streak, which only counts Dailies synced on time.
+    // accountState is refreshed by every sync, login and leaderboard load, so it is never
+    // older than the cached leaderboard (which is only reloaded when the popup opens).
+    if (accountState?.token) return accountState.dailyStreak || 0;
+    return computeLocalDailyStreak(storage);
+  }
+
+  function currentPrestigeValue() {
+    try { return Number(safeJsonParse(storage?.getItem("yeatle:prestige"), 0)) || 0; } catch { return 0; }
+  }
+
+  function notifySubscribers() {
+    const snap = getAccountSnapshot();
+    for (const fn of subscribers) {
+      try { fn(snap); } catch {}
+    }
+  }
+
+  function getAccountSnapshot() {
+    return {
+      account: accountState ? { ...accountState } : null,
+      streak: currentStreakBadgeValue(),
+      prestige: currentPrestigeValue(),
+      busy: busyAuth,
+      statusMessage,
+      statusError,
+      banned: bannedShown,
+      pendingBlockedPrompt
+    };
+  }
+
+  function openSettingsModal(detail = {}) {
+    window.dispatchEvent(new CustomEvent("yeatle:open-settings", { detail }));
+  }
 
   // The server's view of this account: its current name (an admin may have changed it) and
   // whether a username filter now blocks that name.
@@ -588,18 +659,15 @@ function initLeaderboardUI() {
       dailyStreak: account.metrics?.dailyStreak || 0
     });
     if (!account.usernameBlocked) return;
-    // Opens by itself only while the page is loading, so it never pops up mid-song;
-    // later the 🏆 button shows a warning until the name is changed.
+    // Opens Settings by itself only while the page is loading, so it never pops up mid-song;
+    // later the corner Settings & 🏆 buttons show a warning until the name is changed.
     if (!blockedNoticeShown && (isOpen || Date.now() - pageOpenedAt < 15000)) {
       blockedNoticeShown = true;
-      renaming = true;
-      renameDraft = "";
-      focusRename = true;
-      if (!isOpen && !bannedShown) {
-        isOpen = true;
-        overlay.hidden = false;
-      }
+      pendingBlockedPrompt = true;
+      if (isOpen) closeModal();
+      if (!bannedShown) openSettingsModal({ focus: "rename", forceRename: true });
     }
+    notifySubscribers();
     if (isOpen) renderModal();
   }
 
@@ -610,21 +678,14 @@ function initLeaderboardUI() {
       else storage?.removeItem(ACCOUNT_KEY);
     } catch {}
     renderTriggerButton();
-  }
-
-  function currentStreakBadgeValue() {
-    // Signed-in players see the server's streak, which only counts Dailies synced on time.
-    // accountState is refreshed by every sync, login and leaderboard load, so it is never
-    // older than the cached leaderboard (which is only reloaded when the popup opens).
-    if (accountState?.token) return accountState.dailyStreak || 0;
-    return computeLocalDailyStreak(storage);
+    notifySubscribers();
   }
 
   // Trigger button mounted in header
   const triggerBtn = document.createElement("button");
   triggerBtn.type = "button";
   triggerBtn.className = "yeatle-lb-btn";
-  triggerBtn.title = "Leaderboards & Account Sync";
+  triggerBtn.title = "Leaderboards";
   triggerBtn.setAttribute("aria-label", "Open Leaderboards");
   triggerBtn.addEventListener("click", () => openModal());
 
@@ -795,13 +856,12 @@ function initLeaderboardUI() {
   window.addEventListener("yeatle:banned", () => {
     authEpoch++;
     accountState = null;
-    loginUserDraft = "";
-    loginPassDraft = "";
     clearTimeout(syncTimer);
     if (liveTimer) { clearInterval(liveTimer); liveTimer = 0; }
     triggerObserver?.disconnect();
     closeModal();
     triggerBtn.remove();
+    notifySubscribers();
   });
 
   window.addEventListener("storage", e => {
@@ -809,9 +869,9 @@ function initLeaderboardUI() {
     authEpoch++;
     clearTimeout(syncTimer);
     accountState = safeJsonParse(e.newValue, null);
-    renaming = false;
     blockedNoticeShown = false;
     renderTriggerButton();
+    notifySubscribers();
     if (isOpen) renderModal();
   });
 
@@ -860,6 +920,7 @@ function initLeaderboardUI() {
       if (!silent) {
         statusError = false;
         statusMessage = "Progress synced across your devices.";
+        notifySubscribers();
         await refreshLeaderboard(false);
       }
     } catch (err) {
@@ -871,6 +932,7 @@ function initLeaderboardUI() {
       if (!silent) {
         statusError = true;
         statusMessage = err.message || "Sync failed.";
+        notifySubscribers();
         if (isOpen) renderModal();
       }
     }
@@ -883,7 +945,8 @@ function initLeaderboardUI() {
     clearTimeout(syncTimer);
     statusMessage = "";
     statusError = false;
-    renderModal();
+    notifySubscribers();
+    if (isOpen) renderModal();
     try {
       const progress = storage ? collectLocalProgress(storage) : { completed: {}, stats: {}, prestige: 0, daily: {}, karaoke: {} };
       const endpoint = kind === "register" ? "api/account/register" : "api/account/login";
@@ -891,8 +954,6 @@ function initLeaderboardUI() {
       if (epoch !== authEpoch) return;
       authEpoch++;
       accountState = null;
-      loginUserDraft = "";
-      loginPassDraft = "";
       rememberAccount(res.account, { token: res.token });
       if (storage && applyServerProgress(res.account.progress, storage, rawSetItem)) {
         window.dispatchEvent(new CustomEvent("yeatle:progress-synced"));
@@ -901,6 +962,7 @@ function initLeaderboardUI() {
       statusMessage = kind === "register"
         ? `Account created! Signed in as ${res.account.username}.`
         : `Welcome back, ${res.account.username}! Progress synced.`;
+      notifySubscribers();
       await refreshLeaderboard(false);
     } catch (err) {
       if (epoch !== authEpoch) return;
@@ -908,6 +970,7 @@ function initLeaderboardUI() {
       statusMessage = err.message || "Authentication failed.";
     } finally {
       busyAuth = false;
+      notifySubscribers();
       if (isOpen) renderModal();
       renderTriggerButton();
     }
@@ -919,13 +982,14 @@ function initLeaderboardUI() {
     const epoch = authEpoch;
     statusMessage = "";
     statusError = false;
-    renderModal();
+    notifySubscribers();
+    if (isOpen) renderModal();
     try {
       const res = await apiCall("api/account/rename", "POST", { username });
       if (epoch !== authEpoch) return;
-      renaming = false;
       rememberAccount(res.account);
       statusMessage = `Username changed to ${res.account.username}.`;
+      notifySubscribers();
       await refreshLeaderboard(false);
     } catch (err) {
       if (epoch !== authEpoch) return;
@@ -937,6 +1001,7 @@ function initLeaderboardUI() {
       statusMessage = err.message || "Couldn't change your username.";
     } finally {
       busyAuth = false;
+      notifySubscribers();
       if (isOpen) renderModal();
     }
   }
@@ -948,20 +1013,45 @@ function initLeaderboardUI() {
     clearTimeout(syncTimer);
     const oldToken = accountState?.token || "";
     saveAccountState(null);
-    renaming = false;
     blockedNoticeShown = false;
+    pendingBlockedPrompt = false;
     statusError = false;
     statusMessage = "Logged out on this device.";
+    notifySubscribers();
     if (isOpen) renderModal();
     try {
       if (oldToken) await requestJson("api/account/logout", { method: "POST", body: {}, token: oldToken }).catch(() => {});
       await refreshLeaderboard(false);
     } finally {
       busyAuth = false;
+      notifySubscribers();
       if (isOpen) renderModal();
       renderTriggerButton();
     }
   }
+
+  accountBridge = {
+    getState: getAccountSnapshot,
+    subscribe(fn) {
+      if (typeof fn !== "function") return () => {};
+      subscribers.add(fn);
+      return () => subscribers.delete(fn);
+    },
+    sync: () => syncNow(false),
+    login: (u, p) => handleAuth("login", u, p),
+    register: (u, p) => handleAuth("register", u, p),
+    rename: u => handleRename(u),
+    logout: handleLogout,
+    clearStatus: () => {
+      statusMessage = "";
+      statusError = false;
+      notifySubscribers();
+    },
+    clearBlockedPrompt: () => {
+      pendingBlockedPrompt = false;
+    },
+    closeLeaderboard: closeModal
+  };
 
   function renderModal() {
     const prevScroll = modal.querySelector(".yeatle-lb-list")?.scrollTop || 0;
@@ -990,192 +1080,6 @@ function initLeaderboardUI() {
 
     const body = document.createElement("div");
     body.className = "yeatle-lb-body";
-
-    // Account & Sync box
-    const accountBox = document.createElement("div");
-    accountBox.className = "yeatle-lb-account";
-    if (accountState?.token) {
-      const top = document.createElement("div");
-      top.className = "yeatle-lb-account-top";
-
-      const userLine = document.createElement("div");
-      userLine.className = "yeatle-lb-account-user";
-      const nameSpan = document.createElement("span");
-      nameSpan.textContent = accountState.username;
-      userLine.appendChild(nameSpan);
-
-      const streak = currentStreakBadgeValue();
-      if (streak > 0) {
-        const badge = document.createElement("span");
-        badge.className = "yeatle-lb-streak";
-        badge.title = `${streak} day Daily streak`;
-        badge.textContent = `${streak}d`;
-        userLine.appendChild(badge);
-      }
-
-      const actions = document.createElement("div");
-      actions.className = "yeatle-lb-account-actions";
-      const syncBtn = document.createElement("button");
-      syncBtn.type = "button";
-      syncBtn.className = "yeatle-lb-btn-action";
-      syncBtn.dataset.lbFocus = "sync";
-      syncBtn.textContent = "Sync progress";
-      syncBtn.addEventListener("click", () => syncNow(false));
-
-      const outBtn = document.createElement("button");
-      outBtn.type = "button";
-      outBtn.className = "yeatle-lb-btn-action";
-      outBtn.dataset.lbFocus = "logout";
-      outBtn.textContent = "Log out";
-      outBtn.addEventListener("click", handleLogout);
-
-      const renameBtn = document.createElement("button");
-      renameBtn.type = "button";
-      renameBtn.className = "yeatle-lb-btn-action";
-      renameBtn.dataset.lbFocus = "rename";
-      renameBtn.textContent = "Change username";
-      renameBtn.hidden = renaming;
-      renameBtn.addEventListener("click", () => {
-        renaming = true;
-        renameDraft = accountState.username || "";
-        focusRename = true;
-        statusMessage = "";
-        statusError = false;
-        renderModal();
-      });
-
-      actions.append(syncBtn, renameBtn, outBtn);
-      top.append(userLine, actions);
-      accountBox.appendChild(top);
-
-      if (accountState.usernameBlocked) {
-        const blockedNote = document.createElement("p");
-        blockedNote.className = "yeatle-lb-status err";
-        blockedNote.setAttribute("role", "alert");
-        blockedNote.textContent = USERNAME_BLOCKED_MESSAGE;
-        accountBox.appendChild(blockedNote);
-      }
-
-      if (renaming) {
-        const form = document.createElement("form");
-        form.className = "yeatle-lb-auth-form yeatle-lb-rename-form";
-        const nameIn = document.createElement("input");
-        nameIn.type = "text";
-        nameIn.placeholder = "New username";
-        nameIn.maxLength = 20;
-        nameIn.autocomplete = "username";
-        nameIn.required = true;
-        // Kept outside the form so a leaderboard refresh does not wipe what is being typed.
-        nameIn.value = renameDraft;
-        nameIn.addEventListener("input", () => { renameDraft = nameIn.value; });
-        nameIn.setAttribute("aria-label", "New username");
-
-        const btns = document.createElement("div");
-        btns.className = "yeatle-lb-auth-btns";
-        const saveBtn = document.createElement("button");
-        saveBtn.type = "submit";
-        saveBtn.className = "yeatle-lb-btn-action primary";
-        saveBtn.disabled = busyAuth;
-        saveBtn.textContent = busyAuth ? "Working…" : "Save";
-        const cancelBtn = document.createElement("button");
-        cancelBtn.type = "button";
-        cancelBtn.className = "yeatle-lb-btn-action";
-        cancelBtn.disabled = busyAuth;
-        cancelBtn.textContent = "Cancel";
-        cancelBtn.addEventListener("click", () => {
-          renaming = false;
-          statusMessage = "";
-          statusError = false;
-          renderModal();
-        });
-
-        form.addEventListener("submit", e => {
-          e.preventDefault();
-          const next = nameIn.value.trim();
-          if (next && next !== accountState.username) handleRename(next);
-        });
-        btns.append(saveBtn, cancelBtn);
-        form.append(nameIn, btns);
-        accountBox.appendChild(form);
-        if (focusRename) {
-          focusRename = false;
-          queueMicrotask(() => nameIn.isConnected && nameIn.select());
-        }
-      }
-    } else {
-      const note = document.createElement("p");
-      note.className = "yeatle-lb-account-note";
-      note.textContent = "Sign in to sync progress across devices and join the boards.";
-
-      const form = document.createElement("form");
-      form.className = "yeatle-lb-auth-form";
-      const userIn = document.createElement("input");
-      userIn.type = "text";
-      userIn.placeholder = "Username";
-      userIn.setAttribute("aria-label", "Username");
-      userIn.maxLength = 20;
-      userIn.autocomplete = "username";
-      userIn.required = true;
-      userIn.value = loginUserDraft;
-      userIn.addEventListener("input", () => { loginUserDraft = userIn.value; });
-
-      const passIn = document.createElement("input");
-      passIn.type = "password";
-      passIn.placeholder = "Password (4+ chars)";
-      passIn.setAttribute("aria-label", "Password");
-      passIn.maxLength = 128;
-      passIn.autocomplete = "current-password";
-      passIn.required = true;
-      passIn.value = loginPassDraft;
-      passIn.addEventListener("input", () => { loginPassDraft = passIn.value; });
-
-      const btns = document.createElement("div");
-      btns.className = "yeatle-lb-auth-btns";
-
-      const loginBtn = document.createElement("button");
-      loginBtn.type = "submit";
-      loginBtn.className = "yeatle-lb-btn-action primary";
-      loginBtn.dataset.lbFocus = "login";
-      loginBtn.disabled = busyAuth;
-      loginBtn.textContent = busyAuth ? "Working…" : "Log in";
-
-      const regBtn = document.createElement("button");
-      regBtn.type = "button";
-      regBtn.className = "yeatle-lb-btn-action";
-      regBtn.dataset.lbFocus = "register";
-      regBtn.disabled = busyAuth;
-      regBtn.textContent = "Create account";
-      regBtn.addEventListener("click", () => {
-        if (userIn.value.trim() && passIn.value) {
-          handleAuth("register", userIn.value.trim(), passIn.value);
-        } else {
-          statusError = true;
-          statusMessage = "Enter a username and password first.";
-          renderModal();
-        }
-      });
-
-      form.addEventListener("submit", e => {
-        e.preventDefault();
-        if (userIn.value.trim() && passIn.value) {
-          handleAuth("login", userIn.value.trim(), passIn.value);
-        }
-      });
-
-      btns.append(loginBtn, regBtn);
-      form.append(userIn, passIn, btns);
-      accountBox.append(note, form);
-    }
-
-    if (statusMessage) {
-      const st = document.createElement("p");
-      st.className = `yeatle-lb-status${statusError ? " err" : ""}`;
-      st.setAttribute("role", statusError ? "alert" : "status");
-      st.setAttribute("aria-live", "polite");
-      st.textContent = statusMessage;
-      accountBox.appendChild(st);
-    }
-    body.appendChild(accountBox);
 
     // Mode tabs
     const tabs = document.createElement("div");
@@ -1251,7 +1155,7 @@ function initLeaderboardUI() {
     } else if (!board?.entries?.length) {
       const empty = document.createElement("div");
       empty.className = "yeatle-lb-empty";
-      empty.textContent = "No players on this board yet. Sign in above to claim #1!";
+      empty.textContent = "No players on this board yet. Sign in in Settings to claim #1.";
       body.appendChild(empty);
     } else {
       const ol = document.createElement("ol");
@@ -1308,6 +1212,24 @@ function initLeaderboardUI() {
       body.appendChild(ol);
     }
 
+    const foot = document.createElement("div");
+    foot.className = "yeatle-lb-foot";
+    const footText = document.createElement("span");
+    footText.textContent = accountState?.token
+      ? `Signed in as ${accountState.username}`
+      : "Want to join the boards?";
+    const footBtn = document.createElement("button");
+    footBtn.type = "button";
+    footBtn.className = "yeatle-lb-foot-link";
+    footBtn.dataset.lbFocus = "settings";
+    footBtn.textContent = accountState?.token ? "Manage account in Settings" : "Sign in in Settings";
+    footBtn.addEventListener("click", () => {
+      closeModal();
+      openSettingsModal({ focus: accountState?.token ? "account" : "login" });
+    });
+    foot.append(footText, footBtn);
+    body.appendChild(foot);
+
     modal.replaceChildren(head, body);
 
     if (prevScroll > 0) {
@@ -1341,7 +1263,10 @@ function initLeaderboardUI() {
         try { window.dispatchEvent(new CustomEvent("yeatle:round-saved", { detail: { key, before, value: nextStr } })); } catch { /* Wrapped is optional */ }
       }
       if (progressKey) {
-        if (key.startsWith("yeatle:daily:")) renderTriggerButton();
+        if (key.startsWith("yeatle:daily:") || key === "yeatle:prestige") {
+          renderTriggerButton();
+          notifySubscribers();
+        }
         if (accountState?.token && !bannedShown) {
           clearTimeout(syncTimer);
           syncTimer = setTimeout(() => syncNow(true), 800);

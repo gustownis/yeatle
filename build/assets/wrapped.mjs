@@ -480,6 +480,24 @@ function previewRequested() {
   try { return new URL(location.href).searchParams.get("wrapped") === "preview"; } catch { return false; }
 }
 
+export function activeWrappedYear(now = new Date()) {
+  return previewRequested() ? now.getFullYear() : wrappedYear(now);
+}
+
+export function isWrappedChipHidden(year) {
+  if (!year) return true;
+  const v = read(KEY.chip(year), null);
+  return v === "hidden" || v === "small";
+}
+
+export function setWrappedChipHidden(year, hidden) {
+  if (!year) return;
+  write(KEY.chip(year), hidden ? "hidden" : "shown");
+  if (typeof window !== "undefined") {
+    try { window.dispatchEvent(new CustomEvent("yeatle:wrapped-chip-changed", { detail: { year, hidden: Boolean(hidden) } })); } catch {}
+  }
+}
+
 /* ---------- sharing ---------- */
 
 function shareUrl() {
@@ -863,7 +881,7 @@ function summarySlide(s, notify) {
     preview,
     el("div", { class: "yeatle-wrapped-actions" }, copy, share, save),
     status,
-    el("p", { class: "muted", text: s.live ? `Your ${s.year} keeps updating until December 31. Reopen it from the corner until January 7.` : "Viewable until January 7." })
+    el("p", { class: "muted", text: s.live ? `Your ${s.year} keeps updating until December 31. Reopen it from the corner or Settings until January 7.` : "Viewable until January 7." })
   );
 }
 
@@ -991,7 +1009,7 @@ function announce(year) {
     el("p", { text: wrappedYear() === year && new Date().getFullYear() === year
       ? "Your year in Yeatle is ready to view. It keeps updating as you play until the year ends."
       : "Your year in Yeatle is ready to view." }),
-    el("p", { class: "muted", text: "You can open it again from the button in the bottom-right corner until January 7." }),
+    el("p", { class: "muted", text: "You can reopen it anytime from the corner button or Settings until January 7." }),
     el("div", { class: "yeatle-wrapped-actions" }, later, go));
   const overlay = el("div", { class: "yeatle-wrapped-overlay soft" }, box);
   const onKey = e => {
@@ -1016,24 +1034,6 @@ function announce(year) {
   go.focus({ preventScroll: true });
 }
 
-function mountChip(year) {
-  if (document.querySelector(".yeatle-wrapped-chip")) return;
-  const small = () => read(KEY.chip(year), false) === "small";
-  const open = el("button", { class: "yeatle-wrapped-chip-open", type: "button", "aria-label": `Open your Yeatle Wrapped ${year}` },
-    el("img", { class: "icon", src: "favicon-64.png", alt: "" }), el("span", { class: "label", text: `Wrapped ${year}` }));
-  const shrink = el("button", { class: "yeatle-wrapped-chip-shrink", type: "button", "aria-label": "Minimize Wrapped button", title: "Minimize", text: "–" });
-  const chip = el("div", { class: "yeatle-wrapped-chip" }, open, shrink);
-  const sync = () => chip.classList.toggle("small", small());
-  open.addEventListener("click", () => {
-    if (small()) write(KEY.chip(year), "full");
-    sync();
-    openWrapped(year);
-  });
-  shrink.addEventListener("click", () => { write(KEY.chip(year), "small"); sync(); });
-  sync();
-  document.body.append(chip);
-}
-
 function bannedScreenShown() {
   return [...(document.body?.children || [])].some(n => /^yeatle-banned/.test(String(n.className || "")));
 }
@@ -1052,7 +1052,6 @@ function start() {
   addEventListener("yeatle:banned", () => {
     try { closeAnnounce?.(); } catch {}
     try { closeViewer?.(); } catch {}
-    document.querySelector(".yeatle-wrapped-chip")?.remove();
   });
   addEventListener("pagehide", () => [...pending.keys()].forEach(commitPending));
   // Archive a finished year once the song list is in, so its top eras are complete.
@@ -1067,7 +1066,6 @@ function start() {
   if (!year) return;
   setTimeout(() => {
     if (bannedShown()) return;
-    mountChip(year);
     if (preview) { openWrapped(year); return; }
     if (!read(KEY.seen(year), false)) {
       write(KEY.seen(year), true);

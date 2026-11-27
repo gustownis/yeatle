@@ -194,3 +194,38 @@ export async function saveStems(key, buffers, total, isCancelled = () => false) 
     return false;
   }
 }
+
+export async function getStemCacheStats() {
+  try {
+    const db = await open();
+    if (!db) return { count: 0, bytes: 0 };
+    const entries = await transaction(db, ["entries"], "readonly", (tx, done) => {
+      const req = tx.objectStore("entries").getAll();
+      req.onsuccess = () => done(Array.isArray(req.result) ? req.result : []);
+    });
+    let count = 0;
+    let bytes = 0;
+    for (const entry of entries || []) {
+      if (!entry?.complete) continue;
+      count++;
+      bytes += Number(entry.bytes) || 0;
+    }
+    return { count, bytes };
+  } catch (_) {
+    return { count: 0, bytes: 0 };
+  }
+}
+
+export async function clearStemCache() {
+  try {
+    const db = await open();
+    if (!db) return false;
+    await transaction(db, ["entries", "chunks"], "readwrite", tx => {
+      tx.objectStore("entries").clear();
+      tx.objectStore("chunks").clear();
+    });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}

@@ -2186,7 +2186,7 @@ function finishPhrase(index) {
 
 // Signed-in rounds are ranked from Singer 1's microphone. The server issues the run when
 // the song starts and checks the trace when it ends; local best scores work as before.
-const ranking = () => import("./leaderboard.mjs?v=1.14.4").then(m => m.rankedKaraoke);
+const ranking = () => import("./leaderboard.mjs?v=1.15.0").then(m => m.rankedKaraoke);
 function startRankedRun(g) {
   g.ranked = null;
   g.trace = null;
@@ -2913,7 +2913,7 @@ async function loadSongs() {
   try {
     const [res, { songsForPool }] = await Promise.all([
       fetch("api/songs"),
-      import("./song-pools.mjs?v=1.14.4")
+      import("./song-pools.mjs?v=1.15.0")
     ]);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
@@ -2987,6 +2987,7 @@ function init() {
   document.addEventListener("visibilitychange", () => { if (document.hidden) setPaused(true); else scheduleMeters(); });
   document.addEventListener("keydown", e => {
     if (!game || game.ended || $("#stage").hidden) return;
+    if (document.querySelector(".yeatle-lb-overlay:not([hidden]), .yeatle-wrapped-overlay:not([hidden]), .yeatle-settings-overlay:not([hidden])")) return;
     if (e.key === "Escape" || e.key === " ") { e.preventDefault(); setPaused(!game.paused); }
     else if (e.key === "s" || e.key === "S") skipAhead();
     else if (e.key === "k" || e.key === "K") markSkip();

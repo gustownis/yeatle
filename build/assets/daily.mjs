@@ -1,6 +1,6 @@
-import { BASE_LENGTHS, matchesSong, matchesVersion, normalizeGuess, restoreRound, shareResult } from "./snippet-rules.mjs?v=1.14.4";
-import { attachSongSuggestions } from "./song-suggestions.mjs?v=1.14.4";
-import { dailyRounds } from "./leaderboard.mjs?v=1.14.4";
+import { BASE_LENGTHS, matchesSong, matchesVersion, normalizeGuess, restoreRound, shareResult } from "./snippet-rules.mjs?v=1.15.0";
+import { attachSongSuggestions } from "./song-suggestions.mjs?v=1.15.0";
+import { dailyRounds } from "./leaderboard.mjs?v=1.15.0";
 
 const $ = selector => document.querySelector(selector);
 const suggestions = attachSongSuggestions($("#guess"), $("#song-suggestions"));
@@ -767,11 +767,17 @@ addEventListener("yeatle:progress-synced", () => {
   if (challenge.checked) { loadChallenge(); return; }
   stop(); round = readRound(); render();
 });
+addEventListener("yeatle:setting-changed", event => {
+  if (event.detail?.key === "volume") {
+    const v = Number(event.detail.value);
+    if (Number.isFinite(v)) { volumeLevel = Math.max(0, Math.min(1, v)); syncVolume(false); }
+  }
+});
 addEventListener("pageshow", event => { if (event.persisted) loadChallenge(); });
 addEventListener("yeatle:banned", dispose);
 document.addEventListener("visibilitychange", () => { if (document.hidden) { stop(); render(); } else expired(); });
 addEventListener("pagehide", dispose);
-const hasOpenModal = () => Boolean(document.querySelector(".yeatle-lb-overlay:not([hidden]), .yeatle-wrapped-overlay:not([hidden])"));
+const hasOpenModal = () => Boolean(document.querySelector(".yeatle-lb-overlay:not([hidden]), .yeatle-wrapped-overlay:not([hidden]), .yeatle-settings-overlay:not([hidden])"));
 const isFormInput = target => /^(INPUT|SELECT|TEXTAREA)$/.test(target?.tagName || "");
 addEventListener("keydown", event => {
   if (event.metaKey || event.ctrlKey || event.altKey || hasOpenModal() || isFormInput(event.target)) return;

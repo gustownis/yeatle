@@ -46,46 +46,6 @@
 .yeatle-wrapped-popup-logo { display: block; width: 170px; height: auto; margin: 0 auto 2px; mix-blend-mode: screen; }
 .yeatle-wrapped-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
 
-/* The corner button. */
-.yeatle-wrapped-chip {
-  position: fixed;
-  right: max(14px, env(safe-area-inset-right));
-  bottom: max(14px, env(safe-area-inset-bottom));
-  z-index: 1500;
-  display: flex;
-  align-items: stretch;
-  background: rgba(0, 0, 0, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.65);
-  color: #fff;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
-  font-size: 0.82rem;
-  overflow: hidden;
-  transition: border-color 0.15s ease, background 0.15s ease;
-  animation: yeatle-wrapped-fade 0.25s ease-out both;
-}
-.yeatle-wrapped-chip button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
-.yeatle-wrapped-chip-open { display: flex; align-items: center; gap: 7px; padding: 6px 10px; font-weight: 500; line-height: 1.35; }
-.yeatle-wrapped-chip-open:hover { background: rgba(255, 255, 255, 0.08); }
-.yeatle-wrapped-chip .icon { width: 16px; height: 16px; border-radius: 3px; opacity: 0.9; }
-.yeatle-wrapped-chip-shrink {
-  display: flex;
-  align-items: center;
-  padding: 0 9px;
-  border-left: 1px solid rgba(255, 255, 255, 0.14);
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 0.95rem;
-  line-height: 1;
-}
-.yeatle-wrapped-chip-shrink:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
-.yeatle-wrapped-chip.small .label,
-.yeatle-wrapped-chip.small .yeatle-wrapped-chip-shrink { display: none; }
-.yeatle-wrapped-chip.small .yeatle-wrapped-chip-open { padding: 8px; min-width: 36px; min-height: 36px; justify-content: center; }
-.yeatle-wrapped-chip.small .icon { width: 18px; height: 18px; }
-.yeatle-wrapped-chip:hover { border-color: rgba(255, 255, 255, 0.55); }
-body.yeatle-wrapped-open .yeatle-wrapped-chip { opacity: 0; pointer-events: none; }
-
 /* The recap window. */
 .yeatle-wrapped-card {
   position: relative;
@@ -210,6 +170,6 @@ body.yeatle-wrapped-open .yeatle-wrapped-chip { opacity: 0; pointer-events: none
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .yeatle-wrapped-overlay, .yeatle-wrapped-popup, .yeatle-wrapped-card, .yeatle-wrapped-chip { animation: none; }
+  .yeatle-wrapped-overlay, .yeatle-wrapped-popup, .yeatle-wrapped-card { animation: none; }
   .yeatle-wrapped-slide { transition: none; transform: none; }
 }

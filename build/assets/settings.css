@@ -1,0 +1,753 @@
+/* Yeatle Corner Dock (Wrapped -> Settings) & Unified Settings Modal */
+
+html[data-yeatle-bg="dim"] .background,
+html[data-yeatle-bg="dim"] .bg {
+  opacity: 0.2 !important;
+}
+
+html[data-yeatle-bg="off"] .background,
+html[data-yeatle-bg="off"] .bg {
+  opacity: 0 !important;
+}
+
+/* Corner dock */
+.yeatle-corner-dock {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 1500;
+  display: flex;
+  align-items: stretch;
+  background: rgba(0, 0, 0, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  font-size: 0.82rem;
+  transition: border-color 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+}
+
+.yeatle-corner-dock.is-wrapped {
+  overflow: hidden;
+}
+
+.yeatle-corner-dock button {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.yeatle-corner-dock:hover {
+  border-color: rgba(255, 255, 255, 0.55);
+}
+
+.yeatle-corner-wrapped-open {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.yeatle-corner-wrapped-open:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.yeatle-corner-wrapped-open .icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  opacity: 0.92;
+}
+
+.yeatle-corner-wrapped-open .label {
+  line-height: 1.35;
+  padding-bottom: 2px;
+  margin-bottom: -2px;
+  white-space: nowrap;
+}
+
+.yeatle-corner-wrapped-hide {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.yeatle-corner-wrapped-hide:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.yeatle-corner-settings {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.84);
+}
+
+.yeatle-corner-settings:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.yeatle-corner-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid #000;
+}
+
+.yeatle-corner-dot.warn {
+  background: #ff6f65;
+}
+
+.yeatle-corner-dot.update {
+  background: #b565e0;
+}
+
+body.yeatle-wrapped-open .yeatle-corner-dock:not(.is-inline),
+body.yeatle-settings-open .yeatle-corner-dock:not(.is-inline),
+.yeatle-is-banned .yeatle-corner-dock,
+body:has(#stage:not([hidden]), #loading:not([hidden])) .yeatle-corner-dock {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Inline header dock (mobile <= 560px) */
+.yeatle-corner-dock.is-inline {
+  position: static;
+  right: auto;
+  bottom: auto;
+  z-index: auto;
+  background: #000;
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: none;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.yeatle-corner-dock.is-inline .yeatle-corner-settings {
+  width: 36px;
+  height: 34px;
+}
+
+.yeatle-corner-dock.is-inline .yeatle-corner-wrapped-open {
+  padding: 0 8px;
+  gap: 5px;
+  font-size: 0.78rem;
+}
+
+.yeatle-corner-dock.is-inline .yeatle-corner-wrapped-hide {
+  min-width: 32px;
+  padding: 0 7px;
+}
+
+/* Corner toast */
+.yeatle-settings-toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  z-index: 2500;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.96);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.75);
+}
+
+/* Modal overlay & sheet */
+html:has(body.yeatle-settings-open),
+body.yeatle-settings-open {
+  overflow: hidden;
+}
+
+body.yeatle-settings-open > :not(.yeatle-settings-overlay):not(.yeatle-settings-toast) {
+  pointer-events: none;
+}
+
+.yeatle-settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overscroll-behavior: contain;
+  z-index: 4100;
+}
+
+.yeatle-settings-overlay[hidden] {
+  display: none !important;
+}
+
+.yeatle-settings-modal {
+  color-scheme: dark;
+  width: min(520px, 100%);
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85);
+  overflow: hidden;
+  text-align: left;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  animation: yeatle-settings-in 170ms cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+
+@keyframes yeatle-settings-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+}
+
+.yeatle-settings-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+}
+
+.yeatle-settings-head h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #fff;
+  text-transform: none;
+  line-height: 1.2;
+}
+
+.yeatle-settings-sub {
+  margin: 3px 0 0;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.yeatle-settings-close {
+  width: 44px;
+  height: 44px;
+  margin: -8px -10px -8px 0;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.yeatle-settings-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.yeatle-settings-body {
+  padding: 6px 18px 18px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(181, 101, 224, 0.45) transparent;
+}
+
+.yeatle-settings-section {
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.yeatle-settings-section:last-of-type {
+  border-bottom: none;
+}
+
+.yeatle-settings-section h3 {
+  margin: 0;
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.005em;
+  text-transform: none;
+}
+
+.yeatle-settings-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.4;
+}
+
+/* Account & Sync */
+.yeatle-settings-account-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.yeatle-settings-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 0.94rem;
+}
+
+.yeatle-settings-username {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
+  padding-bottom: 2px;
+  margin-bottom: -2px;
+}
+
+.yeatle-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.yeatle-settings-auth-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.yeatle-settings-auth-form.rename {
+  grid-template-columns: 1fr auto;
+}
+
+.yeatle-settings-auth-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  background: #000;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  font-size: 0.84rem;
+}
+
+.yeatle-settings-auth-form input::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.yeatle-settings-auth-form input:focus {
+  border-color: #b565e0;
+  box-shadow: 0 0 0 2px rgba(181, 101, 224, 0.16);
+  outline: none;
+}
+
+.yeatle-settings-auth-btns {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+}
+
+.yeatle-settings-auth-form.rename .yeatle-settings-auth-btns {
+  grid-column: auto;
+}
+
+.yeatle-settings-btn {
+  padding: 6px 11px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: transparent;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.35;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.yeatle-settings-btn.compact {
+  padding: 6px 9px;
+  min-width: 30px;
+}
+
+.yeatle-settings-btn.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.yeatle-settings-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.55);
+}
+
+.yeatle-settings-btn.primary {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+  font-weight: 600;
+}
+
+.yeatle-settings-btn.primary:hover:not(:disabled) {
+  background: #dcdcdc;
+  border-color: #dcdcdc;
+}
+
+.yeatle-settings-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.yeatle-settings-status {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #d0c5ed;
+}
+
+.yeatle-settings-status.err {
+  color: #ff7b8a;
+}
+
+/* Wrapped seasonal banner */
+.yeatle-settings-wrapped {
+  margin: 12px 0 4px;
+  padding: 12px 14px;
+  background: rgba(137, 1, 185, 0.1);
+  border: 1px solid rgba(181, 101, 224, 0.4);
+  border-radius: 8px;
+}
+
+.yeatle-settings-wrapped-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.yeatle-settings-wrapped-label {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.88);
+  cursor: pointer;
+}
+
+/* Rows & controls */
+.yeatle-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.yeatle-settings-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.yeatle-settings-label strong,
+.yeatle-settings-label label {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.yeatle-settings-label span {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.62);
+  line-height: 1.35;
+}
+
+.yeatle-settings-vol {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.yeatle-settings-mute {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.86);
+  cursor: pointer;
+}
+
+.yeatle-settings-mute:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.yeatle-settings-vol input[type="range"] {
+  width: 112px;
+  accent-color: #8901b9;
+  cursor: pointer;
+}
+
+.yeatle-settings-pct {
+  min-width: 36px;
+  text-align: right;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.76);
+  font-variant-numeric: tabular-nums;
+}
+
+.yeatle-settings-seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+}
+
+.yeatle-settings-seg-btn {
+  padding: 5px 10px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.yeatle-settings-seg-btn:hover {
+  color: #fff;
+}
+
+.yeatle-settings-seg-btn.on {
+  background: #8901b9;
+  color: #fff;
+}
+
+/* Toggle switch */
+.yeatle-settings-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.yeatle-settings-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.yeatle-settings-switch .slider {
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.yeatle-settings-switch .slider::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+.yeatle-settings-switch input:checked + .slider {
+  background: #8901b9;
+  border-color: #b565e0;
+}
+
+.yeatle-settings-switch input:checked + .slider::after {
+  transform: translateX(18px);
+}
+
+.yeatle-settings-switch input:focus-visible + .slider {
+  outline: 2px solid #b565e0;
+  outline-offset: 2px;
+}
+
+/* Collapsible details (Developer & Shortcuts) */
+.yeatle-settings-details {
+  margin-top: 2px;
+}
+
+.yeatle-settings-details summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.65);
+  padding: 4px 0;
+  user-select: none;
+}
+
+.yeatle-settings-details summary:hover,
+.yeatle-settings-details[open] summary {
+  color: #fff;
+}
+
+.yeatle-settings-details .dev-row {
+  margin-top: 8px;
+}
+
+.yeatle-settings-keys {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 6px 12px;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.yeatle-settings-keys li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.yeatle-settings-keys kbd {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+/* Footer */
+.yeatle-settings-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.56);
+}
+
+.yeatle-settings-foot-links {
+  display: flex;
+  gap: 14px;
+}
+
+.yeatle-settings-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.yeatle-settings-link:hover {
+  color: #fff;
+}
+
+@media (max-width: 560px) {
+  .lb-slot {
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .score {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px 14px;
+  }
+  #setup .top .yeatle-corner-dock.is-inline {
+    order: 2;
+  }
+  .daily-shell .modebar {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+  .daily-shell .modebar .yeatle-lb-btn {
+    margin-left: auto;
+  }
+  .daily-shell .modebar .yeatle-corner-dock.is-inline {
+    margin-bottom: 6px;
+  }
+  .yeatle-settings-auth-form,
+  .yeatle-settings-auth-form.rename {
+    grid-template-columns: 1fr;
+  }
+  .yeatle-settings-head {
+    padding: 14px 14px 10px;
+  }
+  .yeatle-settings-body {
+    padding: 4px 14px 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yeatle-corner-dock,
+  .yeatle-settings-modal,
+  .yeatle-settings-close,
+  .yeatle-settings-btn,
+  .yeatle-settings-seg-btn,
+  .yeatle-settings-switch .slider,
+  .yeatle-settings-switch .slider::after {
+    animation: none;
+    transition: none;
+  }
+}
+
+html[data-interface-motion="reduced"] .yeatle-settings-modal {
+  animation: none;
+}
