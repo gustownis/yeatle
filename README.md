@@ -2,7 +2,7 @@
 
 Yeatle is a Yeat song guessing game with an online version, a desktop app, and a local browser server. Test your knowledge of released and unreleased tracks by guessing from isolated stems, filtered audio, short snippets, the shared Daily challenge, or Karaoke mode.
 
-![Yeatle desktop app with Stems, Snippets, Karaoke, and Daily modes](docs/desktop-preview-1.15.webp)
+![Yeatle desktop app with Stems, Snippets, Karaoke, and Daily modes](docs/desktop-preview-v1.15.webp)
 
 The original game was vibecoded by its creator in the [Yeat Hub Discord community](https://discord.gg/twizz). This repository preserves the game and adds desktop packaging, automated tests, and maintenance updates.
 
