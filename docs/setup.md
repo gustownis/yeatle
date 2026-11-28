@@ -86,7 +86,7 @@ Note on unsigned desktop builds: Windows and macOS release packages are not code
 
 ## Updating the desktop app
 
-Desktop builds from 1.9.1 onward check GitHub releases roughly 10 seconds after launch (ignoring drafts and prereleases). You can also run **Help → Check for Updates** at any time. Every download is checked against its release checksum before anything runs, and your settings, `admin.json`, models, stems, and saved progress stay intact.
+Desktop builds from 1.9.1 onward check GitHub releases roughly 10 seconds after launch (ignoring drafts and prereleases). You can also run **Settings → Desktop App → Check for Updates** at any time. Every download is checked against its release checksum before anything runs, and your settings, `admin.json`, models, stems, and saved progress stay intact.
 
 | Installation | How updates finish |
 | --- | --- |

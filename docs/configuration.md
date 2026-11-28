@@ -22,7 +22,7 @@ For **local browser mode**, copy [config.example.json](../config.example.json) t
 
 ### Desktop data directories
 
-The desktop app creates `config.json`, `admin.json`, and its writable caches outside the installed app folder so updates do not overwrite them. Use **Game → Open Settings and Logs Folder** to open the exact directory, which also stores `desktop.log` for troubleshooting.
+The desktop app creates `config.json`, `admin.json`, and its writable caches outside the installed app folder so updates do not overwrite them. Use **Settings → Desktop App → Data & logs** to open the exact directory, which also stores `desktop.log` for troubleshooting.
 
 | OS | Default desktop data folder |
 | --- | --- |

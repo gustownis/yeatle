@@ -4,7 +4,7 @@ You can play Yeatle without downloading extra audio packs: **Real stems** automa
 
 ## Download inside the desktop app
 
-1. Open **Help → Optional HQ Stems → Download from server…**.
+1. Open **Settings → Desktop App → Optional HQ Stems → Download from server…**.
 2. Search or scroll, then click **Download** on individual songs or tick several and click **Download selected**. (**Check all** selects every available match in your current search; **Clear** deselects everything.)
 3. Downloads are verified against SHA-256 checksums and appear in your song list as soon as they finish without restarting.
 
@@ -16,7 +16,7 @@ By default, downloads come from `https://playyeatle.duckdns.org`. You can point 
 
 Download songs from the [MEGA stem folder](https://mega.nz/folder/Kkh3WIyQ#xnMG5aidP0AGWQas0bur4g) and extract one folder per song directly into your `Songs` directory (do not nest `Songs/Songs/`):
 
-- **Desktop app:** select **Game → Open Songs Folder**. This directory sits outside the installed app so updates keep your stems.
+- **Desktop app:** open **Settings → Desktop App → Songs folder**. This directory sits outside the installed app so updates keep your stems.
 - **Local browser server:** place song folders in `build/Songs/` inside the Yeatle directory.
 
 ### Required folder layout

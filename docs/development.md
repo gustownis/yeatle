@@ -19,7 +19,7 @@ In Windows PowerShell, use `npm.cmd` instead of `npm` if execution policy blocks
 Several targeted verification scripts live in `scripts/` (requiring Playwright/Chromium, Electron, or `ffmpeg` depending on the script):
 
 - `scripts/browser-smoke.cjs` — browser playback, audio separation, and layout checks.
-- `scripts/desktop-smoke.cjs` — Electron startup, Daily persistence, Karaoke UI, and menu checks.
+- `scripts/desktop-smoke.cjs` — Electron startup, Daily persistence, Karaoke UI, and desktop window checks.
 - `scripts/desktop-stems-smoke.cjs` — HQ stem downloads inside the desktop app.
 - `scripts/karaoke-skip-smoke.cjs` — Karaoke White people mode with a synthetic microphone.
 - `scripts/bans-browser-smoke.cjs` — banned notice screen, leaderboard button, and admin panel UI.
@@ -48,7 +48,7 @@ In GitHub, **Actions → Desktop builds → Run workflow** builds all five targe
 1. Run `npm run prepare:release -- X.Y.Z` to bump the three-part semver in `package.json`, `package-lock.json`, all `?v=` asset query strings in `build/`, and the download links in `README.md` and `docs/setup.md`.
 2. Add release notes at `docs/releases/X.Y.md` using a two-part heading (`# Yeatle X.Y`, omitting `.0` for `.0` releases). Keep paragraphs on single lines so GitHub renders them without forced breaks.
 3. Run the **Desktop builds** GitHub workflow with **release** ticked. It runs `npm test`, builds all five targets, runs `scripts/prepare-release.cjs` to generate `SHA256SUMS.txt` and `latest*.yml` updater feeds, and creates a draft release tagged `vX.Y.Z` with all 14 assets.
-4. Run **Desktop builds** again with **publish** ticked to promote the draft to Latest, then update the download links in [README.md](../README.md).
+4. Run **Desktop builds** again with **publish** ticked to promote the draft to Latest (download links in [README.md](../README.md) and [docs/setup.md](setup.md) were already updated in step 1).
 
 Three-part version numbers (`v1.13.11`, `Yeatle-Setup-1.13.11-windows-x64.exe`) are required on tags and installer filenames so installed desktop updaters recognize them. To assemble release metadata locally from downloaded CI artifacts instead, run:
 
