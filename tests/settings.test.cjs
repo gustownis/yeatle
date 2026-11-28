@@ -128,4 +128,45 @@ test("pages load settings.css and settings.mjs non-blocking with current ?v= and
   const settingsSrc = fs.readFileSync(path.join(root, "build/assets/settings.mjs"), "utf8");
   assert.equal(settingsSrc.includes("Open Admin Panel"), false);
   assert.equal(settingsSrc.includes("Toggle Developer Tools"), false);
+  assert.ok(settingsSrc.includes(`./performance.mjs?v=${version}`), "settings.mjs imports performance.mjs with current version");
+  assert.match(settingsSrc, /shouldShowKeyboardShortcuts\(\)/);
+  assert.match(settingsSrc, /showShortcuts\s*\?\s*"Storage & Shortcuts"\s*:\s*"Storage"/);
+});
+
+test("shouldShowKeyboardShortcuts hides shortcuts on phones, tablets, and coarse no-hover devices", async () => {
+  const { shouldShowKeyboardShortcuts } = await import(pathToFileURL(path.join(root, "build/assets/settings.mjs")).href);
+  const noCoarseMatch = () => ({ matches: false });
+
+  for (const device of [
+    { userAgent: "iPhone" },
+    { userAgent: "Android" },
+    { userAgent: "iPad" },
+    { userAgent: "Macintosh", maxTouchPoints: 5 },
+    { userAgentData: { mobile: true } }
+  ]) {
+    assert.equal(shouldShowKeyboardShortcuts({ device, matchMedia: noCoarseMatch }), false);
+  }
+
+  assert.equal(
+    shouldShowKeyboardShortcuts({
+      device: { userAgent: "Windows NT" },
+      matchMedia: q => ({ matches: q === "(hover: none) and (pointer: coarse)" })
+    }),
+    false
+  );
+
+  assert.equal(
+    shouldShowKeyboardShortcuts({
+      device: { userAgent: "Windows NT", maxTouchPoints: 10 },
+      matchMedia: noCoarseMatch
+    }),
+    true
+  );
+  assert.equal(
+    shouldShowKeyboardShortcuts({
+      device: { userAgent: "Macintosh", maxTouchPoints: 0 },
+      matchMedia: null
+    }),
+    true
+  );
 });

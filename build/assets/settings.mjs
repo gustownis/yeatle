@@ -2,6 +2,7 @@ import { accountApi } from "./leaderboard.mjs?v=1.15.0";
 import { activeWrappedYear, isWrappedChipHidden, setWrappedChipHidden, openWrapped } from "./wrapped.mjs?v=1.15.0";
 import { getInterfaceMotionPreference, setInterfaceMotionPreference } from "./interface-motion.mjs?v=1.15.0";
 import { getStemCacheStats, clearStemCache } from "./stem-cache.mjs?v=1.15.0";
+import { isMobileDevice } from "./performance.mjs?v=1.15.0";
 
 const BG_KEY = "yeatle:bg";
 const VOLUME_KEY = "yeatle:volume";
@@ -19,6 +20,17 @@ export function cornerMode({ wrappedYear, chipHidden }) {
 
 export function resolveDockPlacement({ isMobile, hasHeaderSlot }) {
   return isMobile && hasHeaderSlot ? "header" : "corner";
+}
+
+export function shouldShowKeyboardShortcuts({ device = globalThis.navigator, matchMedia } = {}) {
+  if (isMobileDevice(device)) return false;
+  const query = matchMedia !== undefined
+    ? matchMedia
+    : typeof globalThis.matchMedia === "function"
+      ? q => globalThis.matchMedia(q)
+      : null;
+  if (typeof query === "function" && query("(hover: none) and (pointer: coarse)")?.matches) return false;
+  return true;
 }
 
 export function formatBytes(bytes) {
@@ -802,8 +814,9 @@ function initSettingsUI() {
   }
 
   function renderStorageSection() {
+    const showShortcuts = shouldShowKeyboardShortcuts();
     const sec = el("section", { class: "yeatle-settings-section" });
-    sec.appendChild(el("h3", { text: "Storage & Shortcuts" }));
+    sec.appendChild(el("h3", { text: showShortcuts ? "Storage & Shortcuts" : "Storage" }));
 
     const statsText = stemCacheStats == null
       ? "Checking cached stems…"
@@ -835,20 +848,22 @@ function initSettingsUI() {
       clearBtn
     ));
 
-    const shortcuts = [
-      ["Space", "Play / Stop audio"],
-      ["S", "Skip clip / reveal next stem"],
-      ["Enter", "Focus guess box / Next song"],
-      ["Esc", "Close open modal"],
-      ["[ / ]", "Nudge Karaoke lyrics timing"],
-      ["K", "Mark Karaoke skip (White people mode)"]
-    ];
-    sec.appendChild(el("details", { class: "yeatle-settings-details" },
-      el("summary", { text: "Keyboard shortcuts" }),
-      el("ul", { class: "yeatle-settings-keys" },
-        shortcuts.map(([key, desc]) => el("li", {}, el("kbd", { text: key }), el("span", { text: desc })))
-      )
-    ));
+    if (showShortcuts) {
+      const shortcuts = [
+        ["Space", "Play / Stop audio"],
+        ["S", "Skip clip / reveal next stem"],
+        ["Enter", "Focus guess box / Next song"],
+        ["Esc", "Close open modal"],
+        ["[ / ]", "Nudge Karaoke lyrics timing"],
+        ["K", "Mark Karaoke skip (White people mode)"]
+      ];
+      sec.appendChild(el("details", { class: "yeatle-settings-details" },
+        el("summary", { text: "Keyboard shortcuts" }),
+        el("ul", { class: "yeatle-settings-keys" },
+          shortcuts.map(([key, desc]) => el("li", {}, el("kbd", { text: key }), el("span", { text: desc })))
+        )
+      ));
+    }
     return sec;
   }
 
